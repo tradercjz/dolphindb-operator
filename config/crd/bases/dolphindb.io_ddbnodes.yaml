@@ -86,6 +86,10 @@ spec:
                 description: ConfigVolumeName configmap or secret containing node
                   config
                 type: string
+              controllerSite:
+                description: ControllerSite is the FQDN:port:alias of the controller
+                  master
+                type: string
               fingerprint:
                 description: Fingerprint hardware fingerprint mount settings
                 properties:
@@ -209,6 +213,9 @@ spec:
                 - datanode
                 - computenode
                 - single
+                type: string
+              sites:
+                description: Sites is the comma-separated list of all cluster sites
                 type: string
               storage:
                 description: Storage specification for meta and data PVCs

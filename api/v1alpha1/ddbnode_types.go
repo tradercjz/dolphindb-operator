@@ -57,6 +57,12 @@ type DDBNodeSpec struct {
 	// Hostname override if pinned
 	Hostname string `json:"hostname,omitempty"`
 
+	// ControllerSite is the FQDN:port:alias of the controller master
+	ControllerSite string `json:"controllerSite,omitempty"`
+
+	// Sites is the comma-separated list of all cluster sites
+	Sites string `json:"sites,omitempty"`
+
 	// Resources CPU and Memory requirements
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 

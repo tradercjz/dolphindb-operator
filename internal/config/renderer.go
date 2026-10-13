@@ -15,6 +15,8 @@ type RenderedConfigs struct {
 	ControllersCfg string
 	ClusterCfg     string
 	ClusterNodes   string
+	DataNodeCfg    string
+	ComputeNodeCfg string
 	StandaloneCfg  string
 }
 
@@ -35,7 +37,7 @@ func (r *ConfigRenderer) HeadlessServiceName() string {
 
 // NodeDomain returns the FQDN for a node in the cluster
 func (r *ConfigRenderer) NodeDomain(podName string) string {
-	return fmt.Sprintf("%s.%s.%s.svc.cluster.local", podName, r.HeadlessServiceName(), r.Cluster.Namespace)
+	return fmt.Sprintf("%s.%s.svc.cluster.local", podName, r.Cluster.Namespace)
 }
 
 // ControllerAlias returns standard alias for controller index
@@ -66,6 +68,8 @@ func (r *ConfigRenderer) RenderAll() (*RenderedConfigs, error) {
 	out.ControllerCfg = r.renderControllerCfg()
 	out.ControllersCfg = r.renderControllersCfg()
 	out.ClusterCfg = r.renderClusterCfg()
+	out.DataNodeCfg = r.renderDataNodeCfg()
+	out.ComputeNodeCfg = r.renderComputeNodeCfg()
 
 	return out, nil
 }
@@ -113,14 +117,12 @@ func (r *ConfigRenderer) renderClusterNodes() string {
 		}
 	}
 
-	// For HA cluster (replicas >= 3), controllers MUST be registered in cluster.nodes
-	if ctlReplicas >= 3 {
-		for i := int32(0); i < ctlReplicas; i++ {
-			podName := fmt.Sprintf("%s-ctl-%d", r.Cluster.Name, i)
-			alias := r.ControllerAlias(i)
-			domain := r.NodeDomain(podName)
-			lines = append(lines, fmt.Sprintf("%s:%d:%s,controller", domain, ctlPort, alias))
-		}
+	// Register Controllers
+	for i := int32(0); i < ctlReplicas; i++ {
+		podName := fmt.Sprintf("%s-ctl-%d", r.Cluster.Name, i)
+		alias := r.ControllerAlias(i)
+		domain := r.NodeDomain(podName)
+		lines = append(lines, fmt.Sprintf("%s:%d:%s,controller", domain, ctlPort, alias))
 	}
 
 	// Register DataNodes
@@ -162,6 +164,7 @@ func (r *ConfigRenderer) renderControllerCfg() string {
 	cfg["dataSync"] = "1"
 	cfg["workerNum"] = "4"
 	cfg["maxConnections"] = "512"
+	cfg["dfsMetaDir"] = "/var/lib/dolphindb/meta/dfsMeta"
 
 	ctlReplicas := int32(1)
 	if r.Cluster.Spec.Controller != nil {
@@ -215,8 +218,8 @@ func (r *ConfigRenderer) renderControllersCfg() string {
 	return fmt.Sprintf("sites=%s\n", strings.Join(sites, ","))
 }
 
-// renderClusterCfg produces cluster.cfg for DataNodes and ComputeNodes
-func (r *ConfigRenderer) renderClusterCfg() string {
+// renderClusterProps generates the shared baseline cluster configuration properties
+func (r *ConfigRenderer) renderClusterProps() map[string]string {
 	cfg := make(map[string]string)
 	cfg["lanCluster"] = "0"
 	cfg["maxConnections"] = "512"
@@ -225,6 +228,7 @@ func (r *ConfigRenderer) renderClusterCfg() string {
 	cfg["subExecutors"] = "4"
 	cfg["newValuePartitionPolicy"] = "add"
 	cfg["enableChunkGranularityConfig"] = "true"
+	cfg["sites"] = r.RenderSites()
 
 	// Data storage volumes using <ALIAS> macro
 	dataVolCount := 1
@@ -257,6 +261,13 @@ func (r *ConfigRenderer) renderClusterCfg() string {
 	if !r.Cluster.Spec.Security.EnableShellFunction {
 		cfg["enableShellFunction"] = "false"
 	}
+
+	return cfg
+}
+
+// renderClusterCfg produces cluster.cfg for DataNodes and ComputeNodes
+func (r *ConfigRenderer) renderClusterCfg() string {
+	cfg := r.renderClusterProps()
 
 	// Merge DataNode user config overrides
 	if r.Cluster.Spec.DataNode != nil {
@@ -318,3 +329,90 @@ func ParseMemoryString(val string) (int64, error) {
 	}
 	return strconv.ParseInt(val, 10, 64)
 }
+
+func (r *ConfigRenderer) renderDataNodeCfg() string {
+	cfg := r.renderClusterProps()
+	cfg["mode"] = "datanode"
+	cfg["lanCluster"] = "0"
+	cfg["sites"] = r.RenderSites()
+	if r.Cluster.Spec.DataNode != nil {
+		for k, v := range r.Cluster.Spec.DataNode.Config {
+			cfg[k] = v
+		}
+	}
+	return formatProps(cfg)
+}
+
+func (r *ConfigRenderer) renderComputeNodeCfg() string {
+	cfg := r.renderClusterProps()
+	cfg["mode"] = "computenode"
+	cfg["lanCluster"] = "0"
+	cfg["sites"] = r.RenderSites()
+	if r.Cluster.Spec.ComputeNode != nil {
+		if r.Cluster.Spec.ComputeNode.Replicas > 0 {
+			cfg["computeNodeCacheDir"] = "/var/lib/dolphindb/cache/<ALIAS>"
+			if r.Cluster.Spec.ComputeNode.ComputeGroup != "" {
+				cfg["computeGroup"] = r.Cluster.Spec.ComputeNode.ComputeGroup
+			}
+		}
+		for k, v := range r.Cluster.Spec.ComputeNode.Config {
+			cfg[k] = v
+		}
+	}
+	return formatProps(cfg)
+}
+
+// RenderSites produces comma-separated sites configuration:
+// DataNodes: domain:port:alias
+// ComputeNodes: domain:port:alias
+// Controllers: domain:port:alias:controller
+func (r *ConfigRenderer) RenderSites() string {
+	var sites []string
+
+	// 1. DataNodes
+	if r.Cluster.Spec.DataNode != nil {
+		dnPort := int32(8901)
+		if r.Cluster.Spec.DataNode.Port > 0 {
+			dnPort = r.Cluster.Spec.DataNode.Port
+		}
+		for i := int32(0); i < r.Cluster.Spec.DataNode.Replicas; i++ {
+			podName := fmt.Sprintf("%s-dn-%d", r.Cluster.Name, i)
+			alias := r.DataNodeAlias(i)
+			domain := r.NodeDomain(podName)
+			sites = append(sites, fmt.Sprintf("%s:%d:%s", domain, dnPort, alias))
+		}
+	}
+
+	// 2. ComputeNodes
+	if r.Cluster.Spec.ComputeNode != nil {
+		cnPort := int32(8902)
+		if r.Cluster.Spec.ComputeNode.Port > 0 {
+			cnPort = r.Cluster.Spec.ComputeNode.Port
+		}
+		for i := int32(0); i < r.Cluster.Spec.ComputeNode.Replicas; i++ {
+			podName := fmt.Sprintf("%s-cn-%d", r.Cluster.Name, i)
+			alias := r.ComputeNodeAlias(i)
+			domain := r.NodeDomain(podName)
+			sites = append(sites, fmt.Sprintf("%s:%d:%s", domain, cnPort, alias))
+		}
+	}
+
+	// 3. Controllers
+	ctlReplicas := int32(1)
+	ctlPort := int32(8900)
+	if r.Cluster.Spec.Controller != nil {
+		ctlReplicas = r.Cluster.Spec.Controller.Replicas
+		if r.Cluster.Spec.Controller.Port > 0 {
+			ctlPort = r.Cluster.Spec.Controller.Port
+		}
+	}
+	for i := int32(0); i < ctlReplicas; i++ {
+		podName := fmt.Sprintf("%s-ctl-%d", r.Cluster.Name, i)
+		alias := r.ControllerAlias(i)
+		domain := r.NodeDomain(podName)
+		sites = append(sites, fmt.Sprintf("%s:%d:%s:controller", domain, ctlPort, alias))
+	}
+
+	return strings.Join(sites, ",")
+}
+

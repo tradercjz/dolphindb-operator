@@ -198,6 +198,10 @@ spec:
                           description: Index is the zero-based replica index (e.g.,
                             0 for dn-0)
                           type: integer
+                        licenseSecretName:
+                          description: LicenseSecretName override license secret per
+                            node
+                          type: string
                         nodeName:
                           description: NodeName is the K8s node name
                           type: string
@@ -329,6 +333,10 @@ spec:
                           description: Index is the zero-based replica index (e.g.,
                             0 for dn-0)
                           type: integer
+                        licenseSecretName:
+                          description: LicenseSecretName override license secret per
+                            node
+                          type: string
                         nodeName:
                           description: NodeName is the K8s node name
                           type: string

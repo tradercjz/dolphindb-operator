@@ -180,6 +180,9 @@ type NodeBinding struct {
 
 	// Hostname override for license fingerprint
 	Hostname string `json:"hostname,omitempty"`
+
+	// LicenseSecretName override license secret per node
+	LicenseSecretName string `json:"licenseSecretName,omitempty"`
 }
 
 // StandaloneSpec defines the single-node deployment profile

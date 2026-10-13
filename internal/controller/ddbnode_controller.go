@@ -45,14 +45,22 @@ func (r *DDBNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	// 2. Ensure Pod
+	// 2. Ensure per-node Headless Service (allows reliable node-level DNS regardless of pod hostname)
+	if node.Spec.Role != v1alpha1.NodeRoleSingle {
+		if _, err := r.ensureService(ctx, node); err != nil {
+			logger.Error(err, "Failed to ensure Service for DDBNode")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// 3. Ensure Pod
 	pod, err := r.ensurePod(ctx, node, pvcs)
 	if err != nil {
 		logger.Error(err, "Failed to ensure Pod for DDBNode")
 		return ctrl.Result{}, err
 	}
 
-	// 3. Update Status
+	// 4. Update Status
 	return ctrl.Result{}, r.updateStatus(ctx, node, pod, pvcs)
 }
 
@@ -73,22 +81,24 @@ func (r *DDBNodeReconciler) ensurePVCs(ctx context.Context, node *v1alpha1.DDBNo
 		pvcs = append(pvcs, *metaPVC)
 	}
 
-	// Data PVCs (JBOD)
-	dataVolCount := node.Spec.Storage.DataVolumeCount
-	if dataVolCount <= 0 {
-		dataVolCount = 1
-	}
-	dataSize := node.Spec.Storage.DataVolumeSize
-	if dataSize == "" {
-		dataSize = "100Gi"
-	}
-	for i := 0; i < dataVolCount; i++ {
-		dataPVCName := fmt.Sprintf("data-%d-%s", i, node.Name)
-		pvc, err := r.createPVCIfNotExist(ctx, node, dataPVCName, dataSize, node.Spec.Storage.StorageClassName)
-		if err != nil {
-			return nil, err
+	// Data PVCs (JBOD) - for DataNode and Single node
+	if node.Spec.Role != v1alpha1.NodeRoleController {
+		dataVolCount := node.Spec.Storage.DataVolumeCount
+		if dataVolCount <= 0 {
+			dataVolCount = 1
 		}
-		pvcs = append(pvcs, *pvc)
+		dataSize := node.Spec.Storage.DataVolumeSize
+		if dataSize == "" {
+			dataSize = "100Gi"
+		}
+		for i := 0; i < dataVolCount; i++ {
+			dataPVCName := fmt.Sprintf("data-%d-%s", i, node.Name)
+			pvc, err := r.createPVCIfNotExist(ctx, node, dataPVCName, dataSize, node.Spec.Storage.StorageClassName)
+			if err != nil {
+				return nil, err
+			}
+			pvcs = append(pvcs, *pvc)
+		}
 	}
 
 	return pvcs, nil
@@ -139,6 +149,50 @@ func (r *DDBNodeReconciler) createPVCIfNotExist(ctx context.Context, node *v1alp
 		return nil, err
 	}
 	return newPVC, nil
+}
+
+func (r *DDBNodeReconciler) ensureService(ctx context.Context, node *v1alpha1.DDBNode) (*corev1.Service, error) {
+	svc := &corev1.Service{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Name}, svc)
+	if err == nil {
+		return svc, nil
+	}
+	if !errors.IsNotFound(err) {
+		return nil, err
+	}
+
+	newSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      node.Name,
+			Namespace: node.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "dolphindb",
+				"app.kubernetes.io/instance":  node.Spec.ClusterName,
+				"app.kubernetes.io/component": string(node.Spec.Role),
+				"dolphindb.io/node-alias":     node.Spec.Alias,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP:                corev1.ClusterIPNone,
+			PublishNotReadyAddresses: true,
+			Selector: map[string]string{
+				"dolphindb.io/node-alias": node.Spec.Alias,
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Name: "ddb-port",
+					Port: node.Spec.Port,
+				},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(node, newSvc, r.Scheme); err != nil {
+		return nil, err
+	}
+	if err := r.Create(ctx, newSvc); err != nil && !errors.IsAlreadyExists(err) {
+		return nil, err
+	}
+	return newSvc, nil
 }
 
 func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNode, pvcs []corev1.PersistentVolumeClaim) (*corev1.Pod, error) {
@@ -206,6 +260,25 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			Name:      licVolName,
 			MountPath: "/data/ddb/server/dolphindb.lic",
 			SubPath:   "dolphindb.lic",
+		})
+	}
+
+	// Mount ACL public key for DataNode and ComputeNode in cluster mode
+	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+		aclSecName := fmt.Sprintf("%s-acl-keys", node.Spec.ClusterName)
+		aclVolName := "ddb-acl-key"
+		volumes = append(volumes, corev1.Volume{
+			Name: aclVolName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: aclSecName,
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      aclVolName,
+			MountPath: "/data/ddb/server/data/keys/aclPublic.key",
+			SubPath:   "aclPublic.key",
 		})
 	}
 
@@ -303,13 +376,23 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		"-console", "0",
 		"-stdoutLog", "1",
 		"-mode", string(node.Spec.Role),
+		"-lanCluster", "0",
 	}
-	domain := fmt.Sprintf("%s.%s.%s.svc.cluster.local", node.Name, headlessSvc, node.Namespace)
+	domain := fmt.Sprintf("%s.%s.svc.cluster.local", node.Name, node.Namespace)
 	args = append(args, "-localSite", fmt.Sprintf("%s:%d:%s", domain, node.Spec.Port, node.Spec.Alias))
 
 	if node.Spec.Role != v1alpha1.NodeRoleSingle {
-		ctlDomain := fmt.Sprintf("%s-ctl-0.%s.%s.svc.cluster.local", node.Spec.ClusterName, headlessSvc, node.Namespace)
-		args = append(args, "-controllerSite", fmt.Sprintf("%s:8900:%s-ctl-0", ctlDomain, node.Spec.ClusterName))
+		if node.Spec.Role != v1alpha1.NodeRoleController {
+			ctlSite := node.Spec.ControllerSite
+			if ctlSite == "" {
+				ctlDomain := fmt.Sprintf("%s-ctl-0.%s.svc.cluster.local", node.Spec.ClusterName, node.Namespace)
+				ctlSite = fmt.Sprintf("%s:8900:%s-ctl-0", ctlDomain, node.Spec.ClusterName)
+			}
+			args = append(args, "-controllerSite", ctlSite)
+			if node.Spec.Sites != "" {
+				args = append(args, "-sites", node.Spec.Sites)
+			}
+		}
 		args = append(args, "-config", fmt.Sprintf("/data/ddb/server/config/%s.cfg", node.Spec.Role))
 		args = append(args, "-clusterConfig", "/data/ddb/server/config/cluster.cfg")
 		if node.Spec.Role == v1alpha1.NodeRoleController {

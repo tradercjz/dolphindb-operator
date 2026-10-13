@@ -1,8 +1,12 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -29,6 +33,7 @@ type DolphinDBClusterReconciler struct {
 // +kubebuilder:rbac:groups=dolphindb.io,resources=ddbnodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -185,6 +190,8 @@ func (r *DolphinDBClusterReconciler) ensureConfigMap(ctx context.Context, cluste
 		data["controllers.cfg"] = rendered.ControllersCfg
 		data["cluster.cfg"] = rendered.ClusterCfg
 		data["cluster.nodes"] = rendered.ClusterNodes
+		data["datanode.cfg"] = rendered.DataNodeCfg
+		data["computenode.cfg"] = rendered.ComputeNodeCfg
 	}
 
 	cm := &corev1.ConfigMap{}
@@ -245,7 +252,13 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 		}
 	}
 
-	// 2. DataNodes
+	// 2. In cluster mode, sync ACL public key from Controller to Secret before launching DataNodes
+	if err := r.syncAclPublicKey(ctx, cluster); err != nil {
+		log.FromContext(ctx).Info("Waiting for Controller to initialize and export ACL public key", "error", err.Error())
+		return nil
+	}
+
+	// 3. DataNodes
 	if cluster.Spec.DataNode != nil {
 		for i := int32(0); i < cluster.Spec.DataNode.Replicas; i++ {
 			var binding *v1alpha1.NodeBinding
@@ -293,9 +306,27 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	name := fmt.Sprintf("%s-%s-%d", cluster.Name, rolePrefix(role), index)
 	alias := name
 
+	renderer := config.NewConfigRenderer(cluster)
+	var expectedSites string
+	var expectedCtlSite string
+	if cluster.Spec.Mode == v1alpha1.ModeCluster {
+		expectedSites = renderer.RenderSites()
+		ctlPort := int32(8900)
+		if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+			ctlPort = cluster.Spec.Controller.Port
+		}
+		ctlDomain := renderer.NodeDomain(fmt.Sprintf("%s-ctl-0", cluster.Name))
+		expectedCtlSite = fmt.Sprintf("%s:%d:%s-ctl-0", ctlDomain, ctlPort, cluster.Name)
+	}
+
 	existing := &v1alpha1.DDBNode{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
 	if err == nil {
+		if existing.Spec.Sites != expectedSites || existing.Spec.ControllerSite != expectedCtlSite {
+			existing.Spec.Sites = expectedSites
+			existing.Spec.ControllerSite = expectedCtlSite
+			return r.Update(ctx, existing)
+		}
 		return nil
 	}
 	if !errors.IsNotFound(err) {
@@ -304,13 +335,15 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 
 	// Build new DDBNode
 	nodeSpec := v1alpha1.DDBNodeSpec{
-		ClusterName: cluster.Name,
-		Role:        role,
-		Index:       index,
-		Alias:       alias,
-		Port:        port,
-		Version:     cluster.Spec.Version,
-		Image:       image,
+		ClusterName:    cluster.Name,
+		Role:           role,
+		Index:          index,
+		Alias:          alias,
+		Port:           port,
+		Version:        cluster.Spec.Version,
+		Image:          image,
+		ControllerSite: expectedCtlSite,
+		Sites:          expectedSites,
 	}
 
 	if cluster.Spec.License.SecretName != "" {
@@ -330,6 +363,9 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	if binding != nil {
 		nodeSpec.NodeName = binding.NodeName
 		nodeSpec.Hostname = binding.Hostname
+		if binding.LicenseSecretName != "" {
+			nodeSpec.LicenseSecretName = binding.LicenseSecretName
+		}
 	}
 
 	// Apply resources & storage from group spec
@@ -462,11 +498,99 @@ func rolePrefix(role v1alpha1.NodeRole) string {
 	}
 }
 
+func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
+	ctlPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
+	ctlPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err != nil {
+		return err
+	}
+	if ctlPod.Status.Phase != corev1.PodRunning || ctlPod.Status.PodIP == "" {
+		return fmt.Errorf("controller pod not running yet")
+	}
+
+	ctlPort := int32(8900)
+	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+		ctlPort = cluster.Spec.Controller.Port
+	}
+
+	url := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
+	payload := map[string]interface{}{
+		"functionName": "executeCode",
+		"params": []map[string]string{
+			{
+				"name":  "script",
+				"form":  "scalar",
+				"type":  "string",
+				"value": `login("admin", "123456"); concat(funcByName("getAclPublicKey")())`,
+			},
+		},
+	}
+	bodyBytes, _ := json.Marshal(payload)
+
+	clientHttp := &http.Client{Timeout: 5 * time.Second}
+	resp, err := clientHttp.Post(url, "application/json", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var ddbResp struct {
+		ResultCode string `json:"resultCode"`
+		Msg        string `json:"msg"`
+		Object     []struct {
+			Value string `json:"value"`
+		} `json:"object"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ddbResp); err != nil {
+		return err
+	}
+	if ddbResp.ResultCode != "0" || len(ddbResp.Object) == 0 || ddbResp.Object[0].Value == "" {
+		return fmt.Errorf("failed to get acl public key: %s", ddbResp.Msg)
+	}
+
+	keyData := []byte(ddbResp.Object[0].Value)
+	secretName := fmt.Sprintf("%s-acl-keys", cluster.Name)
+	existingSec := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, existingSec)
+	if err == nil {
+		if bytes.Equal(existingSec.Data["aclPublic.key"], keyData) {
+			return nil
+		}
+		if existingSec.Data == nil {
+			existingSec.Data = make(map[string][]byte)
+		}
+		existingSec.Data["aclPublic.key"] = keyData
+		return r.Update(ctx, existingSec)
+	}
+	if !errors.IsNotFound(err) {
+		return err
+	}
+
+	newSec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":     "dolphindb",
+				"app.kubernetes.io/instance": cluster.Name,
+			},
+		},
+		Data: map[string][]byte{
+			"aclPublic.key": keyData,
+		},
+	}
+	if err := ctrl.SetControllerReference(cluster, newSec, r.Scheme); err != nil {
+		return err
+	}
+	return r.Create(ctx, newSec)
+}
+
 func (r *DolphinDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DolphinDBCluster{}).
 		Owns(&v1alpha1.DDBNode{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
 		Complete(r)
 }
