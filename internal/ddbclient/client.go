@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -99,7 +100,22 @@ func (c *Client) ExecuteScript(ctx context.Context, script string) (string, erro
 
 	var ddbResp ddbResponse
 	if err := json.Unmarshal(respBody, &ddbResp); err != nil {
-		return "", fmt.Errorf("failed to decode response %q: %w", string(respBody), err)
+		// Fallback for DolphinDB server error strings containing unescaped quotes in msg
+		bodyStr := string(respBody)
+		if strings.Contains(bodyStr, `"resultCode":"1"`) || strings.Contains(bodyStr, `"resultCode": "1"`) {
+			msg := bodyStr
+			if idx := strings.Index(bodyStr, `"msg"`); idx != -1 {
+				sub := bodyStr[idx:]
+				if colon := strings.Index(sub, ":"); colon != -1 {
+					sub = sub[colon+1:]
+					if objIdx := strings.LastIndex(sub, `,"object"`); objIdx != -1 {
+						msg = strings.Trim(strings.TrimSpace(sub[:objIdx]), `"`)
+					}
+				}
+			}
+			return "", fmt.Errorf("dolphindb script error: %s", msg)
+		}
+		return "", fmt.Errorf("failed to decode response %q: %w", bodyStr, err)
 	}
 
 	if ddbResp.ResultCode != "0" {
@@ -223,7 +239,7 @@ func (c *Client) DeleteReplicas(ctx context.Context, chunkID, nodeAlias string) 
 
 // HasActiveRecoveryTasks checks if any data chunk replication or recovery is currently in progress
 func (c *Client) HasActiveRecoveryTasks(ctx context.Context) (bool, error) {
-	script := "exec count(*) from getRecoveryTaskStatus() where Status not in [\"Finished\", \"Failed\"];"
+	script := "exec count(*) from getRecoveryTaskStatus() where Status not in [\"Finished\", \"Failed\", \"Aborted\"];"
 	raw, err := c.ExecuteScript(ctx, script)
 	if err != nil {
 		return false, err
@@ -236,4 +252,246 @@ func (c *Client) HasActiveRecoveryTasks(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	return res[0].Value != "0", nil
+}
+
+// GetLicenseDetails retrieves the license attributes as a key-value map
+func (c *Client) GetLicenseDetails(ctx context.Context) (map[string]string, error) {
+	raw, err := c.ExecuteScript(ctx, "license();")
+	if err != nil {
+		return nil, err
+	}
+	return parseDDBDict(raw)
+}
+
+// ReloadLicense broadcasts updateLicense across cluster nodes and returns updated license info
+func (c *Client) ReloadLicense(ctx context.Context) (map[string]string, error) {
+	script := "try { pnodeRun(updateLicense); } catch(ex) {}; try { updateLicense(); } catch(ex) {}; license();"
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return nil, err
+	}
+	return parseDDBDict(raw)
+}
+
+func parseDDBDict(raw string) (map[string]string, error) {
+	var dicts []struct {
+		Value []struct {
+			Form  string          `json:"form"`
+			Value json.RawMessage `json:"value"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &dicts); err != nil || len(dicts) == 0 || len(dicts[0].Value) < 2 {
+		return nil, fmt.Errorf("unexpected dict format: %s", raw)
+	}
+
+	var keys []string
+	if err := json.Unmarshal(dicts[0].Value[0].Value, &keys); err != nil {
+		return nil, err
+	}
+
+	var vals []struct {
+		Value interface{} `json:"value"`
+	}
+	if err := json.Unmarshal(dicts[0].Value[1].Value, &vals); err != nil {
+		return nil, err
+	}
+
+	res := make(map[string]string)
+	for i, k := range keys {
+		if i < len(vals) {
+			res[k] = fmt.Sprintf("%v", vals[i].Value)
+		}
+	}
+	return res, nil
+}
+
+// Backup triggers DFS database/table backup executed on the specified DataNode
+func (c *Client) Backup(ctx context.Context, dataNodeAlias, backupDir, dbPath, tableName string, force, parallel, snapshot bool) (int, error) {
+	var script string
+	if tableName != "" {
+		script = fmt.Sprintf("rpc(%q, def(bDir, dbP, f, p, s, tN){ return backup(bDir, dbP, f, p, s, tN); }, %q, %q, %t, %t, %t, %q);",
+			dataNodeAlias, backupDir, dbPath, force, parallel, snapshot, tableName)
+	} else {
+		script = fmt.Sprintf("rpc(%q, def(bDir, dbP, f, p, s){ return backup(bDir, dbP, f, p, s); }, %q, %q, %t, %t, %t);",
+			dataNodeAlias, backupDir, dbPath, force, parallel, snapshot)
+	}
+
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return 0, err
+	}
+
+	var res []struct {
+		Value interface{} `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil || len(res) == 0 {
+		return 0, nil
+	}
+
+	switch v := res[0].Value.(type) {
+	case float64:
+		return int(v), nil
+	case string:
+		var n int
+		_, _ = fmt.Sscanf(v, "%d", &n)
+		return n, nil
+	default:
+		return 0, nil
+	}
+}
+
+// Restore triggers DFS database/table restore executed on the specified DataNode
+func (c *Client) Restore(ctx context.Context, dataNodeAlias, backupDir, dbPath, tableName, targetDBPath, targetTableName string) error {
+	var script string
+	if tableName != "" {
+		if targetDBPath != "" && targetTableName != "" {
+			script = fmt.Sprintf("rpc(%q, def(bDir, dbP, tN, newDBP, newTN){ return restoreTable(bDir, dbP, tN, newDBP, newTN); }, %q, %q, %q, %q, %q);",
+				dataNodeAlias, backupDir, dbPath, tableName, targetDBPath, targetTableName)
+		} else {
+			script = fmt.Sprintf("rpc(%q, def(bDir, dbP, tN){ return restoreTable(bDir, dbP, tN); }, %q, %q, %q);",
+				dataNodeAlias, backupDir, dbPath, tableName)
+		}
+	} else {
+		if targetDBPath != "" {
+			script = fmt.Sprintf("rpc(%q, def(bDir, dbP, newDBP){ return restoreDB(bDir, dbP, newDBP); }, %q, %q, %q);",
+				dataNodeAlias, backupDir, dbPath, targetDBPath)
+		} else {
+			script = fmt.Sprintf("rpc(%q, def(bDir, dbP){ return restoreDB(bDir, dbP); }, %q, %q);",
+				dataNodeAlias, backupDir, dbPath)
+		}
+	}
+
+	_, err := c.ExecuteScript(ctx, script)
+	return err
+}
+
+// CheckBackup checks the integrity of backed up database/tables
+func (c *Client) CheckBackup(ctx context.Context, dataNodeAlias, backupDir, dbPath, tableName string) (int, error) {
+	var script string
+	if tableName != "" {
+		script = fmt.Sprintf("rpc(%q, def(bDir, dbP, tN){ return exec count(*) from checkBackup(bDir, dbP, tN); }, %q, %q, %q);",
+			dataNodeAlias, backupDir, dbPath, tableName)
+	} else {
+		script = fmt.Sprintf("rpc(%q, def(bDir, dbP){ return exec count(*) from checkBackup(bDir, dbP); }, %q, %q);",
+			dataNodeAlias, backupDir, dbPath)
+	}
+
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return 0, err
+	}
+
+	var res []struct {
+		Value interface{} `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil || len(res) == 0 {
+		return 0, nil
+	}
+
+	switch v := res[0].Value.(type) {
+	case float64:
+		return int(v), nil
+	case string:
+		var n int
+		_, _ = fmt.Sscanf(v, "%d", &n)
+		return n, nil
+	default:
+		return 0, nil
+	}
+}
+
+// RebalanceClusterChunks dynamically rebalances chunk replicas across all online DataNodes
+func (c *Client) RebalanceClusterChunks(ctx context.Context) (int, string, error) {
+	nodes, err := c.GetClusterPerf(ctx)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to get cluster perf: %w", err)
+	}
+
+	var onlineNodes []string
+	for _, n := range nodes {
+		if n.State == 1 {
+			onlineNodes = append(onlineNodes, n.Name)
+		}
+	}
+
+	if len(onlineNodes) < 2 {
+		return 0, "At least 2 online DataNodes are required for rebalancing", nil
+	}
+
+	nodeChunks := make(map[string][]string)
+	for _, alias := range onlineNodes {
+		chunks, err := c.GetChunksOnNode(ctx, alias)
+		if err != nil {
+			return 0, "", fmt.Errorf("failed to get chunks on %s: %w", alias, err)
+		}
+		nodeChunks[alias] = chunks
+	}
+
+	// Find max and min loaded nodes
+	var maxNode, minNode string
+	maxCount := -1
+	minCount := 10000000
+
+	for _, alias := range onlineNodes {
+		cnt := len(nodeChunks[alias])
+		if cnt > maxCount {
+			maxCount = cnt
+			maxNode = alias
+		}
+		if cnt < minCount {
+			minCount = cnt
+			minNode = alias
+		}
+	}
+
+	skew := maxCount - minCount
+	if skew <= 1 {
+		return 0, fmt.Sprintf("Cluster chunks are well-balanced (skew=%d, max=%d on %s, min=%d on %s)",
+			skew, maxCount, maxNode, minCount, minNode), nil
+	}
+
+	// Move up to skew/2 chunks from maxNode to minNode
+	minSet := make(map[string]bool)
+	for _, ch := range nodeChunks[minNode] {
+		minSet[ch] = true
+	}
+
+	var moved int
+	targetMove := skew / 2
+	for _, ch := range nodeChunks[maxNode] {
+		if moved >= targetMove {
+			break
+		}
+		if !minSet[ch] {
+			if err := c.CopyReplicas(ctx, maxNode, minNode, ch); err != nil {
+				return moved, "", fmt.Errorf("failed to copy chunk %s to %s: %w", ch, minNode, err)
+			}
+			moved++
+		}
+	}
+
+	// Wait up to 10 seconds for replication tasks to finish
+	for attempt := 0; attempt < 10; attempt++ {
+		recovering, err := c.HasActiveRecoveryTasks(ctx)
+		if err == nil && !recovering {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// Now check which chunks successfully arrived on minNode and clean from maxNode safely
+	newMinChunks, err := c.GetChunksOnNode(ctx, minNode)
+	if err == nil {
+		newMinSet := make(map[string]bool)
+		for _, ch := range newMinChunks {
+			newMinSet[ch] = true
+		}
+		for _, ch := range nodeChunks[maxNode] {
+			if newMinSet[ch] && !minSet[ch] {
+				_ = c.DeleteReplicas(ctx, ch, maxNode)
+			}
+		}
+	}
+
+	return moved, fmt.Sprintf("Transferred %d chunk(s) from %s (%d) to %s (%d)", moved, maxNode, maxCount, minNode, minCount), nil
 }

@@ -36,7 +36,25 @@ func (r *DDBNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	logger.Info("Reconciling DDBNode", "alias", node.Spec.Alias, "role", node.Spec.Role, "phase", node.Status.Phase)
+	// 0. Check if node is explicitly stopped by Day-2 operation
+	if node.Annotations != nil && node.Annotations["dolphindb.io/stopped"] == "true" {
+		pod := &corev1.Pod{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Name}, pod)
+		if err == nil {
+			logger.Info("Node is marked as stopped, deleting Pod", "node", node.Name)
+			if err := r.Delete(ctx, pod); err != nil && !errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		}
+		if node.Status.Phase != v1alpha1.NodePhaseOffline || node.Status.PodIP != "" {
+			node.Status.Phase = v1alpha1.NodePhaseOffline
+			node.Status.PodName = ""
+			node.Status.PodIP = ""
+			node.Status.DDBState = 0
+			return ctrl.Result{}, r.Status().Update(ctx, node)
+		}
+		return ctrl.Result{}, nil
+	}
 
 	// 1. Ensure Persistent Volume Claims
 	pvcs, err := r.ensurePVCs(ctx, node)

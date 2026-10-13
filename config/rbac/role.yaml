@@ -23,7 +23,10 @@ rules:
 - apiGroups:
   - dolphindb.io
   resources:
+  - ddbbackups
   - ddbnodes
+  - ddboperations
+  - ddbrestores
   - dolphindbclusters
   verbs:
   - create
@@ -36,7 +39,10 @@ rules:
 - apiGroups:
   - dolphindb.io
   resources:
+  - ddbbackups/status
   - ddbnodes/status
+  - ddboperations/status
+  - ddbrestores/status
   - dolphindbclusters/status
   verbs:
   - get
