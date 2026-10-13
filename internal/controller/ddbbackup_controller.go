@@ -15,6 +15,7 @@ import (
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/ddbclient"
+	"dolphindb.io/operator/internal/metrics"
 )
 
 // DDBBackupReconciler reconciles a DDBBackup object
@@ -120,6 +121,9 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	backup.Status.CompletionTime = &now
 	backup.Status.LastBackupTime = &now
 	backup.Status.Message = fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s)", totalChunks, backupDir, activeDN)
+
+	metrics.BackupTotalChunks.WithLabelValues(backup.Spec.Cluster, backup.Namespace, backup.Name).Set(float64(totalChunks))
+
 	return ctrl.Result{}, r.Status().Update(ctx, backup)
 }
 

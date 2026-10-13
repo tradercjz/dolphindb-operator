@@ -24,6 +24,7 @@ import (
 	"dolphindb.io/operator/internal/config"
 	"dolphindb.io/operator/internal/ddbclient"
 	"dolphindb.io/operator/internal/flowengine"
+	"dolphindb.io/operator/internal/metrics"
 	"dolphindb.io/operator/internal/paramdict"
 )
 
@@ -191,6 +192,13 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 			corev1.ServicePort{Name: "ctl-port", Port: 8900, TargetPort: intstr.FromInt(8900)},
 			corev1.ServicePort{Name: "dn-port", Port: 8901, TargetPort: intstr.FromInt(8901)},
 		)
+		if cluster.Spec.ComputeNode != nil && cluster.Spec.ComputeNode.Replicas > 0 {
+			cnPort := int32(8902)
+			if cluster.Spec.ComputeNode.Port > 0 {
+				cnPort = cluster.Spec.ComputeNode.Port
+			}
+			ports = append(ports, corev1.ServicePort{Name: "cn-port", Port: cnPort, TargetPort: intstr.FromInt(int(cnPort))})
+		}
 	}
 
 	newSvc := &corev1.Service{
@@ -533,6 +541,20 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 	} else {
 		cluster.Status.Phase = v1alpha1.PhaseCreating
 	}
+
+	// Update Prometheus metrics
+	metrics.ClusterNodesDesired.WithLabelValues(cluster.Name, cluster.Namespace, "controller").Set(float64(desiredCtl))
+	metrics.ClusterNodesDesired.WithLabelValues(cluster.Name, cluster.Namespace, "datanode").Set(float64(desiredDn))
+	metrics.ClusterNodesDesired.WithLabelValues(cluster.Name, cluster.Namespace, "computenode").Set(float64(desiredCn))
+	metrics.ClusterNodesReady.WithLabelValues(cluster.Name, cluster.Namespace, "controller").Set(float64(ctlReady))
+	metrics.ClusterNodesReady.WithLabelValues(cluster.Name, cluster.Namespace, "datanode").Set(float64(dnReady))
+	metrics.ClusterNodesReady.WithLabelValues(cluster.Name, cluster.Namespace, "computenode").Set(float64(cnReady))
+
+	healthVal := 0.0
+	if cluster.Status.Phase == v1alpha1.PhaseReady {
+		healthVal = 1.0
+	}
+	metrics.ClusterHealthStatus.WithLabelValues(cluster.Name, cluster.Namespace, string(cluster.Status.Phase)).Set(healthVal)
 
 	return r.Status().Update(ctx, cluster)
 }

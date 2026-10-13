@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"dolphindb.io/operator/api/v1alpha1"
+	"dolphindb.io/operator/internal/metrics"
 )
 
 // DDBNodeReconciler reconciles a DDBNode object
@@ -99,8 +100,8 @@ func (r *DDBNodeReconciler) ensurePVCs(ctx context.Context, node *v1alpha1.DDBNo
 		pvcs = append(pvcs, *metaPVC)
 	}
 
-	// Data PVCs (JBOD) - for DataNode and Single node
-	if node.Spec.Role != v1alpha1.NodeRoleController {
+	// Data PVCs (JBOD) - only for DataNode and Single node (ComputeNode and Controller do not store DFS data)
+	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleSingle {
 		dataVolCount := node.Spec.Storage.DataVolumeCount
 		if dataVolCount <= 0 {
 			dataVolCount = 1
@@ -296,6 +297,11 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      aclVolName,
 			MountPath: "/data/ddb/server/data/keys/aclPublic.key",
+			SubPath:   "aclPublic.key",
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      aclVolName,
+			MountPath: fmt.Sprintf("/data/ddb/server/data/%s/keys/aclPublic.key", node.Spec.Alias),
 			SubPath:   "aclPublic.key",
 		})
 	}
@@ -552,6 +558,13 @@ func (r *DDBNodeReconciler) updateStatus(ctx context.Context, node *v1alpha1.DDB
 		})
 	}
 	node.Status.Volumes = bindings
+
+	// Update Prometheus metrics
+	clusterName := node.Spec.ClusterName
+	if clusterName == "" {
+		clusterName = "standalone"
+	}
+	metrics.NodeState.WithLabelValues(clusterName, node.Namespace, node.Name, string(node.Spec.Role)).Set(float64(node.Status.DDBState))
 
 	return r.Status().Update(ctx, node)
 }
