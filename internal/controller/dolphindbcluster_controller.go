@@ -45,17 +45,22 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	// 2. Render configurations & create ConfigMap
+	// 2. Ensure Access Service (ClusterIP / NodePort)
+	if err := r.ensureAccessService(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 3. Render configurations & create ConfigMap
 	if err := r.ensureConfigMap(ctx, cluster); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// 3. Reconcile child DDBNode instances
+	// 4. Reconcile child DDBNode instances
 	if err := r.reconcileNodes(ctx, cluster); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// 4. Update Cluster Status & Conditions
+	// 5. Update Cluster Status & Conditions
 	return ctrl.Result{}, r.updateClusterStatus(ctx, cluster)
 }
 
@@ -68,6 +73,21 @@ func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, 
 	}
 	if !errors.IsNotFound(err) {
 		return err
+	}
+
+	var ports []corev1.ServicePort
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		port := int32(8848)
+		if cluster.Spec.Standalone != nil && cluster.Spec.Standalone.Port != 0 {
+			port = cluster.Spec.Standalone.Port
+		}
+		ports = append(ports, corev1.ServicePort{Name: "ddb-port", Port: port, TargetPort: intstr.FromInt(int(port))})
+	} else {
+		ports = append(ports,
+			corev1.ServicePort{Name: "ctl-port", Port: 8900, TargetPort: intstr.FromInt(8900)},
+			corev1.ServicePort{Name: "dn-port", Port: 8901, TargetPort: intstr.FromInt(8901)},
+			corev1.ServicePort{Name: "cn-port", Port: 8902, TargetPort: intstr.FromInt(8902)},
+		)
 	}
 
 	newSvc := &corev1.Service{
@@ -85,9 +105,61 @@ func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, 
 			Selector: map[string]string{
 				"app.kubernetes.io/instance": cluster.Name,
 			},
-			Ports: []corev1.ServicePort{
-				{Name: "ddb-port", Port: 8848, TargetPort: intstr.FromInt(8848)},
+			Ports: ports,
+		},
+	}
+
+	if err := ctrl.SetControllerReference(cluster, newSvc, r.Scheme); err != nil {
+		return err
+	}
+	return r.Create(ctx, newSvc)
+}
+
+func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
+	svcName := cluster.Name
+	svc := &corev1.Service{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: svcName}, svc)
+	if err == nil {
+		return nil
+	}
+	if !errors.IsNotFound(err) {
+		return err
+	}
+
+	svcType := corev1.ServiceTypeClusterIP
+	if cluster.Spec.Networking.ServiceType != "" {
+		svcType = cluster.Spec.Networking.ServiceType
+	}
+
+	var ports []corev1.ServicePort
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		port := int32(8848)
+		if cluster.Spec.Standalone != nil && cluster.Spec.Standalone.Port != 0 {
+			port = cluster.Spec.Standalone.Port
+		}
+		ports = append(ports, corev1.ServicePort{Name: "ddb-port", Port: port, TargetPort: intstr.FromInt(int(port))})
+	} else {
+		ports = append(ports,
+			corev1.ServicePort{Name: "ctl-port", Port: 8900, TargetPort: intstr.FromInt(8900)},
+			corev1.ServicePort{Name: "dn-port", Port: 8901, TargetPort: intstr.FromInt(8901)},
+		)
+	}
+
+	newSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svcName,
+			Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":     "dolphindb",
+				"app.kubernetes.io/instance": cluster.Name,
 			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: svcType,
+			Selector: map[string]string{
+				"app.kubernetes.io/instance": cluster.Name,
+			},
+			Ports: ports,
 		},
 	}
 
@@ -141,9 +213,12 @@ func (r *DolphinDBClusterReconciler) ensureConfigMap(ctx context.Context, cluste
 }
 
 func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
-	image := fmt.Sprintf("%s/dolphindb:%s", cluster.Spec.ImageRepository, cluster.Spec.Version)
-	if cluster.Spec.ImageRepository == "" || cluster.Spec.ImageRepository == "dolphindb" {
-		image = fmt.Sprintf("dolphindb/dolphindb:%s", cluster.Spec.Version)
+	image := cluster.Spec.Image
+	if image == "" {
+		image = fmt.Sprintf("%s/dolphindb:%s", cluster.Spec.ImageRepository, cluster.Spec.Version)
+		if cluster.Spec.ImageRepository == "" || cluster.Spec.ImageRepository == "dolphindb" {
+			image = fmt.Sprintf("dolphindb/dolphindb:%s", cluster.Spec.Version)
+		}
 	}
 
 	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
@@ -238,8 +313,18 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		Image:       image,
 	}
 
+	if cluster.Spec.License.SecretName != "" {
+		nodeSpec.LicenseSecretName = cluster.Spec.License.SecretName
+	}
+
 	if cluster.Spec.License.MachineFingerprint != nil {
 		nodeSpec.Fingerprint = cluster.Spec.License.MachineFingerprint
+		if nodeSpec.NodeName == "" && cluster.Spec.License.MachineFingerprint.NodeName != "" {
+			nodeSpec.NodeName = cluster.Spec.License.MachineFingerprint.NodeName
+		}
+		if nodeSpec.Hostname == "" && cluster.Spec.License.MachineFingerprint.Hostname != "" {
+			nodeSpec.Hostname = cluster.Spec.License.MachineFingerprint.Hostname
+		}
 	}
 
 	if binding != nil {
@@ -270,6 +355,12 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if cluster.Spec.Standalone != nil {
 			nodeSpec.Resources = cluster.Spec.Standalone.Resources
 			nodeSpec.Storage = cluster.Spec.Standalone.Storage
+			if cluster.Spec.Standalone.NodeName != "" {
+				nodeSpec.NodeName = cluster.Spec.Standalone.NodeName
+			}
+			if cluster.Spec.Standalone.Hostname != "" {
+				nodeSpec.Hostname = cluster.Spec.Standalone.Hostname
+			}
 		}
 	}
 

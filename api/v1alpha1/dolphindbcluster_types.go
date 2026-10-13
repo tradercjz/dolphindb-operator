@@ -188,6 +188,12 @@ type StandaloneSpec struct {
 	// +kubebuilder:default=8848
 	Port int32 `json:"port,omitempty"`
 
+	// NodeName targeted physical host if pinned
+	NodeName string `json:"nodeName,omitempty"`
+
+	// Hostname container hostname override
+	Hostname string `json:"hostname,omitempty"`
+
 	// Resources compute resource limits and requests
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
@@ -313,6 +319,9 @@ type DolphinDBClusterSpec struct {
 	// ImageRepository base repository (e.g., 192.168.100.250/dolphindb)
 	// +kubebuilder:default="dolphindb"
 	ImageRepository string `json:"imageRepository,omitempty"`
+
+	// Image optional full image name override (e.g., 192.168.100.250/dolphindb/dolphindb:v3.00.5)
+	Image string `json:"image,omitempty"`
 
 	// Mode deployment mode: standalone or cluster
 	// +kubebuilder:default="cluster"

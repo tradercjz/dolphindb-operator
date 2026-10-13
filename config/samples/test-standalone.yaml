@@ -1,0 +1,30 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-standalone
+  namespace: ddb-v2-test
+spec:
+  image: "192.168.100.250/dolphindb/dolphindb:v3.00.5"
+  mode: "standalone"
+  standalone:
+    port: 8848
+    resources:
+      requests:
+        cpu: "1"
+        memory: "2Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    storage:
+      storageClassName: "longhorn"
+      dataVolumeSize: "10Gi"
+  license:
+    mode: "machineFingerprint"
+    secretName: "dolphindb-license"
+    machineFingerprint:
+      autoPassthrough: true
+      mountMachineId: true
+      mountHostEtc: true
+      useHostName: true
+      nodeName: "aftersale2"
+      hostname: "aftersale2"

@@ -129,6 +129,9 @@ spec:
                 description: Index ordinal index within the role (e.g., 0, 1, 2)
                 format: int32
                 type: integer
+              licenseSecretName:
+                description: LicenseSecretName name of secret containing dolphindb.lic
+                type: string
               nodeName:
                 description: NodeName targeted physical host if pinned
                 type: string

@@ -443,6 +443,9 @@ spec:
                       can be automatically replaced
                     type: integer
                 type: object
+              image:
+                description: Image optional full image name override (e.g., 192.168.100.250/dolphindb/dolphindb:v3.00.5)
+                type: string
               imageRepository:
                 default: dolphindb
                 description: ImageRepository base repository (e.g., 192.168.100.250/dolphindb)
@@ -631,6 +634,12 @@ spec:
                       type: string
                     description: Config key-value configuration overrides for dolphindb.cfg
                     type: object
+                  hostname:
+                    description: Hostname container hostname override
+                    type: string
+                  nodeName:
+                    description: NodeName targeted physical host if pinned
+                    type: string
                   port:
                     default: 8848
                     description: Port listening port

@@ -75,7 +75,11 @@ func (r *ConfigRenderer) renderStandalone() string {
 	cfg := make(map[string]string)
 	cfg["mode"] = "single"
 	cfg["lanCluster"] = "0"
-	cfg["dataSync"] = "1"
+	cfg["dataSync"] = "0"
+	cfg["maxConnections"] = "512"
+	cfg["workerNum"] = "4"
+	cfg["maxBatchJobWorker"] = "4"
+	cfg["subExecutors"] = "4"
 
 	if r.Cluster.Spec.Standalone != nil {
 		port := r.Cluster.Spec.Standalone.Port

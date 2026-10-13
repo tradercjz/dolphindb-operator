@@ -59,17 +59,19 @@ func (r *DDBNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *DDBNodeReconciler) ensurePVCs(ctx context.Context, node *v1alpha1.DDBNode) ([]corev1.PersistentVolumeClaim, error) {
 	var pvcs []corev1.PersistentVolumeClaim
 
-	// Meta PVC for redo logs, chunk metadata, raft logs
-	metaSize := node.Spec.Storage.MetaVolumeSize
-	if metaSize == "" {
-		metaSize = "20Gi"
+	// Meta PVC for redo logs, chunk metadata, raft logs (only for cluster nodes)
+	if node.Spec.Role != v1alpha1.NodeRoleSingle {
+		metaSize := node.Spec.Storage.MetaVolumeSize
+		if metaSize == "" {
+			metaSize = "20Gi"
+		}
+		metaPVCName := fmt.Sprintf("meta-%s", node.Name)
+		metaPVC, err := r.createPVCIfNotExist(ctx, node, metaPVCName, metaSize, node.Spec.Storage.StorageClassName)
+		if err != nil {
+			return nil, err
+		}
+		pvcs = append(pvcs, *metaPVC)
 	}
-	metaPVCName := fmt.Sprintf("meta-%s", node.Name)
-	metaPVC, err := r.createPVCIfNotExist(ctx, node, metaPVCName, metaSize, node.Spec.Storage.StorageClassName)
-	if err != nil {
-		return nil, err
-	}
-	pvcs = append(pvcs, *metaPVC)
 
 	// Data PVCs (JBOD)
 	dataVolCount := node.Spec.Storage.DataVolumeCount
@@ -183,8 +185,29 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 	})
 	ddbMounts = append(ddbMounts, corev1.VolumeMount{
 		Name:      cfgVolName,
-		MountPath: "/dolphindb/config",
+		MountPath: "/data/ddb/server/config",
 	})
+
+	// Mount License if configured
+	if node.Spec.LicenseSecretName != "" {
+		licVolName := "ddb-license"
+		volumes = append(volumes, corev1.Volume{
+			Name: licVolName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: node.Spec.LicenseSecretName,
+					Items: []corev1.KeyToPath{
+						{Key: "dolphindb.lic", Path: "dolphindb.lic"},
+					},
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      licVolName,
+			MountPath: "/data/ddb/server/dolphindb.lic",
+			SubPath:   "dolphindb.lic",
+		})
+	}
 
 	// Mount PVCs
 	for i, pvc := range pvcs {
@@ -198,16 +221,30 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			},
 		})
 		if strings.HasPrefix(pvc.Name, "meta-") {
-			ddbMounts = append(ddbMounts, corev1.VolumeMount{
-				Name:      volName,
-				MountPath: "/var/lib/dolphindb/meta",
-			})
+			if node.Spec.Role == v1alpha1.NodeRoleSingle {
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: "/data/ddb/server/meta",
+				})
+			} else {
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: "/var/lib/dolphindb/meta",
+				})
+			}
 		} else if strings.HasPrefix(pvc.Name, "data-") {
-			volIdx := strings.Split(pvc.Name, "-")[1]
-			ddbMounts = append(ddbMounts, corev1.VolumeMount{
-				Name:      volName,
-				MountPath: fmt.Sprintf("/var/lib/dolphindb/data/vol-%s", volIdx),
-			})
+			if node.Spec.Role == v1alpha1.NodeRoleSingle {
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: "/data/ddb/server/data",
+				})
+			} else {
+				volIdx := strings.Split(pvc.Name, "-")[1]
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: fmt.Sprintf("/var/lib/dolphindb/data/vol-%s", volIdx),
+				})
+			}
 		}
 	}
 
@@ -215,6 +252,17 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 	podHostname := node.Name
 	if node.Spec.Hostname != "" {
 		podHostname = node.Spec.Hostname
+	} else if node.Spec.Fingerprint != nil {
+		if node.Spec.Fingerprint.Hostname != "" {
+			podHostname = node.Spec.Fingerprint.Hostname
+		} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
+			podHostname = node.Spec.NodeName
+		}
+	}
+
+	podNodeName := node.Spec.NodeName
+	if podNodeName == "" && node.Spec.Fingerprint != nil && node.Spec.Fingerprint.NodeName != "" {
+		podNodeName = node.Spec.Fingerprint.NodeName
 	}
 	if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.MountMachineId {
 		midVolName := "host-machine-id"
@@ -251,7 +299,7 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 
 	// Build DolphinDB start command line
 	args := []string{
-		"-home", "/var/lib/dolphindb",
+		"-home", "/data/ddb/server/data",
 		"-console", "0",
 		"-stdoutLog", "1",
 		"-mode", string(node.Spec.Role),
@@ -262,13 +310,13 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 	if node.Spec.Role != v1alpha1.NodeRoleSingle {
 		ctlDomain := fmt.Sprintf("%s-ctl-0.%s.%s.svc.cluster.local", node.Spec.ClusterName, headlessSvc, node.Namespace)
 		args = append(args, "-controllerSite", fmt.Sprintf("%s:8900:%s-ctl-0", ctlDomain, node.Spec.ClusterName))
-		args = append(args, "-config", fmt.Sprintf("/dolphindb/config/%s.cfg", node.Spec.Role))
-		args = append(args, "-clusterConfig", "/dolphindb/config/cluster.cfg")
+		args = append(args, "-config", fmt.Sprintf("/data/ddb/server/config/%s.cfg", node.Spec.Role))
+		args = append(args, "-clusterConfig", "/data/ddb/server/config/cluster.cfg")
 		if node.Spec.Role == v1alpha1.NodeRoleController {
-			args = append(args, "-nodesFile", "/dolphindb/config/cluster.nodes")
+			args = append(args, "-nodesFile", "/data/ddb/server/config/cluster.nodes")
 		}
 	} else {
-		args = append(args, "-config", "/dolphindb/config/dolphindb.cfg")
+		args = append(args, "-config", "/data/ddb/server/config/dolphindb.cfg")
 	}
 
 	graceSeconds := int64(300)
@@ -278,16 +326,16 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			Name:      node.Name,
 			Namespace: node.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name":      "dolphindb",
-				"app.kubernetes.io/instance":  node.Spec.ClusterName,
-				"app.kubernetes.io/component": string(node.Spec.Role),
-				"dolphindb.io/node-alias":     node.Spec.Alias,
+				"app.kubernetes.io/name":       "dolphindb",
+				"app.kubernetes.io/instance":   node.Spec.ClusterName,
+				"app.kubernetes.io/component":  string(node.Spec.Role),
+				"dolphindb.io/node-alias":      node.Spec.Alias,
 			},
 		},
 		Spec: corev1.PodSpec{
 			Hostname:                      podHostname,
 			Subdomain:                     headlessSvc,
-			NodeName:                      node.Spec.NodeName,
+			NodeName:                      podNodeName,
 			NodeSelector:                  node.Spec.NodeSelector,
 			Tolerations:                   node.Spec.Tolerations,
 			TerminationGracePeriodSeconds: &graceSeconds,
@@ -296,19 +344,13 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 				{
 					Name:         "dolphindb",
 					Image:        node.Spec.Image,
-					Command:      []string{"/dolphindb/server/dolphindb"},
+					WorkingDir:   "/data/ddb/server",
+					Command:      []string{"/data/ddb/server/dolphindb"},
 					Args:         args,
 					Resources:    node.Spec.Resources,
 					VolumeMounts: ddbMounts,
 					Ports: []corev1.ContainerPort{
 						{Name: "ddb-port", ContainerPort: node.Spec.Port},
-					},
-					Lifecycle: &corev1.Lifecycle{
-						PreStop: &corev1.LifecycleHandler{
-							Exec: &corev1.ExecAction{
-								Command: []string{"/bin/sh", "-c", fmt.Sprintf("/ddb-agent -mode prestop -ddbPort %d", node.Spec.Port)},
-							},
-						},
 					},
 				},
 			},
