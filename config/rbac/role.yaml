@@ -1,0 +1,49 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - pods
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - dolphindb.io
+  resources:
+  - ddbnodes
+  - dolphindbclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - dolphindb.io
+  resources:
+  - ddbnodes/status
+  - dolphindbclusters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - dolphindb.io
+  resources:
+  - dolphindbclusters/finalizers
+  verbs:
+  - update

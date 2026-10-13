@@ -1,0 +1,50 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-single-cluster
+  namespace: dolphindb
+spec:
+  version: "3.00.5"
+  mode: "cluster"
+  controller:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    storage:
+      metaVolumeSize: "10Gi"
+  datanode:
+    replicas: 1
+    antiAffinity: "Disabled"
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+    storage:
+      metaVolumeSize: "10Gi"
+      dataVolumeCount: 1
+      dataVolumeSize: "50Gi"
+  computenode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+  license:
+    mode: "machineFingerprint"
+    secretName: "dolphindb-license"
+    machineFingerprint:
+      autoPassthrough: true
+      mountMachineId: true
+      mountHostEtc: true
+      useHostName: true

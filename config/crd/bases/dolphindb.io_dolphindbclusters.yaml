@@ -1,0 +1,859 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: dolphindbclusters.dolphindb.io
+spec:
+  group: dolphindb.io
+  names:
+    categories:
+    - dolphindb
+    kind: DolphinDBCluster
+    listKind: DolphinDBClusterList
+    plural: dolphindbclusters
+    shortNames:
+    - ddbc
+    singular: dolphindbcluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .spec.version
+      name: Version
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.controller.ready
+      name: Controller
+      type: string
+    - jsonPath: .status.datanode.ready
+      name: DataNode
+      type: string
+    - jsonPath: .status.masterController
+      name: Master
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DolphinDBCluster is the Schema for the dolphindbclusters API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DolphinDBClusterSpec defines the desired state of DolphinDBCluster
+            properties:
+              computenode:
+                description: ComputeNode group configuration
+                properties:
+                  computeGroup:
+                    description: ComputeGroup group name for tenant or query isolation
+                    type: string
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: Config key-value overrides for cluster.cfg (applied
+                      to compute nodes)
+                    type: object
+                  port:
+                    default: 8902
+                    description: Port listening port
+                    format: int32
+                    type: integer
+                  replicas:
+                    default: 0
+                    description: Replicas number of compute nodes (0..N)
+                    format: int32
+                    type: integer
+                  resources:
+                    description: Resources CPU/Memory limits and requests
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This is an alpha field and requires enabling the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  storage:
+                    description: Storage local cache disk sizing
+                    properties:
+                      dataVolumeCount:
+                        default: 1
+                        description: DataVolumeCount number of independent data volumes
+                          (JBOD)
+                        type: integer
+                      dataVolumeSize:
+                        default: 100Gi
+                        description: DataVolumeSize size of each data volume
+                        type: string
+                      metaVolumeSize:
+                        default: 20Gi
+                        description: MetaVolumeSize for redo logs, chunk metadata
+                          and raft state
+                        type: string
+                      storageClassName:
+                        description: StorageClassName to use for PVCs
+                        type: string
+                    type: object
+                required:
+                - replicas
+                type: object
+              controller:
+                description: Controller group configuration
+                properties:
+                  antiAffinity:
+                    default: Preferred
+                    description: AntiAffinity spreading across physical hosts
+                    enum:
+                    - Disabled
+                    - Preferred
+                    - Required
+                    type: string
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: Config key-value overrides for controller.cfg
+                    type: object
+                  memoryReservedRatio:
+                    default: "0.15"
+                    description: MemoryReservedRatio ratio of memory reserved for
+                      OS PageCache (e.g., 0.15 = 15%)
+                    type: string
+                  nodeBindings:
+                    description: NodeBindings explicit node pinning per replica index
+                    items:
+                      description: NodeBinding maps an indexed instance to a specific
+                        physical node
+                      properties:
+                        hostname:
+                          description: Hostname override for license fingerprint
+                          type: string
+                        index:
+                          description: Index is the zero-based replica index (e.g.,
+                            0 for dn-0)
+                          type: integer
+                        nodeName:
+                          description: NodeName is the K8s node name
+                          type: string
+                      required:
+                      - index
+                      - nodeName
+                      type: object
+                    type: array
+                  port:
+                    default: 8900
+                    description: Port listening port
+                    format: int32
+                    type: integer
+                  replicas:
+                    default: 1
+                    description: Replicas number of controllers (1 for standalone/single
+                      cluster, 3 or 5 for Raft HA)
+                    format: int32
+                    type: integer
+                  resources:
+                    description: Resources CPU/Memory limits and requests
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This is an alpha field and requires enabling the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  storage:
+                    description: Storage size and class for raft metadata and configs
+                    properties:
+                      dataVolumeCount:
+                        default: 1
+                        description: DataVolumeCount number of independent data volumes
+                          (JBOD)
+                        type: integer
+                      dataVolumeSize:
+                        default: 100Gi
+                        description: DataVolumeSize size of each data volume
+                        type: string
+                      metaVolumeSize:
+                        default: 20Gi
+                        description: MetaVolumeSize for redo logs, chunk metadata
+                          and raft state
+                        type: string
+                      storageClassName:
+                        description: StorageClassName to use for PVCs
+                        type: string
+                    type: object
+                required:
+                - replicas
+                type: object
+              datanode:
+                description: DataNode group configuration
+                properties:
+                  antiAffinity:
+                    default: Required
+                    description: AntiAffinity spreading across physical hosts
+                    enum:
+                    - Disabled
+                    - Preferred
+                    - Required
+                    type: string
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: Config key-value overrides for cluster.cfg (applied
+                      to data nodes)
+                    type: object
+                  memoryReservedRatio:
+                    default: "0.15"
+                    description: MemoryReservedRatio ratio of memory reserved for
+                      OS PageCache
+                    type: string
+                  nodeBindings:
+                    description: NodeBindings explicit node pinning per replica index
+                    items:
+                      description: NodeBinding maps an indexed instance to a specific
+                        physical node
+                      properties:
+                        hostname:
+                          description: Hostname override for license fingerprint
+                          type: string
+                        index:
+                          description: Index is the zero-based replica index (e.g.,
+                            0 for dn-0)
+                          type: integer
+                        nodeName:
+                          description: NodeName is the K8s node name
+                          type: string
+                      required:
+                      - index
+                      - nodeName
+                      type: object
+                    type: array
+                  port:
+                    default: 8901
+                    description: Port listening port
+                    format: int32
+                    type: integer
+                  replicas:
+                    default: 1
+                    description: Replicas number of data nodes
+                    format: int32
+                    type: integer
+                  resources:
+                    description: Resources CPU/Memory limits and requests
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This is an alpha field and requires enabling the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  storage:
+                    description: Storage layout (meta volume + JBOD data volumes)
+                    properties:
+                      dataVolumeCount:
+                        default: 1
+                        description: DataVolumeCount number of independent data volumes
+                          (JBOD)
+                        type: integer
+                      dataVolumeSize:
+                        default: 100Gi
+                        description: DataVolumeSize size of each data volume
+                        type: string
+                      metaVolumeSize:
+                        default: 20Gi
+                        description: MetaVolumeSize for redo logs, chunk metadata
+                          and raft state
+                        type: string
+                      storageClassName:
+                        description: StorageClassName to use for PVCs
+                        type: string
+                    type: object
+                required:
+                - replicas
+                type: object
+              failover:
+                description: Failover safeguard configuration
+                properties:
+                  autoFailover:
+                    default: false
+                    description: AutoFailover enables replacement of permanently dead
+                      nodes
+                    type: boolean
+                  failoverPeriod:
+                    default: 15m
+                    description: FailoverPeriod is the wait duration before declaring
+                      a node dead (e.g. 15m)
+                    type: string
+                  maxFailoverCount:
+                    default: 1
+                    description: MaxFailoverCount maximum number of dead nodes that
+                      can be automatically replaced
+                    type: integer
+                type: object
+              imageRepository:
+                default: dolphindb
+                description: ImageRepository base repository (e.g., 192.168.100.250/dolphindb)
+                type: string
+              license:
+                description: License configuration (server, secret, or machineFingerprint)
+                properties:
+                  autoReload:
+                    default: true
+                    description: AutoReload hot-reloads license across all nodes via
+                      updateLicense() RPC when Secret changes
+                    type: boolean
+                  machineFingerprint:
+                    description: MachineFingerprint hardware fingerprint settings
+                      for host-bound licenses
+                    properties:
+                      autoPassthrough:
+                        default: true
+                        description: AutoPassthrough automatically mounts /etc/machine-id
+                          and sets hostname to node name
+                        type: boolean
+                      hostname:
+                        description: Hostname manual override if not using host node
+                          name
+                        type: string
+                      mountDMI:
+                        default: false
+                        description: MountDMI mounts host /sys/class/dmi/id for system
+                          UUID
+                        type: boolean
+                      mountHostEtc:
+                        default: true
+                        description: MountHostEtc mounts host /etc to container /dolphindb/etc
+                        type: boolean
+                      mountMachineId:
+                        default: true
+                        description: MountMachineId mounts host /etc/machine-id to
+                          container
+                        type: boolean
+                      nodeName:
+                        description: NodeName manual node pinning if specified
+                        type: string
+                      useHostName:
+                        default: true
+                        description: UseHostName sets container hostname to host node
+                          name
+                        type: boolean
+                    type: object
+                  mode:
+                    default: machineFingerprint
+                    description: 'Mode defines the license type: server, secret, or
+                      machineFingerprint'
+                    enum:
+                    - server
+                    - secret
+                    - machineFingerprint
+                    type: string
+                  secretName:
+                    default: dolphindb-license
+                    description: SecretName is the K8s Secret containing dolphindb.lic
+                    type: string
+                  serverAddress:
+                    description: ServerAddress is the DolphinDB License Server site
+                      (host:port) when mode is server
+                    type: string
+                type: object
+              mode:
+                default: cluster
+                description: 'Mode deployment mode: standalone or cluster'
+                enum:
+                - standalone
+                - cluster
+                type: string
+              networking:
+                description: Networking external access configuration
+                properties:
+                  exposureMode:
+                    default: NodePortDirect
+                    description: ExposureMode defines the external exposure strategy
+                    enum:
+                    - Gateway
+                    - NodePortDirect
+                    - ClusterIP
+                    type: string
+                  publicIP:
+                    description: PublicIP or domain to inject into publicName config
+                      for Web UI redirect
+                    type: string
+                  serviceType:
+                    default: NodePort
+                    description: ServiceType defines K8s service type
+                    type: string
+                type: object
+              preloadModules:
+                description: PreloadModules modules and plugins to preload at startup
+                items:
+                  type: string
+                type: array
+              scheduling:
+                description: Scheduling global node selection and tolerations
+                properties:
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector restricts pods to nodes with specified
+                      labels
+                    type: object
+                  tolerations:
+                    description: Tolerations allows pods to run on tainted nodes
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
+                          description: |-
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists and Equal. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    type: array
+                type: object
+              scripts:
+                description: Scripts lifecycle DOS scripts
+                properties:
+                  initScript:
+                    description: InitScript executed during engine initialization
+                      (dolphindb.dos)
+                    type: string
+                  postStartScript:
+                    description: PostStartScript executed after scheduled job engine
+                      starts (postStart.dos)
+                    type: string
+                  startupScript:
+                    description: StartupScript executed after engine startup (startup.dos)
+                    type: string
+                type: object
+              security:
+                description: Security configuration (admin credentials & ACL)
+                properties:
+                  adminSecretName:
+                    default: dolphindb-admin
+                    description: 'AdminSecretName stores the admin password (secret
+                      key: password)'
+                    type: string
+                  enableShellFunction:
+                    default: false
+                    description: EnableShellFunction allows or denies the dangerous
+                      shell() function in DDB
+                    type: boolean
+                  strictPermissionInspection:
+                    default: true
+                    description: StrictPermissionInspection enables strict ACL inspection
+                    type: boolean
+                type: object
+              standalone:
+                description: Standalone configuration (used when mode == standalone)
+                properties:
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: Config key-value configuration overrides for dolphindb.cfg
+                    type: object
+                  port:
+                    default: 8848
+                    description: Port listening port
+                    format: int32
+                    type: integer
+                  resources:
+                    description: Resources compute resource limits and requests
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This is an alpha field and requires enabling the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  storage:
+                    description: Storage size and class for standalone data & metadata
+                    properties:
+                      dataVolumeCount:
+                        default: 1
+                        description: DataVolumeCount number of independent data volumes
+                          (JBOD)
+                        type: integer
+                      dataVolumeSize:
+                        default: 100Gi
+                        description: DataVolumeSize size of each data volume
+                        type: string
+                      metaVolumeSize:
+                        default: 20Gi
+                        description: MetaVolumeSize for redo logs, chunk metadata
+                          and raft state
+                        type: string
+                      storageClassName:
+                        description: StorageClassName to use for PVCs
+                        type: string
+                    type: object
+                type: object
+              streamingHA:
+                description: StreamingHA streaming Raft configuration
+                properties:
+                  clusterName:
+                    description: ClusterName normalized name without hyphens required
+                      by DDB streaming HA
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled toggles streaming Raft HA
+                    type: boolean
+                  raftGroupId:
+                    default: 2
+                    description: RaftGroupId specifies the streaming Raft group ID
+                    type: integer
+                type: object
+              version:
+                default: 3.00.5
+                description: Version of DolphinDB Server image (e.g., 3.00.5)
+                type: string
+            required:
+            - mode
+            - version
+            type: object
+          status:
+            description: DolphinDBClusterStatus defines the observed state of DolphinDBCluster
+            properties:
+              activeFlow:
+                description: ActiveFlow current DAG task flow in progress
+                type: string
+              computenode:
+                description: ComputeNode topology status
+                properties:
+                  desired:
+                    format: int32
+                    type: integer
+                  ready:
+                    format: int32
+                    type: integer
+                required:
+                - desired
+                - ready
+                type: object
+              conditions:
+                description: Conditions standard condition array
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              controller:
+                description: Controller topology status
+                properties:
+                  desired:
+                    format: int32
+                    type: integer
+                  ready:
+                    format: int32
+                    type: integer
+                required:
+                - desired
+                - ready
+                type: object
+              datanode:
+                description: DataNode topology status
+                properties:
+                  desired:
+                    format: int32
+                    type: integer
+                  ready:
+                    format: int32
+                    type: integer
+                required:
+                - desired
+                - ready
+                type: object
+              flowProgress:
+                description: FlowProgress percentage completion of active flow
+                type: string
+              masterController:
+                description: MasterController current active Raft master controller
+                  pod
+                type: string
+              observedGeneration:
+                description: ObservedGeneration generation observed by operator
+                format: int64
+                type: integer
+              phase:
+                description: Phase current high-level state
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

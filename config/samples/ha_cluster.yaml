@@ -1,0 +1,73 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-ha-prod
+  namespace: dolphindb
+spec:
+  version: "3.00.5"
+  mode: "cluster"
+  imageRepository: "192.168.100.250/dolphindb"
+  controller:
+    replicas: 3
+    port: 8900
+    antiAffinity: "Required"
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+    storage:
+      storageClassName: "longhorn"
+      size: "20Gi"
+    config:
+      dfsReplicationFactor: "2"
+      dfsReplicaReliabilityLevel: "1"
+      dataSync: "1"
+  datanode:
+    replicas: 3
+    port: 8901
+    antiAffinity: "Required"
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+    storage:
+      storageClassName: "longhorn"
+      metaVolumeSize: "20Gi"
+      dataVolumeCount: 2
+      dataVolumeSize: "200Gi"
+    config:
+      chunkCacheEngineMemSize: "4"
+      TSDBCacheEngineSize: "2"
+      newValuePartitionPolicy: "add"
+  computenode:
+    replicas: 2
+    port: 8902
+    computeGroup: "analytics"
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+  license:
+    mode: "machineFingerprint"
+    secretName: "dolphindb-license"
+    machineFingerprint:
+      autoPassthrough: true
+      mountMachineId: true
+      mountHostEtc: true
+      useHostName: true
+  security:
+    adminSecretName: "dolphindb-admin"
+    strictPermissionInspection: true
+    enableShellFunction: false
+  networking:
+    exposureMode: "NodePortDirect"
+    serviceType: "NodePort"
