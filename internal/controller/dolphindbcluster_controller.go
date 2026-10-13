@@ -679,6 +679,27 @@ func (r *DolphinDBClusterReconciler) reconcileScaleDown(ctx context.Context, clu
 		return false, ctrl.Result{}, nil
 	}
 
+	// Safety check: ensure target replicas does not violate dfsReplicationFactor
+	repFactor := int32(1)
+	if cluster.Spec.Controller != nil {
+		if rfStr, ok := cluster.Spec.Controller.Config["dfsReplicationFactor"]; ok {
+			if rf, err := strconv.Atoi(rfStr); err == nil && rf > 0 {
+				repFactor = int32(rf)
+			}
+		} else if cluster.Spec.Controller.Replicas >= 3 {
+			repFactor = int32(2)
+		}
+	}
+
+	if desired < repFactor {
+		log.FromContext(ctx).Error(
+			fmt.Errorf("cannot scale down datanodes to %d: must be >= dfsReplicationFactor (%d)", desired, repFactor),
+			"Scale-down request rejected to prevent chunk replica allocation failure",
+			"desired", desired, "dfsReplicationFactor", repFactor,
+		)
+		return false, ctrl.Result{}, nil
+	}
+
 	// Sort nodes by index descending to pick highest index for removal
 	sort.Slice(nodeList.Items, func(i, j int) bool {
 		return nodeList.Items[i].Spec.Index > nodeList.Items[j].Spec.Index
