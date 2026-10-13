@@ -15,6 +15,7 @@ import (
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/controller"
+	"dolphindb.io/operator/internal/flowengine"
 )
 
 var (
@@ -58,8 +59,9 @@ func main() {
 	}
 
 	if err = (&controller.DolphinDBClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		FlowEngine: flowengine.NewFlowEngine(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DolphinDBCluster")
 		os.Exit(1)

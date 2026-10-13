@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	"dolphindb.io/operator/api/v1alpha1"
 )
 
@@ -92,6 +94,7 @@ func (e *FlowEngine) Run(ctx context.Context, cluster *v1alpha1.DolphinDBCluster
 		cluster.Status.FlowProgress = fmt.Sprintf("%d/%d (%s)", i+1, len(flow.Steps), step.Name())
 
 		res := step.Execute(ctx, cluster)
+		log.FromContext(ctx).Info("Flow step execution", "flow", flow.Name, "step", step.Name(), "status", res.Status, "msg", res.Message)
 		if res.Status != StepStatusDone {
 			return res, false
 		}

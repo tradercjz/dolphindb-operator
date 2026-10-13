@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -19,12 +22,16 @@ import (
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/config"
+	"dolphindb.io/operator/internal/ddbclient"
+	"dolphindb.io/operator/internal/flowengine"
+	"dolphindb.io/operator/internal/paramdict"
 )
 
 // DolphinDBClusterReconciler reconciles a DolphinDBCluster object
 type DolphinDBClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme     *runtime.Scheme
+	FlowEngine *flowengine.FlowEngine
 }
 
 // +kubebuilder:rbac:groups=dolphindb.io,resources=dolphindbclusters,verbs=get;list;watch;create;update;patch;delete
@@ -44,6 +51,42 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	logger.Info("Reconciling DolphinDBCluster", "name", cluster.Name, "mode", cluster.Spec.Mode)
+
+	// Initialize FlowEngine if nil
+	if r.FlowEngine == nil {
+		r.FlowEngine = flowengine.NewFlowEngine()
+	}
+
+	// 0.1 Check if an ActiveFlow is currently in progress
+	if cluster.Status.ActiveFlow != "" {
+		flowName := strings.Split(cluster.Status.ActiveFlow, ":")[0]
+		r.ensureFlowRegistered(cluster, flowName)
+		res, done := r.FlowEngine.Run(ctx, cluster, flowName)
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			return ctrl.Result{}, err
+		}
+		if !done {
+			requeue := res.RequeueAfter
+			if requeue == 0 {
+				requeue = 5 * time.Second
+			}
+			return ctrl.Result{RequeueAfter: requeue}, nil
+		}
+	}
+
+	// 0.2 Check for scale-down before general reconciliation
+	handled, res, err := r.reconcileScaleDown(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if handled {
+		return res, nil
+	}
+
+	// 0.3 Check for live dynamic config updates
+	if _, err := r.reconcileDynamicConfig(ctx, cluster); err != nil {
+		logger.Error(err, "failed to reconcile dynamic config")
+	}
 
 	// 1. Ensure Headless Service for stable DNS
 	if err := r.ensureHeadlessService(ctx, cluster); err != nil {
@@ -255,7 +298,7 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 	// 2. In cluster mode, sync ACL public key from Controller to Secret before launching DataNodes
 	if err := r.syncAclPublicKey(ctx, cluster); err != nil {
 		log.FromContext(ctx).Info("Waiting for Controller to initialize and export ACL public key", "error", err.Error())
-		return nil
+		return fmt.Errorf("waiting for controller acl key: %w", err)
 	}
 
 	// 3. DataNodes
@@ -476,7 +519,15 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 	cluster.Status.ComputeNode = v1alpha1.TopologyStatus{Desired: desiredCn, Ready: cnReady}
 	cluster.Status.MasterController = masterName
 
-	if (desiredCtl == 0 || ctlReady == desiredCtl) && (desiredDn == 0 || dnReady == desiredDn) && (desiredCn == 0 || cnReady == desiredCn) && (ctlReady+dnReady > 0) {
+	if cluster.Status.ActiveFlow != "" {
+		if strings.HasPrefix(cluster.Status.ActiveFlow, "ScaleDown") {
+			cluster.Status.Phase = v1alpha1.PhaseScaling
+		} else if strings.HasPrefix(cluster.Status.ActiveFlow, "RollingRestart") {
+			cluster.Status.Phase = v1alpha1.PhaseRolling
+		} else {
+			cluster.Status.Phase = v1alpha1.PhaseScaling
+		}
+	} else if (desiredCtl == 0 || ctlReady == desiredCtl) && (desiredDn == 0 || dnReady == desiredDn) && (desiredCn == 0 || cnReady == desiredCn) && (ctlReady+dnReady > 0) {
 		cluster.Status.Phase = v1alpha1.PhaseReady
 	} else {
 		cluster.Status.Phase = v1alpha1.PhaseCreating
@@ -527,7 +578,12 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 	}
 	bodyBytes, _ := json.Marshal(payload)
 
-	clientHttp := &http.Client{Timeout: 5 * time.Second}
+	clientHttp := &http.Client{
+		Transport: &http.Transport{
+			Proxy: nil,
+		},
+		Timeout: 5 * time.Second,
+	}
 	resp, err := clientHttp.Post(url, "application/json", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return err
@@ -585,6 +641,126 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 	return r.Create(ctx, newSec)
 }
 
+func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBCluster) *ddbclient.Client {
+	ctlPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
+	ctlPod := &corev1.Pod{}
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err != nil {
+		return nil
+	}
+	if ctlPod.Status.Phase != corev1.PodRunning || ctlPod.Status.PodIP == "" {
+		return nil
+	}
+	ctlPort := int32(8900)
+	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+		ctlPort = cluster.Spec.Controller.Port
+	}
+	baseURL := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
+	return ddbclient.NewClient(baseURL, "admin", "123456")
+}
+
+func (r *DolphinDBClusterReconciler) reconcileScaleDown(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone || cluster.Spec.DataNode == nil {
+		return false, ctrl.Result{}, nil
+	}
+
+	// List current DataNode DDBNodes
+	var nodeList v1alpha1.DDBNodeList
+	if err := r.List(ctx, &nodeList, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/instance":  cluster.Name,
+		"app.kubernetes.io/component": string(v1alpha1.NodeRoleDataNode),
+	}); err != nil {
+		return false, ctrl.Result{}, err
+	}
+
+	desired := cluster.Spec.DataNode.Replicas
+	current := int32(len(nodeList.Items))
+	if current <= desired {
+		return false, ctrl.Result{}, nil
+	}
+
+	// Sort nodes by index descending to pick highest index for removal
+	sort.Slice(nodeList.Items, func(i, j int) bool {
+		return nodeList.Items[i].Spec.Index > nodeList.Items[j].Spec.Index
+	})
+
+	candidate := nodeList.Items[0]
+	candidateName := candidate.Name
+	candidateAlias := candidate.Spec.Alias
+	survivorAlias := fmt.Sprintf("%s-dn-0", cluster.Name)
+
+	log.FromContext(ctx).Info("Detected DataNode scale-down, initiating lossless DAG scale-down flow",
+		"candidate", candidateName, "survivor", survivorAlias)
+
+	flow := flowengine.BuildScaleDownFlow(r.Client, r.getDDBClient, candidateName, candidateAlias, survivorAlias)
+	if r.FlowEngine == nil {
+		r.FlowEngine = flowengine.NewFlowEngine()
+	}
+	r.FlowEngine.RegisterFlow(flow)
+
+	res, done := r.FlowEngine.Run(ctx, cluster, flow.Name)
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		return true, ctrl.Result{}, err
+	}
+
+	if !done {
+		requeue := res.RequeueAfter
+		if requeue == 0 {
+			requeue = 5 * time.Second
+		}
+		return true, ctrl.Result{RequeueAfter: requeue}, nil
+	}
+
+	return true, ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+}
+
+func (r *DolphinDBClusterReconciler) reconcileDynamicConfig(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, error) {
+	if cluster.Spec.DataNode == nil || len(cluster.Spec.DataNode.Config) == 0 {
+		return false, nil
+	}
+
+	lastAppliedKey := "dolphindb.io/last-applied-datanode-config"
+	var lastApplied map[string]string
+	if cluster.Annotations != nil && cluster.Annotations[lastAppliedKey] != "" {
+		_ = json.Unmarshal([]byte(cluster.Annotations[lastAppliedKey]), &lastApplied)
+	}
+	if lastApplied == nil {
+		lastApplied = make(map[string]string)
+	}
+
+	diff := paramdict.ClassifyDiff(lastApplied, cluster.Spec.DataNode.Config)
+	if !diff.HasChanges {
+		return false, nil
+	}
+
+	if diff.IsOnlyDynamic() {
+		log.FromContext(ctx).Info("Detected only dynamic config changes, applying live via setDynamicConfig", "diff", diff.DynamicDiff)
+		cli := r.getDDBClient(cluster)
+		if cli != nil {
+			for k, v := range diff.DynamicDiff {
+				script := fmt.Sprintf("pnodeRun(setDynamicConfig{%q, %s});", k, formatDDBValue(v))
+				_, _ = cli.ExecuteScript(ctx, script)
+			}
+		}
+
+		// Update annotation to remember applied config
+		newBytes, _ := json.Marshal(cluster.Spec.DataNode.Config)
+		if cluster.Annotations == nil {
+			cluster.Annotations = make(map[string]string)
+		}
+		cluster.Annotations[lastAppliedKey] = string(newBytes)
+		return true, r.Update(ctx, cluster)
+	}
+
+	// Contains static changes: update annotation so we don't re-trigger
+	newBytes, _ := json.Marshal(cluster.Spec.DataNode.Config)
+	if cluster.Annotations == nil {
+		cluster.Annotations = make(map[string]string)
+	}
+	cluster.Annotations[lastAppliedKey] = string(newBytes)
+	_ = r.Update(ctx, cluster)
+	return false, nil
+}
+
 func (r *DolphinDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DolphinDBCluster{}).
@@ -594,3 +770,48 @@ func (r *DolphinDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Secret{}).
 		Complete(r)
 }
+
+func formatDDBValue(v string) string {
+	v = strings.TrimSpace(v)
+	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return v
+	}
+	if _, err := strconv.ParseFloat(v, 64); err == nil {
+		return v
+	}
+	if strings.EqualFold(v, "true") || strings.EqualFold(v, "false") {
+		return strings.ToLower(v)
+	}
+	return fmt.Sprintf("%q", v)
+}
+
+func (r *DolphinDBClusterReconciler) ensureFlowRegistered(cluster *v1alpha1.DolphinDBCluster, flowName string) {
+	if r.FlowEngine == nil {
+		r.FlowEngine = flowengine.NewFlowEngine()
+	}
+	if _, exists := r.FlowEngine.Flows[flowName]; exists {
+		return
+	}
+
+	if strings.HasPrefix(flowName, "ScaleDown-") {
+		candidateAlias := strings.TrimPrefix(flowName, "ScaleDown-")
+		candidateName := candidateAlias
+		survivorAlias := fmt.Sprintf("%s-dn-0", cluster.Name)
+		flow := flowengine.BuildScaleDownFlow(r.Client, r.getDDBClient, candidateName, candidateAlias, survivorAlias)
+		r.FlowEngine.RegisterFlow(flow)
+	} else if strings.HasPrefix(flowName, "RollingRestart") {
+		var targetNodes []string
+		var targetAliases []string
+		if cluster.Spec.DataNode != nil {
+			for i := int32(0); i < cluster.Spec.DataNode.Replicas; i++ {
+				name := fmt.Sprintf("%s-dn-%d", cluster.Name, i)
+				targetNodes = append(targetNodes, name)
+				targetAliases = append(targetAliases, name)
+			}
+		}
+		flow := flowengine.BuildRollingRestartFlow(r.Client, r.getDDBClient, targetNodes, targetAliases)
+		r.FlowEngine.RegisterFlow(flow)
+	}
+}
+
+
