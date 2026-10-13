@@ -246,13 +246,13 @@ func (r *DDBOperationReconciler) reconcileStartNode(ctx context.Context, op *v1a
 		return ctrl.Result{RequeueAfter: 3 * time.Second}, r.Status().Update(ctx, op)
 	}
 
-	// Check if pod is running
+	// Check if pod is running and ready via probe
 	pod := &corev1.Pod{}
 	err = r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Name}, pod)
-	if err != nil || pod.Status.Phase != corev1.PodRunning {
+	if err != nil || pod.Status.Phase != corev1.PodRunning || !isPodReady(pod) {
 		op.Status.CurrentStep = fmt.Sprintf("WaitingPodRunning-%s", node.Name)
 		op.Status.Progress = "60%"
-		op.Status.Message = fmt.Sprintf("Waiting for pod %s to enter Running state", node.Name)
+		op.Status.Message = fmt.Sprintf("Waiting for pod %s to enter Running and Ready state (initialization check)", node.Name)
 		return ctrl.Result{RequeueAfter: 3 * time.Second}, r.Status().Update(ctx, op)
 	}
 
@@ -423,11 +423,11 @@ func (r *DDBOperationReconciler) reconcileRollingRestart(ctx context.Context, op
 		return ctrl.Result{RequeueAfter: 4 * time.Second}, r.Status().Update(ctx, op)
 	}
 
-	// Wait for Pod to become Running
+	// Wait for Pod to become Running and Ready
 	pod := &corev1.Pod{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: op.Namespace, Name: nodeToRestart}, pod)
-	if err != nil || pod.Status.Phase != corev1.PodRunning {
-		op.Status.Message = fmt.Sprintf("Waiting for pod %s to be running", nodeToRestart)
+	if err != nil || pod.Status.Phase != corev1.PodRunning || !isPodReady(pod) {
+		op.Status.Message = fmt.Sprintf("Waiting for pod %s to be running and ready (probe check)", nodeToRestart)
 		return ctrl.Result{RequeueAfter: 3 * time.Second}, r.Status().Update(ctx, op)
 	}
 

@@ -24,9 +24,9 @@ func main() {
 			os.Exit(1)
 		}
 	case "prestop":
-		fmt.Printf("[ddb-agent] Running prestop flush on port %d...\n", *ddbPort)
-		if err := agent.PreStopFlush(*ddbPort); err != nil {
-			fmt.Fprintf(os.Stderr, "[ddb-agent] Prestop flush error: %v\n", err)
+		fmt.Printf("[ddb-agent] Running prestop graceful shutdown (SIGTERM / kill -15) on port %d...\n", *ddbPort)
+		if err := agent.PreStopShutdown(*ddbPort); err != nil {
+			fmt.Fprintf(os.Stderr, "[ddb-agent] Prestop graceful shutdown error: %v\n", err)
 			os.Exit(1)
 		}
 	case "init":

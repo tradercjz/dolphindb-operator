@@ -478,24 +478,25 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 	var masterName string
 
 	for _, n := range nodeList.Items {
+		isNodeReady := n.Status.Phase == v1alpha1.NodePhaseRunning && n.Status.DDBState == 1
 		switch n.Spec.Role {
 		case v1alpha1.NodeRoleController:
-			if n.Status.Phase == v1alpha1.NodePhaseRunning {
+			if isNodeReady {
 				ctlReady++
 				if masterName == "" {
 					masterName = n.Name
 				}
 			}
 		case v1alpha1.NodeRoleDataNode:
-			if n.Status.Phase == v1alpha1.NodePhaseRunning {
+			if isNodeReady {
 				dnReady++
 			}
 		case v1alpha1.NodeRoleComputeNode:
-			if n.Status.Phase == v1alpha1.NodePhaseRunning {
+			if isNodeReady {
 				cnReady++
 			}
 		case v1alpha1.NodeRoleSingle:
-			if n.Status.Phase == v1alpha1.NodePhaseRunning {
+			if isNodeReady {
 				dnReady++
 			}
 		}

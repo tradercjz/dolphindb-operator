@@ -420,6 +420,50 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		args = append(args, "-config", "/data/ddb/server/config/dolphindb.cfg")
 	}
 
+	probeFunc := "isDataNodeInitialized()"
+	if node.Spec.Role != v1alpha1.NodeRoleDataNode {
+		probeFunc = "isNodeInitialized()"
+	}
+	probeCmd := fmt.Sprintf(`wget -q -O - --header="Content-Type: application/json" --post-data='{"functionName":"executeCode","params":[{"name":"script","form":"scalar","type":"string","value":%q}]}' http://127.0.0.1:%d | grep -q '"value":"1"'`, probeFunc, node.Spec.Port)
+
+	readinessProbe := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"/bin/sh", "-c", probeCmd},
+			},
+		},
+		InitialDelaySeconds: 3,
+		PeriodSeconds:       3,
+		TimeoutSeconds:      2,
+		SuccessThreshold:    1,
+		FailureThreshold:    3,
+	}
+
+	startupProbe := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"/bin/sh", "-c", probeCmd},
+			},
+		},
+		InitialDelaySeconds: 2,
+		PeriodSeconds:       2,
+		TimeoutSeconds:      2,
+		SuccessThreshold:    1,
+		FailureThreshold:    60, // allows up to 120s for node initialization and redo log playback
+	}
+
+	lifecycle := &corev1.Lifecycle{
+		PreStop: &corev1.LifecycleHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{
+					"/bin/sh",
+					"-c",
+					`kill -15 1 || true; while kill -0 1 2>/dev/null; do sleep 0.5; done`,
+				},
+			},
+		},
+	}
+
 	graceSeconds := int64(300)
 
 	pod := &corev1.Pod{
@@ -443,13 +487,16 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			Volumes:                       volumes,
 			Containers: []corev1.Container{
 				{
-					Name:         "dolphindb",
-					Image:        node.Spec.Image,
-					WorkingDir:   "/data/ddb/server",
-					Command:      []string{"/data/ddb/server/dolphindb"},
-					Args:         args,
-					Resources:    node.Spec.Resources,
-					VolumeMounts: ddbMounts,
+					Name:            "dolphindb",
+					Image:           node.Spec.Image,
+					WorkingDir:      "/data/ddb/server",
+					Command:         []string{"/data/ddb/server/dolphindb"},
+					Args:            args,
+					Resources:       node.Spec.Resources,
+					VolumeMounts:    ddbMounts,
+					Lifecycle:       lifecycle,
+					StartupProbe:    startupProbe,
+					ReadinessProbe:  readinessProbe,
 					Ports: []corev1.ContainerPort{
 						{Name: "ddb-port", ContainerPort: node.Spec.Port},
 					},
@@ -461,6 +508,15 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 	return pod
 }
 
+func isPodReady(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *DDBNodeReconciler) updateStatus(ctx context.Context, node *v1alpha1.DDBNode, pod *corev1.Pod, pvcs []corev1.PersistentVolumeClaim) error {
 	node.Status.PodName = pod.Name
 	node.Status.PodIP = pod.Status.PodIP
@@ -469,14 +525,22 @@ func (r *DDBNodeReconciler) updateStatus(ctx context.Context, node *v1alpha1.DDB
 
 	switch pod.Status.Phase {
 	case corev1.PodRunning:
-		node.Status.Phase = v1alpha1.NodePhaseRunning
-		node.Status.DDBState = 1
+		if isPodReady(pod) {
+			node.Status.Phase = v1alpha1.NodePhaseRunning
+			node.Status.DDBState = 1
+		} else {
+			node.Status.Phase = v1alpha1.NodePhaseCreating
+			node.Status.DDBState = 0
+		}
 	case corev1.PodPending:
 		node.Status.Phase = v1alpha1.NodePhaseCreating
+		node.Status.DDBState = 0
 	case corev1.PodFailed:
 		node.Status.Phase = v1alpha1.NodePhaseFailed
+		node.Status.DDBState = 0
 	default:
 		node.Status.Phase = v1alpha1.NodePhasePending
+		node.Status.DDBState = 0
 	}
 
 	var bindings []v1alpha1.VolumeBinding

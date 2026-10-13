@@ -254,6 +254,38 @@ func (c *Client) HasActiveRecoveryTasks(ctx context.Context) (bool, error) {
 	return res[0].Value != "0", nil
 }
 
+// IsDataNodeInitialized checks whether the target DataNode has completed chunk and redo log initialization
+func (c *Client) IsDataNodeInitialized(ctx context.Context) (bool, error) {
+	script := "isDataNodeInitialized();"
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return false, err
+	}
+	var res []struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil || len(res) == 0 {
+		return false, nil
+	}
+	return res[0].Value == "1" || res[0].Value == "true", nil
+}
+
+// IsNodeInitialized checks whether the node has completed initialization
+func (c *Client) IsNodeInitialized(ctx context.Context) (bool, error) {
+	script := "isNodeInitialized();"
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return false, err
+	}
+	var res []struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil || len(res) == 0 {
+		return false, nil
+	}
+	return res[0].Value == "1" || res[0].Value == "true", nil
+}
+
 // GetLicenseDetails retrieves the license attributes as a key-value map
 func (c *Client) GetLicenseDetails(ctx context.Context) (map[string]string, error) {
 	raw, err := c.ExecuteScript(ctx, "license();")

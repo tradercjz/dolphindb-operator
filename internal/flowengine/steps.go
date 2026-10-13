@@ -84,9 +84,9 @@ func (s *RollingRestartNodeStep) Execute(ctx context.Context, cluster *v1alpha1.
 		return WaitResult(4*time.Second, fmt.Sprintf("Triggered pod recreation for %s", s.NodeName))
 	}
 
-	// Verify pod is running
-	if pod.Status.Phase != corev1.PodRunning {
-		return WaitResult(3*time.Second, fmt.Sprintf("Pod %s is %s", s.NodeName, pod.Status.Phase))
+	// Verify pod is running and ready via probe
+	if pod.Status.Phase != corev1.PodRunning || !isPodReady(pod) {
+		return WaitResult(3*time.Second, fmt.Sprintf("Pod %s is initializing (phase: %s, awaiting probe)", s.NodeName, pod.Status.Phase))
 	}
 
 	// Verify node is online in cluster perf
@@ -258,4 +258,13 @@ func (s *DeleteDDBNodeCRStep) Execute(ctx context.Context, cluster *v1alpha1.Dol
 	_ = s.K8sClient.Delete(ctx, pod)
 
 	return DoneResult(fmt.Sprintf("DDBNode %s deleted safely", s.NodeName))
+}
+
+func isPodReady(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
