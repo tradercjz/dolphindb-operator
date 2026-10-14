@@ -429,6 +429,15 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	alias := name
 
 	renderer := config.NewConfigRenderer(cluster)
+	if role == v1alpha1.NodeRoleController {
+		alias = renderer.ControllerAlias(index)
+	} else if role == v1alpha1.NodeRoleDataNode {
+		alias = renderer.DataNodeAlias(index)
+	}
+	if binding != nil && binding.Alias != "" {
+		alias = binding.Alias
+	}
+
 	var expectedSites string
 	var expectedCtlSite string
 	if cluster.Spec.Mode == v1alpha1.ModeCluster {
@@ -437,8 +446,9 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
 			ctlPort = cluster.Spec.Controller.Port
 		}
+		ctlAlias := renderer.ControllerAlias(0)
 		ctlDomain := renderer.NodeDomain(fmt.Sprintf("%s-ctl-0", cluster.Name))
-		expectedCtlSite = fmt.Sprintf("%s:%d:%s-ctl-0", ctlDomain, ctlPort, cluster.Name)
+		expectedCtlSite = fmt.Sprintf("%s:%d:%s", ctlDomain, ctlPort, ctlAlias)
 	}
 
 	// Build desired nodeSpec
@@ -487,7 +497,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		nodeSpec.NodeName = binding.NodeName
 		if binding.Hostname != "" {
 			nodeSpec.Hostname = binding.Hostname
-		} else {
+		} else if cluster.Spec.Mode == v1alpha1.ModeStandalone {
 			nodeSpec.Hostname = binding.NodeName
 		}
 		if binding.LicenseSecretName != "" {
@@ -495,7 +505,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		}
 	} else if nodeSpec.NodeName == "" && defaultNodeName != "" {
 		nodeSpec.NodeName = defaultNodeName
-		if nodeSpec.Hostname == "" {
+		if cluster.Spec.Mode == v1alpha1.ModeStandalone && nodeSpec.Hostname == "" {
 			nodeSpec.Hostname = defaultNodeName
 		}
 	}
@@ -506,6 +516,9 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if cluster.Spec.Controller != nil {
 			nodeSpec.Resources = cluster.Spec.Controller.Resources
 			nodeSpec.Storage = cluster.Spec.Controller.Storage
+			if binding != nil && binding.ClaimName != "" {
+				nodeSpec.Storage.ExistingClaims = []string{binding.ClaimName}
+			}
 			nodeSpec.AntiAffinity = cluster.Spec.Controller.AntiAffinity
 			if nodeSpec.AntiAffinity == "" {
 				nodeSpec.AntiAffinity = v1alpha1.AntiAffinityPreferred
@@ -515,6 +528,9 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if cluster.Spec.DataNode != nil {
 			nodeSpec.Resources = cluster.Spec.DataNode.Resources
 			nodeSpec.Storage = cluster.Spec.DataNode.Storage
+			if binding != nil && binding.ClaimName != "" {
+				nodeSpec.Storage.ExistingClaims = []string{binding.ClaimName}
+			}
 			nodeSpec.AntiAffinity = cluster.Spec.DataNode.AntiAffinity
 			if nodeSpec.AntiAffinity == "" {
 				nodeSpec.AntiAffinity = v1alpha1.AntiAffinityPreferred
@@ -577,6 +593,31 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		}
 		if existing.Spec.AntiAffinity != nodeSpec.AntiAffinity {
 			existing.Spec.AntiAffinity = nodeSpec.AntiAffinity
+			needsUpdate = true
+		}
+		if existing.Spec.Alias != alias {
+			existing.Spec.Alias = alias
+			if existing.Labels == nil {
+				existing.Labels = make(map[string]string)
+			}
+			existing.Labels["dolphindb.io/node-alias"] = alias
+			needsUpdate = true
+		}
+		if existing.Spec.Port != port {
+			existing.Spec.Port = port
+			needsUpdate = true
+		}
+		claimsChanged := len(existing.Spec.Storage.ExistingClaims) != len(nodeSpec.Storage.ExistingClaims)
+		if !claimsChanged {
+			for idx := range nodeSpec.Storage.ExistingClaims {
+				if existing.Spec.Storage.ExistingClaims[idx] != nodeSpec.Storage.ExistingClaims[idx] {
+					claimsChanged = true
+					break
+				}
+			}
+		}
+		if claimsChanged {
+			existing.Spec.Storage.ExistingClaims = nodeSpec.Storage.ExistingClaims
 			needsUpdate = true
 		}
 		if existing.Spec.LicenseSecretName == "" && nodeSpec.LicenseSecretName != "" {

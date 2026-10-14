@@ -101,6 +101,10 @@ spec:
                   hostname:
                     description: Hostname manual override if not using host node name
                     type: string
+                  licensePath:
+                    description: LicensePath optional host license file path (defaults
+                      to /home/jzchen/dolphindb.lic)
+                    type: string
                   mountDMI:
                     default: false
                     description: MountDMI mounts host /sys/class/dmi/id for system
@@ -229,6 +233,12 @@ spec:
                     default: 100Gi
                     description: DataVolumeSize size of each data volume
                     type: string
+                  existingClaims:
+                    description: ExistingClaims specifies names of pre-existing PVCs
+                      to adopt
+                    items:
+                      type: string
+                    type: array
                   metaVolumeSize:
                     default: 20Gi
                     description: MetaVolumeSize for redo logs, chunk metadata and

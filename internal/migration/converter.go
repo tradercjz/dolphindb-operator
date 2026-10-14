@@ -140,18 +140,8 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 			ctlPort = 8900
 		}
 		ctlRes := buildResources(detail.ControllerSpec.CPU, detail.ControllerSpec.Memory)
-		cluster.Spec.Controller = &v1alpha1.ControllerGroupSpec{
-			Replicas:     ctlReplicas,
-			Port:         ctlPort,
-			AntiAffinity: v1alpha1.AntiAffinityPreferred,
-			Resources:    ctlRes,
-			Storage: v1alpha1.StorageSpec{
-				StorageClassName: scName,
-				MetaVolumeSize:   "20Gi",
-			},
-		}
 
-		// DataNode
+		// DataNode baseline specs
 		dnReplicas := detail.DataNodeSpec.Replicas
 		if dnReplicas <= 0 {
 			dnReplicas = 1
@@ -166,14 +156,87 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 			dnDataSize = "100Gi"
 		}
 
+		// In-place migration bindings and paths
+		var ctlBindings []v1alpha1.NodeBinding
+		var dnBindings []v1alpha1.NodeBinding
+		ctlConfig := make(map[string]string)
+		dnConfig := make(map[string]string)
+		for k, v := range detail.CustomConfigs {
+			dnConfig[k] = v
+		}
+
+		if opts.TargetMode == "in-place" {
+			// In-place migration preserves legacy node aliases and path layouts
+			dnConfig["volumes"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/storage"
+			dnConfig["redoLogDir"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/redolog"
+			dnConfig["chunkMetaDir"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/storage/CHUNK_METADATA"
+			if dnConfig["maxMemSize"] == "" {
+				dnConfig["maxMemSize"] = "4"
+			}
+			if dnConfig["OLAPCacheEngineSize"] == "" {
+				dnConfig["OLAPCacheEngineSize"] = "1"
+			}
+			if dnConfig["TSDBCacheEngineSize"] == "" {
+				dnConfig["TSDBCacheEngineSize"] = "1"
+			}
+			dnConfig["dataSync"] = "1"
+
+			// Generate Controller NodeBindings with legacy claim adoption
+			for i := int32(0); i < ctlReplicas; i++ {
+				claimName := fmt.Sprintf("data-ddb-%s-ctr-%d-0", detail.Info.Name, i)
+				nodeName := "aftersale2"
+				for _, p := range detail.Pods {
+					if strings.Contains(p.Name, fmt.Sprintf("ctr-%d", i)) && p.NodeName != "" {
+						nodeName = p.NodeName
+						break
+					}
+				}
+				ctlBindings = append(ctlBindings, v1alpha1.NodeBinding{
+					Index:     int(i),
+					NodeName:  nodeName,
+					Alias:     fmt.Sprintf("controller%d", i),
+					ClaimName: claimName,
+				})
+			}
+
+			// Generate DataNode NodeBindings with legacy claim adoption
+			for i := int32(0); i < dnReplicas; i++ {
+				claimName := fmt.Sprintf("data-ddb-%s-dn-%d-0", detail.Info.Name, i)
+				nodeName := "aftersale2"
+				for _, p := range detail.Pods {
+					if strings.Contains(p.Name, fmt.Sprintf("dn-%d", i)) && p.NodeName != "" {
+						nodeName = p.NodeName
+						break
+					}
+				}
+				dnBindings = append(dnBindings, v1alpha1.NodeBinding{
+					Index:     int(i),
+					NodeName:  nodeName,
+					Alias:     fmt.Sprintf("node%d", i),
+					ClaimName: claimName,
+				})
+			}
+		}
+
+		cluster.Spec.Controller = &v1alpha1.ControllerGroupSpec{
+			Replicas:     ctlReplicas,
+			Port:         ctlPort,
+			AntiAffinity: v1alpha1.AntiAffinityPreferred,
+			Resources:    ctlRes,
+			Storage: v1alpha1.StorageSpec{
+				StorageClassName: scName,
+				MetaVolumeSize:   "20Gi",
+			},
+			NodeBindings: ctlBindings,
+			Config:       ctlConfig,
+		}
+
+		// DataNode
 		dnStorage := v1alpha1.StorageSpec{
 			StorageClassName: scName,
 			MetaVolumeSize:   "20Gi",
 			DataVolumeCount:  1,
 			DataVolumeSize:   dnDataSize,
-		}
-		if opts.TargetMode == "in-place" && len(existingDataClaims) > 0 {
-			dnStorage.ExistingClaims = existingDataClaims
 		}
 
 		cluster.Spec.DataNode = &v1alpha1.DataNodeGroupSpec{
@@ -182,7 +245,8 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 			AntiAffinity: v1alpha1.AntiAffinityPreferred,
 			Resources:    dnRes,
 			Storage:      dnStorage,
-			Config:       detail.CustomConfigs,
+			NodeBindings: dnBindings,
+			Config:       dnConfig,
 		}
 
 		// ComputeNode (if any)

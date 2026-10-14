@@ -189,6 +189,12 @@ type NodeBinding struct {
 
 	// LicenseSecretName override license secret per node
 	LicenseSecretName string `json:"licenseSecretName,omitempty"`
+
+	// Alias is the DolphinDB node alias override (e.g. node0, controller0)
+	Alias string `json:"alias,omitempty"`
+
+	// ClaimName specifies an existing PVC to adopt for this replica
+	ClaimName string `json:"claimName,omitempty"`
 }
 
 // StandaloneSpec defines the single-node deployment profile

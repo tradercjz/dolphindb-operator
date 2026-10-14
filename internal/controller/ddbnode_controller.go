@@ -188,6 +188,23 @@ func (r *DDBNodeReconciler) ensureService(ctx context.Context, node *v1alpha1.DD
 	svc := &corev1.Service{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Name}, svc)
 	if err == nil {
+		needsUpdate := false
+		if svc.Spec.Selector == nil || svc.Spec.Selector["dolphindb.io/node-alias"] != node.Spec.Alias {
+			if svc.Spec.Selector == nil {
+				svc.Spec.Selector = make(map[string]string)
+			}
+			svc.Spec.Selector["dolphindb.io/node-alias"] = node.Spec.Alias
+			needsUpdate = true
+		}
+		if len(svc.Spec.Ports) > 0 && svc.Spec.Ports[0].Port != node.Spec.Port {
+			svc.Spec.Ports[0].Port = node.Spec.Port
+			needsUpdate = true
+		}
+		if needsUpdate {
+			if err := r.Update(ctx, svc); err != nil {
+				return nil, err
+			}
+		}
 		return svc, nil
 	}
 	if !errors.IsNotFound(err) {
@@ -246,6 +263,18 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 				needsRecreate = true
 			}
 		}
+		if node.Spec.Fingerprint != nil {
+			hasHostHn := false
+			for _, v := range pod.Spec.Volumes {
+				if v.Name == "host-hostname" {
+					hasHostHn = true
+					break
+				}
+			}
+			if !hasHostHn {
+				needsRecreate = true
+			}
+		}
 		if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
 			hasLic := false
 			for _, v := range pod.Spec.Volumes {
@@ -259,28 +288,51 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 			}
 		}
 		expectedHostname := node.Name
-		if node.Spec.Hostname != "" {
-			expectedHostname = node.Spec.Hostname
-		} else if node.Spec.Fingerprint != nil {
-			if node.Spec.Fingerprint.Hostname != "" {
-				expectedHostname = node.Spec.Fingerprint.Hostname
-			} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
-				expectedHostname = node.Spec.NodeName
-			} else if node.Spec.NodeName != "" {
-				expectedHostname = node.Spec.NodeName
+		if node.Spec.Role == v1alpha1.NodeRoleSingle {
+			if node.Spec.Hostname != "" {
+				expectedHostname = node.Spec.Hostname
+			} else if node.Spec.Fingerprint != nil {
+				if node.Spec.Fingerprint.Hostname != "" {
+					expectedHostname = node.Spec.Fingerprint.Hostname
+				} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
+					expectedHostname = node.Spec.NodeName
+				} else if node.Spec.NodeName != "" {
+					expectedHostname = node.Spec.NodeName
+				}
 			}
 		}
-		if pod.Spec.Hostname != expectedHostname {
+		if expectedHostname != "" && pod.Spec.Hostname != expectedHostname {
 			needsRecreate = true
 		}
 		if node.Spec.NodeName != "" && pod.Spec.NodeName != "" && pod.Spec.NodeName != node.Spec.NodeName {
 			needsRecreate = true
 		}
-		if node.Spec.NodeName == "" && pod.Spec.NodeName != "" && pod.Spec.Affinity == nil {
+		if pod.Labels != nil && node.Spec.Alias != "" && pod.Labels["dolphindb.io/node-alias"] != node.Spec.Alias {
 			needsRecreate = true
 		}
+		if len(pvcs) > 0 {
+			for _, expPVC := range pvcs {
+				matched := false
+				for _, v := range pod.Spec.Volumes {
+					if v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == expPVC.Name {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					needsRecreate = true
+					break
+				}
+			}
+		}
 		if needsRecreate && pod.DeletionTimestamp == nil {
-			log.FromContext(ctx).Info("Recreating pod due to updated hardware fingerprint / node placement", "pod", pod.Name)
+			log.FromContext(ctx).Info("Recreating pod due to updated spec / fingerprint / volume bindings",
+				"pod", pod.Name,
+				"podHostname", pod.Spec.Hostname,
+				"expectedHostname", expectedHostname,
+				"podNodeName", pod.Spec.NodeName,
+				"nodeSpecNodeName", node.Spec.NodeName,
+			)
 			if err := r.Delete(ctx, pod); err != nil {
 				return nil, err
 			}
@@ -408,6 +460,10 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			Name:      aclVolName,
 			MountPath: fmt.Sprintf("/data/ddb/server/data/%s/keys", node.Spec.Alias),
 		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      aclVolName,
+			MountPath: fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s/keys", node.Spec.Alias),
+		})
 	}
 
 	// Mount PVCs
@@ -434,10 +490,18 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 				})
 			}
 		} else if strings.HasPrefix(pvc.Name, "data-") {
-			if node.Spec.Role == v1alpha1.NodeRoleSingle {
+			if node.Spec.Role == v1alpha1.NodeRoleSingle || node.Spec.Role == v1alpha1.NodeRoleController {
 				ddbMounts = append(ddbMounts, corev1.VolumeMount{
 					Name:      volName,
 					MountPath: "/data/ddb/server/data",
+				})
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: "/data/ddb/server/clusterDemo/data",
+				})
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      volName,
+					MountPath: "/var/lib/dolphindb/data/vol-0",
 				})
 			} else {
 				volIdx := fmt.Sprintf("%d", i)
@@ -446,6 +510,16 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					if _, err := strconv.Atoi(parts[1]); err == nil {
 						volIdx = parts[1]
 					}
+				}
+				if i == 0 {
+					ddbMounts = append(ddbMounts, corev1.VolumeMount{
+						Name:      volName,
+						MountPath: "/data/ddb/server/data",
+					})
+					ddbMounts = append(ddbMounts, corev1.VolumeMount{
+						Name:      volName,
+						MountPath: "/data/ddb/server/clusterDemo/data",
+					})
 				}
 				ddbMounts = append(ddbMounts, corev1.VolumeMount{
 					Name:      volName,
@@ -466,15 +540,17 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 
 	// Hardware fingerprint passthrough (if enabled)
 	podHostname := node.Name
-	if node.Spec.Hostname != "" {
-		podHostname = node.Spec.Hostname
-	} else if node.Spec.Fingerprint != nil {
-		if node.Spec.Fingerprint.Hostname != "" {
-			podHostname = node.Spec.Fingerprint.Hostname
-		} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
-			podHostname = node.Spec.NodeName
-		} else if node.Spec.NodeName != "" {
-			podHostname = node.Spec.NodeName
+	if node.Spec.Role == v1alpha1.NodeRoleSingle {
+		if node.Spec.Hostname != "" {
+			podHostname = node.Spec.Hostname
+		} else if node.Spec.Fingerprint != nil {
+			if node.Spec.Fingerprint.Hostname != "" {
+				podHostname = node.Spec.Fingerprint.Hostname
+			} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
+				podHostname = node.Spec.NodeName
+			} else if node.Spec.NodeName != "" {
+				podHostname = node.Spec.NodeName
+			}
 		}
 	}
 
@@ -514,10 +590,30 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			ReadOnly:  true,
 		})
 	}
+	if node.Spec.Fingerprint != nil {
+		hnVolName := "host-hostname"
+		volumes = append(volumes, corev1.Volume{
+			Name: hnVolName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/etc/hostname",
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      hnVolName,
+			MountPath: "/etc/hostname",
+			ReadOnly:  true,
+		})
+	}
 
 	// Build DolphinDB start command line
+	homeDir := "/data/ddb/server/data"
+	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+		homeDir = fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s", node.Spec.Alias)
+	}
 	args := []string{
-		"-home", "/data/ddb/server/data",
+		"-home", homeDir,
 		"-console", "0",
 		"-stdoutLog", "1",
 		"-mode", string(node.Spec.Role),
@@ -588,13 +684,13 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 				Command: []string{
 					"/bin/sh",
 					"-c",
-					`kill -15 1 || true; while kill -0 1 2>/dev/null; do sleep 0.5; done`,
+					`kill -15 1 || true; for i in $(seq 1 15); do kill -0 1 2>/dev/null || exit 0; sleep 1; done; kill -9 1 || true`,
 				},
 			},
 		},
 	}
 
-	graceSeconds := int64(300)
+	graceSeconds := int64(30)
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

@@ -42,11 +42,25 @@ func (r *ConfigRenderer) NodeDomain(podName string) string {
 
 // ControllerAlias returns standard alias for controller index
 func (r *ConfigRenderer) ControllerAlias(index int32) string {
+	if r.Cluster.Spec.Controller != nil {
+		for _, b := range r.Cluster.Spec.Controller.NodeBindings {
+			if b.Index == int(index) && b.Alias != "" {
+				return b.Alias
+			}
+		}
+	}
 	return fmt.Sprintf("%s-ctl-%d", r.Cluster.Name, index)
 }
 
 // DataNodeAlias returns standard alias for datanode index
 func (r *ConfigRenderer) DataNodeAlias(index int32) string {
+	if r.Cluster.Spec.DataNode != nil {
+		for _, b := range r.Cluster.Spec.DataNode.NodeBindings {
+			if b.Index == int(index) && b.Alias != "" {
+				return b.Alias
+			}
+		}
+	}
 	return fmt.Sprintf("%s-dn-%d", r.Cluster.Name, index)
 }
 
@@ -164,7 +178,6 @@ func (r *ConfigRenderer) renderControllerCfg() string {
 	cfg["dataSync"] = "1"
 	cfg["workerNum"] = "4"
 	cfg["maxConnections"] = "2048"
-	cfg["dfsMetaDir"] = "/var/lib/dolphindb/meta/dfsMeta"
 
 	ctlReplicas := int32(1)
 	if r.Cluster.Spec.Controller != nil {
@@ -222,6 +235,7 @@ func (r *ConfigRenderer) renderControllersCfg() string {
 func (r *ConfigRenderer) renderClusterProps() map[string]string {
 	cfg := make(map[string]string)
 	cfg["lanCluster"] = "0"
+	cfg["dataSync"] = "1"
 	cfg["maxConnections"] = "2048"
 	cfg["workerNum"] = "4"
 	cfg["maxBatchJobWorker"] = "4"
@@ -230,23 +244,9 @@ func (r *ConfigRenderer) renderClusterProps() map[string]string {
 	cfg["enableChunkGranularityConfig"] = "true"
 	cfg["sites"] = r.RenderSites()
 
-	// Data storage volumes using <ALIAS> macro
-	dataVolCount := 1
-	if r.Cluster.Spec.DataNode != nil && r.Cluster.Spec.DataNode.Storage.DataVolumeCount > 0 {
-		dataVolCount = r.Cluster.Spec.DataNode.Storage.DataVolumeCount
-	}
-	var vols []string
-	for i := 0; i < dataVolCount; i++ {
-		vols = append(vols, fmt.Sprintf("/var/lib/dolphindb/data/vol-%d/<ALIAS>", i))
-	}
-	cfg["volumes"] = strings.Join(vols, ",")
-	cfg["redoLogDir"] = "/var/lib/dolphindb/meta/redoLog/<ALIAS>"
-	cfg["chunkMetaDir"] = "/var/lib/dolphindb/meta/chunkMeta/<ALIAS>"
-
 	// Streaming HA configuration
 	if r.Cluster.Spec.StreamingHA.Enabled {
 		cfg["streamingHAMode"] = "raft"
-		cfg["persistenceDir"] = "/var/lib/dolphindb/meta/streaming/<ALIAS>"
 		cName := r.Cluster.Spec.StreamingHA.ClusterName
 		if cName == "" {
 			cName = strings.ReplaceAll(r.Cluster.Name, "-", "")
@@ -269,18 +269,77 @@ func (r *ConfigRenderer) renderClusterProps() map[string]string {
 func (r *ConfigRenderer) renderClusterCfg() string {
 	cfg := r.renderClusterProps()
 
+	var customVolsPattern string
+	var customRedoPattern string
+	var customMetaPattern string
+
 	// Merge DataNode user config overrides
 	if r.Cluster.Spec.DataNode != nil {
 		for k, v := range r.Cluster.Spec.DataNode.Config {
-			cfg[k] = v
+			if k == "volumes" {
+				customVolsPattern = v
+			} else if k == "redoLogDir" {
+				customRedoPattern = v
+			} else if k == "chunkMetaDir" {
+				customMetaPattern = v
+			} else if !strings.Contains(v, "<ALIAS>") {
+				cfg[k] = v
+			}
+		}
+
+		dataVolCount := 1
+		if r.Cluster.Spec.DataNode.Storage.DataVolumeCount > 0 {
+			dataVolCount = r.Cluster.Spec.DataNode.Storage.DataVolumeCount
+		}
+
+		for i := int32(0); i < r.Cluster.Spec.DataNode.Replicas; i++ {
+			alias := r.DataNodeAlias(i)
+
+			// 1. volumes
+			if customVolsPattern != "" {
+				cfg[fmt.Sprintf("%s.volumes", alias)] = strings.ReplaceAll(customVolsPattern, "<ALIAS>", alias)
+			} else {
+				var vols []string
+				for vIdx := 0; vIdx < dataVolCount; vIdx++ {
+					vols = append(vols, fmt.Sprintf("/var/lib/dolphindb/data/vol-%d/%s", vIdx, alias))
+				}
+				cfg[fmt.Sprintf("%s.volumes", alias)] = strings.Join(vols, ",")
+			}
+
+			// 2. redoLogDir
+			if customRedoPattern != "" {
+				cfg[fmt.Sprintf("%s.redoLogDir", alias)] = strings.ReplaceAll(customRedoPattern, "<ALIAS>", alias)
+			} else {
+				cfg[fmt.Sprintf("%s.redoLogDir", alias)] = fmt.Sprintf("/var/lib/dolphindb/meta/redoLog/%s", alias)
+			}
+
+			// 3. chunkMetaDir
+			if customMetaPattern != "" {
+				cfg[fmt.Sprintf("%s.chunkMetaDir", alias)] = strings.ReplaceAll(customMetaPattern, "<ALIAS>", alias)
+			} else {
+				cfg[fmt.Sprintf("%s.chunkMetaDir", alias)] = fmt.Sprintf("/var/lib/dolphindb/meta/chunkMeta/%s", alias)
+			}
+
+			// 4. streamingHA persistenceDir
+			if r.Cluster.Spec.StreamingHA.Enabled {
+				cfg[fmt.Sprintf("%s.persistenceDir", alias)] = fmt.Sprintf("/var/lib/dolphindb/meta/streaming/%s", alias)
+			}
 		}
 	}
 
 	// Merge ComputeNode specific cache configs if compute nodes exist
 	if r.Cluster.Spec.ComputeNode != nil && r.Cluster.Spec.ComputeNode.Replicas > 0 {
-		cfg["computeNodeCacheDir"] = "/var/lib/dolphindb/cache/<ALIAS>"
+		for i := int32(0); i < r.Cluster.Spec.ComputeNode.Replicas; i++ {
+			alias := r.ComputeNodeAlias(i)
+			cfg[fmt.Sprintf("%s.computeNodeCacheDir", alias)] = fmt.Sprintf("/var/lib/dolphindb/cache/%s", alias)
+		}
 		if r.Cluster.Spec.ComputeNode.ComputeGroup != "" {
 			cfg["computeGroup"] = r.Cluster.Spec.ComputeNode.ComputeGroup
+		}
+		for k, v := range r.Cluster.Spec.ComputeNode.Config {
+			if !strings.Contains(v, "<ALIAS>") {
+				cfg[k] = v
+			}
 		}
 	}
 
@@ -337,7 +396,9 @@ func (r *ConfigRenderer) renderDataNodeCfg() string {
 	cfg["sites"] = r.RenderSites()
 	if r.Cluster.Spec.DataNode != nil {
 		for k, v := range r.Cluster.Spec.DataNode.Config {
-			cfg[k] = v
+			if !strings.Contains(v, "<ALIAS>") && k != "volumes" && k != "redoLogDir" && k != "chunkMetaDir" {
+				cfg[k] = v
+			}
 		}
 	}
 	return formatProps(cfg)
@@ -349,14 +410,13 @@ func (r *ConfigRenderer) renderComputeNodeCfg() string {
 	cfg["lanCluster"] = "0"
 	cfg["sites"] = r.RenderSites()
 	if r.Cluster.Spec.ComputeNode != nil {
-		if r.Cluster.Spec.ComputeNode.Replicas > 0 {
-			cfg["computeNodeCacheDir"] = "/var/lib/dolphindb/cache/<ALIAS>"
-			if r.Cluster.Spec.ComputeNode.ComputeGroup != "" {
-				cfg["computeGroup"] = r.Cluster.Spec.ComputeNode.ComputeGroup
-			}
+		if r.Cluster.Spec.ComputeNode.ComputeGroup != "" {
+			cfg["computeGroup"] = r.Cluster.Spec.ComputeNode.ComputeGroup
 		}
 		for k, v := range r.Cluster.Spec.ComputeNode.Config {
-			cfg[k] = v
+			if !strings.Contains(v, "<ALIAS>") {
+				cfg[k] = v
+			}
 		}
 	}
 	return formatProps(cfg)

@@ -152,6 +152,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
@@ -191,6 +197,14 @@ spec:
                       description: NodeBinding maps an indexed instance to a specific
                         physical node
                       properties:
+                        alias:
+                          description: Alias is the DolphinDB node alias override
+                            (e.g. node0, controller0)
+                          type: string
+                        claimName:
+                          description: ClaimName specifies an existing PVC to adopt
+                            for this replica
+                          type: string
                         hostname:
                           description: Hostname override for license fingerprint
                           type: string
@@ -286,6 +300,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
@@ -326,6 +346,14 @@ spec:
                       description: NodeBinding maps an indexed instance to a specific
                         physical node
                       properties:
+                        alias:
+                          description: Alias is the DolphinDB node alias override
+                            (e.g. node0, controller0)
+                          type: string
+                        claimName:
+                          description: ClaimName specifies an existing PVC to adopt
+                            for this replica
+                          type: string
                         hostname:
                           description: Hostname override for license fingerprint
                           type: string
@@ -420,6 +448,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
@@ -478,6 +512,10 @@ spec:
                       hostname:
                         description: Hostname manual override if not using host node
                           name
+                        type: string
+                      licensePath:
+                        description: LicensePath optional host license file path (defaults
+                          to /home/jzchen/dolphindb.lic)
                         type: string
                       mountDMI:
                         default: false
@@ -718,6 +756,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
