@@ -1867,6 +1867,10 @@
               立即提交并部署集群
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab: License Management -->
     <div id="tab-license" class="tab-pane" style="display: none;">
       <!-- Header -->
@@ -3509,6 +3513,11 @@ spec:
     function renderLicenses(licenses) {
       const container = document.getElementById('license-cards-container');
       const summaryEl = document.getElementById('license-clusters-summary');
+      const badge = document.getElementById('badge-license-count');
+      if (badge) {
+        badge.textContent = licenses ? licenses.length : 0;
+        badge.style.display = (licenses && licenses.length > 0) ? 'inline-block' : 'none';
+      }
       if (!container) return;
 
       if (!licenses || licenses.length === 0) {
@@ -3848,6 +3857,7 @@ spec:
       initTheme();
       fetchMetadata();
       fetchDashboardData();
+      fetchLicenseData();
       startAutoRefresh();
       updateWizardYAML();
     });
