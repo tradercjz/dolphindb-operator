@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -16,8 +17,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -202,6 +205,8 @@ type ClusterSummary struct {
 	DfsReplicationFactor int32                `json:"dfsReplicationFactor"`
 	CreationTimestamp    metav1.Time          `json:"creationTimestamp"`
 	ControllerPort       int32                `json:"controllerPort"`
+	NodePort             int32                `json:"nodePort,omitempty"`
+	AccessURL            string               `json:"accessURL,omitempty"`
 }
 
 func getDfsReplicationFactor(c *v1alpha1.DolphinDBCluster) int32 {
@@ -291,6 +296,13 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		svcList := &corev1.ServiceList{}
+		_ = s.client.List(ctx, svcList, listOpts...)
+		svcMap := make(map[string]*corev1.Service)
+		for i := range svcList.Items {
+			svcMap[fmt.Sprintf("%s/%s", svcList.Items[i].Namespace, svcList.Items[i].Name)] = &svcList.Items[i]
+		}
+
 		summaries := make([]ClusterSummary, 0, len(clusterList.Items))
 		for _, c := range clusterList.Items {
 			ctlPort := int32(8900)
@@ -329,6 +341,29 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 				health = "Creating"
 			}
 
+			var nodePort int32
+			var accessURL string
+			if svc, exists := svcMap[fmt.Sprintf("%s/%s", c.Namespace, c.Name)]; exists && svc.Spec.Type == corev1.ServiceTypeNodePort {
+				for _, p := range svc.Spec.Ports {
+					if p.NodePort > 0 {
+						nodePort = p.NodePort
+						break
+					}
+				}
+				if nodePort > 0 {
+					hIP := "192.168.100.44"
+					if c.Spec.Networking.PublicIP != "" {
+						hIP = c.Spec.Networking.PublicIP
+					} else if r != nil && r.Host != "" {
+						h, _, err := net.SplitHostPort(r.Host)
+						if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
+							hIP = h
+						}
+					}
+					accessURL = fmt.Sprintf("http://%s:%d", hIP, nodePort)
+				}
+			}
+
 			summaries = append(summaries, ClusterSummary{
 				Name:                 c.Name,
 				Namespace:            c.Namespace,
@@ -342,6 +377,8 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 				DfsReplicationFactor: repl,
 				CreationTimestamp:    c.CreationTimestamp,
 				ControllerPort:       ctlPort,
+				NodePort:             nodePort,
+				AccessURL:            accessURL,
 			})
 		}
 
@@ -570,6 +607,13 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		if cluster.Spec.Networking.ServiceType == "" {
+			cluster.Spec.Networking = v1alpha1.NetworkingSpec{
+				ExposureMode: v1alpha1.ExposureNodePortDirect,
+				ServiceType:  corev1.ServiceTypeNodePort,
+			}
+		}
+
 		if err := s.client.Create(ctx, cluster); err != nil {
 			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create cluster: %v", err))
 			return
@@ -637,6 +681,11 @@ func (s *Server) handleClusterSubRoutes(w http.ResponseWriter, r *http.Request) 
 	case "config":
 		if r.Method == http.MethodPut || r.Method == http.MethodPost {
 			s.updateClusterConfig(w, r, namespace, name)
+			return
+		}
+	case "expose":
+		if r.Method == http.MethodPost {
+			s.toggleClusterExpose(w, r, namespace, name)
 			return
 		}
 	default:
@@ -728,12 +777,45 @@ func (s *Server) updateClusterConfig(w http.ResponseWriter, r *http.Request, nam
 	jsonResponse(w, http.StatusOK, cluster)
 }
 
+func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	cluster := &v1alpha1.DolphinDBCluster{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found: %v", namespace, name, err))
+		return
+	}
+
+	if cluster.Spec.Networking.ServiceType == corev1.ServiceTypeNodePort {
+		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeClusterIP
+		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureClusterIP
+	} else {
+		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeNodePort
+		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureNodePortDirect
+	}
+
+	if err := s.client.Update(ctx, cluster); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update cluster networking: %v", err))
+		return
+	}
+
+	// Also directly update K8s service if exists
+	svc := &corev1.Service{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, svc); err == nil {
+		svc.Spec.Type = cluster.Spec.Networking.ServiceType
+		_ = s.client.Update(ctx, svc)
+	}
+
+	jsonResponse(w, http.StatusOK, cluster)
+}
+
 // ClusterDetail represents comprehensive topology view for a single cluster
 type ClusterDetail struct {
-	Cluster    v1alpha1.DolphinDBCluster `json:"cluster"`
-	Nodes      []NodeInfo                `json:"nodes"`
-	Operations []v1alpha1.DDBOperation   `json:"operations"`
-	Backups    []v1alpha1.DDBBackup      `json:"backups"`
+	Cluster     v1alpha1.DolphinDBCluster `json:"cluster"`
+	Nodes       []NodeInfo                `json:"nodes"`
+	Operations  []v1alpha1.DDBOperation   `json:"operations"`
+	Backups     []v1alpha1.DDBBackup      `json:"backups"`
+	ServiceType string                    `json:"serviceType,omitempty"`
+	AccessURL   string                    `json:"accessURL,omitempty"`
 }
 
 type NodeInfo struct {
@@ -746,6 +828,8 @@ type NodeInfo struct {
 	Ready       bool              `json:"ready"`
 	ChunksCount int32             `json:"chunksCount"`
 	DDBState    int32             `json:"ddbState"`
+	NodePort    int32             `json:"nodePort,omitempty"`
+	ExternalURL string            `json:"externalURL,omitempty"`
 }
 
 func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namespace, name string) {
@@ -755,6 +839,41 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
 		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found: %v", namespace, name, err))
 		return
+	}
+
+	// Fetch Services in namespace to detect NodePort mappings
+	svcList := &corev1.ServiceList{}
+	_ = s.client.List(ctx, svcList, client.InNamespace(namespace))
+	svcMap := make(map[string]*corev1.Service)
+	for i := range svcList.Items {
+		svcMap[svcList.Items[i].Name] = &svcList.Items[i]
+	}
+
+	clusterSvcType := "ClusterIP"
+	var clusterAccessURL string
+	if clusterSvc, exists := svcMap[name]; exists {
+		clusterSvcType = string(clusterSvc.Spec.Type)
+		if clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
+			var ctlNodePort int32
+			for _, p := range clusterSvc.Spec.Ports {
+				if p.NodePort > 0 {
+					ctlNodePort = p.NodePort
+					break
+				}
+			}
+			if ctlNodePort > 0 {
+				hostIP := "192.168.100.44"
+				if cluster.Spec.Networking.PublicIP != "" {
+					hostIP = cluster.Spec.Networking.PublicIP
+				} else if r != nil && r.Host != "" {
+					h, _, err := net.SplitHostPort(r.Host)
+					if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
+						hostIP = h
+					}
+				}
+				clusterAccessURL = fmt.Sprintf("http://%s:%d", hostIP, ctlNodePort)
+			}
+		}
 	}
 
 	// Fetch DDBNodes
@@ -773,6 +892,55 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			ready = true
 		}
 
+		var nodePort int32
+		// 1. Check dedicated <node.Name>-ext
+		if extSvc, exists := svcMap[n.Name+"-ext"]; exists && extSvc.Spec.Type == corev1.ServiceTypeNodePort {
+			for _, p := range extSvc.Spec.Ports {
+				if p.NodePort > 0 {
+					nodePort = p.NodePort
+					break
+				}
+			}
+		}
+		// 2. Check cluster-level service <cluster.Name>
+		if nodePort == 0 {
+			if clusterSvc, exists := svcMap[n.Spec.ClusterName]; exists && clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
+				if n.Spec.Role == v1alpha1.NodeRoleSingle {
+					for _, p := range clusterSvc.Spec.Ports {
+						if p.Port == n.Spec.Port && p.NodePort > 0 {
+							nodePort = p.NodePort
+							break
+						}
+					}
+				} else if n.Spec.Role == v1alpha1.NodeRoleController {
+					for _, p := range clusterSvc.Spec.Ports {
+						if (p.Name == "ctl-port" || p.Port == 8900) && p.NodePort > 0 {
+							nodePort = p.NodePort
+							break
+						}
+					}
+				}
+			}
+		}
+
+		var extURL string
+		if nodePort > 0 {
+			hIP := n.Status.HostIP
+			if hIP == "" && cluster.Spec.Networking.PublicIP != "" {
+				hIP = cluster.Spec.Networking.PublicIP
+			}
+			if hIP == "" && r != nil && r.Host != "" {
+				h, _, err := net.SplitHostPort(r.Host)
+				if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
+					hIP = h
+				}
+			}
+			if hIP == "" {
+				hIP = "192.168.100.44"
+			}
+			extURL = fmt.Sprintf("http://%s:%d", hIP, nodePort)
+		}
+
 		nodes = append(nodes, NodeInfo{
 			Name:        n.Name,
 			Role:        n.Spec.Role,
@@ -783,6 +951,8 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			Ready:       ready,
 			ChunksCount: n.Status.ChunksCount,
 			DDBState:    n.Status.DDBState,
+			NodePort:    nodePort,
+			ExternalURL: extURL,
 		})
 	}
 
@@ -836,10 +1006,12 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 	})
 
 	jsonResponse(w, http.StatusOK, ClusterDetail{
-		Cluster:    *cluster,
-		Nodes:      nodes,
-		Operations: clusterOps,
-		Backups:    clusterBackups,
+		Cluster:     *cluster,
+		Nodes:       nodes,
+		Operations:  clusterOps,
+		Backups:     clusterBackups,
+		ServiceType: clusterSvcType,
+		AccessURL:   clusterAccessURL,
 	})
 }
 
@@ -867,6 +1039,15 @@ func (s *Server) handleNodeSubRoutes(w http.ResponseWriter, r *http.Request) {
 	case "action":
 		if r.Method == http.MethodPost {
 			s.executeNodeAction(w, r, namespace, name)
+			return
+		}
+	case "expose":
+		if r.Method == http.MethodPost {
+			s.exposeNodeService(w, r, namespace, name)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			s.unexposeNodeService(w, r, namespace, name)
 			return
 		}
 	}
@@ -1000,6 +1181,152 @@ func (s *Server) executeNodeAction(w http.ResponseWriter, r *http.Request, names
 	default:
 		errorResponse(w, http.StatusBadRequest, "Invalid action. Supported: stop, start, restart")
 	}
+}
+
+type ExposeNodeRequest struct {
+	NodePort int32 `json:"nodePort,omitempty"`
+}
+
+func (s *Server) exposeNodeService(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	var req ExposeNodeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	node := &v1alpha1.DDBNode{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, node); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("DDBNode %s/%s not found: %v", namespace, name, err))
+		return
+	}
+
+	svcName := fmt.Sprintf("%s-ext", name)
+	svc := &corev1.Service{}
+	err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc)
+	if err == nil {
+		var allocatedNodePort int32
+		for _, p := range svc.Spec.Ports {
+			if p.NodePort > 0 {
+				allocatedNodePort = p.NodePort
+				break
+			}
+		}
+		hostIP := getEffectiveHostIP(node, r)
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"success":     true,
+			"serviceName": svcName,
+			"nodePort":    allocatedNodePort,
+			"externalURL": fmt.Sprintf("http://%s:%d", hostIP, allocatedNodePort),
+		})
+		return
+	}
+
+	if !errors.IsNotFound(err) {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to query service: %v", err))
+		return
+	}
+
+	port := node.Spec.Port
+	if port == 0 {
+		port = 8848
+	}
+
+	svcPort := corev1.ServicePort{
+		Name:       "web-port",
+		Port:       port,
+		TargetPort: intstr.FromInt(int(port)),
+	}
+	if req.NodePort > 0 {
+		svcPort.NodePort = req.NodePort
+	}
+
+	trueVal := true
+	ownerRef := metav1.OwnerReference{
+		APIVersion:         "dolphindb.io/v1alpha1",
+		Kind:               "DDBNode",
+		Name:               node.Name,
+		UID:                node.UID,
+		Controller:         &trueVal,
+		BlockOwnerDeletion: &trueVal,
+	}
+
+	newSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svcName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "dolphindb",
+				"app.kubernetes.io/instance":  node.Spec.ClusterName,
+				"app.kubernetes.io/component": string(node.Spec.Role),
+				"dolphindb.io/node-alias":     node.Spec.Alias,
+				"dolphindb.io/exposed":        "true",
+			},
+			OwnerReferences: []metav1.OwnerReference{ownerRef},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeNodePort,
+			Selector: map[string]string{
+				"dolphindb.io/node-alias": node.Spec.Alias,
+			},
+			Ports: []corev1.ServicePort{svcPort},
+		},
+	}
+
+	if err := s.client.Create(ctx, newSvc); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create NodePort service: %v", err))
+		return
+	}
+
+	// Fetch back to inspect assigned NodePort
+	createdSvc := &corev1.Service{}
+	_ = s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, createdSvc)
+	var allocatedNodePort int32
+	for _, p := range createdSvc.Spec.Ports {
+		if p.NodePort > 0 {
+			allocatedNodePort = p.NodePort
+			break
+		}
+	}
+
+	hostIP := getEffectiveHostIP(node, r)
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"success":     true,
+		"serviceName": svcName,
+		"nodePort":    allocatedNodePort,
+		"externalURL": fmt.Sprintf("http://%s:%d", hostIP, allocatedNodePort),
+	})
+}
+
+func (s *Server) unexposeNodeService(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	svcName := fmt.Sprintf("%s-ext", name)
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svcName,
+			Namespace: namespace,
+		},
+	}
+	if err := s.client.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete service %s: %v", svcName, err))
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Service %s deleted", svcName),
+	})
+}
+
+func getEffectiveHostIP(node *v1alpha1.DDBNode, r *http.Request) string {
+	if node != nil && node.Status.HostIP != "" {
+		return node.Status.HostIP
+	}
+	if r != nil && r.Host != "" {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err == nil && host != "" && host != "localhost" && host != "127.0.0.1" {
+			return host
+		}
+	}
+	return "192.168.100.44"
 }
 
 type RollingRestartRequest struct {

@@ -438,6 +438,15 @@
           <select id="wiz-storageclass" class="form-control" onchange="updateWizardYAML()"></select>
         </div>
 
+        <div class="form-group" style="margin: 10px 0;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="wiz-enable-nodeport" checked onchange="updateWizardYAML()">
+            <span style="font-size: 13px; font-weight: 500;">
+              🌐 开启外部网络访问 (NodePort) - 自动映射物理机端口，创建后可直接从外部浏览器访问 Web 终端
+            </span>
+          </label>
+        </div>
+
         <!-- Clustered Specs -->
         <div id="wiz-cluster-specs">
           <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--primary);">Controller Configuration</div>
@@ -1004,6 +1013,7 @@
             <td>${c.dfsReplicationFactor}</td>
             <td>
               <button class="btn btn-secondary btn-sm" onclick="selectCluster('${c.namespace}', '${c.name}')">Topology</button>
+              ${c.accessURL ? `<a href="${c.accessURL}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none; padding: 4px 8px;" title="打开 Web 终端 (${c.accessURL})">🌐 Web ↗</a>` : ''}
               <button class="btn btn-secondary btn-sm" onclick="promptScale('${c.namespace}', '${c.name}', ${c.dataNodes}, ${c.computeNodes}, ${c.dfsReplicationFactor})">Scale</button>
               <button class="btn btn-secondary btn-sm" onclick="promptRestart('${c.namespace}', '${c.name}')">Restart</button>
               <button class="btn btn-danger btn-sm" onclick="promptDeleteCluster('${c.namespace}', '${c.name}')">Delete</button>
@@ -1033,7 +1043,35 @@
 
     function renderClusterTopology(detail) {
       const c = detail.cluster;
-      document.getElementById('topology-title').textContent = `${c.metadata.name} (${c.metadata.namespace}) - ${c.spec.mode.toUpperCase()}`;
+      let accessPill = '';
+      if (detail.accessURL) {
+        accessPill = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: var(--success); font-weight: 500;">
+              🌐 集群外部访问: <code>${detail.accessURL}</code>
+            </span>
+            <a href="${detail.accessURL}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none; padding: 4px 10px;">
+              打开 Web 终端 ↗
+            </a>
+          </div>
+        `;
+      } else {
+        accessPill = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: var(--text-muted);">外部网络未开启 (ClusterIP)</span>
+            <button class="btn btn-secondary btn-sm" onclick="toggleClusterExposure('${c.metadata.namespace}', '${c.metadata.name}')">
+              + 切换为 NodePort 外部访问
+            </button>
+          </div>
+        `;
+      }
+
+      document.getElementById('topology-title').innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span>${c.metadata.name} (${c.metadata.namespace}) - ${c.spec.mode.toUpperCase()}</span>
+          ${accessPill}
+        </div>
+      `;
 
       const container = document.getElementById('topology-nodes-container');
       if (!detail.nodes || detail.nodes.length === 0) {
@@ -1047,6 +1085,34 @@
           ? '<span class="badge badge-success">Ready</span>'
           : '<span class="badge badge-danger">Not Ready</span>';
         const roleBadge = '<span class="badge badge-info">' + n.role.toUpperCase() + '</span>';
+
+        let exposeSection = '';
+        if (n.externalURL) {
+          exposeSection = `
+            <div style="margin-top: 8px; padding: 6px 10px; background: rgba(56, 161, 105, 0.12); border: 1px solid rgba(56, 161, 105, 0.3); border-radius: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 11px; font-weight: 600; color: var(--success);">
+                  🌐 外部访问已开启 (NodePort: ${n.nodePort})
+                </span>
+                <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 11px; text-decoration: none;">
+                  打开 Web ↗
+                </a>
+              </div>
+              <div style="margin-top: 3px; font-family: monospace; font-size: 11px;">
+                <a href="${n.externalURL}" target="_blank" style="color: var(--primary);">${n.externalURL}</a>
+              </div>
+            </div>
+          `;
+        } else {
+          exposeSection = `
+            <div style="margin-top: 8px; padding: 6px 10px; background: rgba(255, 255, 255, 0.04); border: 1px dashed var(--border); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 11px; color: var(--text-muted);">外部网络未映射 (NodePort)</span>
+              <button class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', true)">
+                + 开启外部访问
+              </button>
+            </div>
+          `;
+        }
 
         return `
           <div class="node-card ${readyClass}">
@@ -1062,12 +1128,14 @@
                 DDB State: <strong>${n.ddbState === 1 ? '1 (Alive)' : '0 (Offline)'}</strong><br>
                 DFS Chunks: <strong>${n.chunksCount}</strong>
               </div>
+              ${exposeSection}
             </div>
             <div class="node-actions">
               <button class="btn btn-secondary btn-sm" onclick="openNodeLogs('${selectedCluster.namespace}', '${n.name}')">Logs</button>
               <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'restart')">Restart</button>
               <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'stop')">Stop</button>
               <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'start')">Start</button>
+              ${n.externalURL ? `<button class="btn btn-secondary btn-sm" style="font-size: 11px; color: var(--danger);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)">关闭外部映射</button>` : ''}
             </div>
           </div>
         `;
@@ -1090,6 +1158,41 @@
         }
       } catch (e) {
         alert('Request failed: ' + e);
+      }
+    }
+
+    async function toggleNodeExpose(namespace, nodeName, enable) {
+      const verb = enable ? '开启' : '关闭';
+      if (!confirm(`确认${verb}节点 ${nodeName} 的外部网络访问 (NodePort)?`)) return;
+      try {
+        const url = `/api/nodes/${namespace}/${nodeName}/expose`;
+        const method = enable ? 'POST' : 'DELETE';
+        const res = await fetch(url, { method });
+        if (res.ok) {
+          await fetchClusterDetail(namespace, selectedCluster.name);
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert(`${verb}外部访问失败: ` + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('请求失败: ' + e);
+      }
+    }
+
+    async function toggleClusterExposure(namespace, clusterName) {
+      if (!confirm(`确认切换集群 ${clusterName} 的外部网络访问模式 (NodePort)?`)) return;
+      try {
+        const res = await fetch(`/api/clusters/${namespace}/${clusterName}/expose`, { method: 'POST' });
+        if (res.ok) {
+          await fetchClusterDetail(namespace, clusterName);
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('操作失败: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('请求失败: ' + e);
       }
     }
 
@@ -1292,6 +1395,17 @@ spec:
       useHostName: true
       nodeName: "aftersale2"
       hostname: "aftersale2"\n`;
+
+      const enableNodePort = document.getElementById('wiz-enable-nodeport') ? document.getElementById('wiz-enable-nodeport').checked : true;
+      if (enableNodePort) {
+        yamlText += `  networking:
+    serviceType: "NodePort"
+    exposureMode: "NodePortDirect"\n`;
+      } else {
+        yamlText += `  networking:
+    serviceType: "ClusterIP"
+    exposureMode: "ClusterIP"\n`;
+      }
 
       document.getElementById('wiz-yaml-editor').value = yamlText;
     }

@@ -169,6 +169,14 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 	svc := &corev1.Service{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: svcName}, svc)
 	if err == nil {
+		svcType := corev1.ServiceTypeClusterIP
+		if cluster.Spec.Networking.ServiceType != "" {
+			svcType = cluster.Spec.Networking.ServiceType
+		}
+		if svc.Spec.Type != svcType {
+			svc.Spec.Type = svcType
+			return r.Update(ctx, svc)
+		}
 		return nil
 	}
 	if !errors.IsNotFound(err) {
