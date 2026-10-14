@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"dolphindb.io/operator/api/v1alpha1"
+	"dolphindb.io/operator/internal/ddbclient"
 )
 
 //go:embed ui/*
@@ -69,6 +70,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	mux.HandleFunc("/api/restores", s.handleRestores)
 	mux.HandleFunc("/api/restores/", s.handleRestoreSubRoutes)
+
+	mux.HandleFunc("/api/licenses", s.handleAllLicenses)
+	mux.HandleFunc("/api/k8s/nodes-fingerprints", s.handleNodeFingerprints)
 
 	// Embedded UI Static Assets
 	subUI, err := fs.Sub(uiFS, "ui")
@@ -674,6 +678,19 @@ func (s *Server) handleClusterSubRoutes(w http.ResponseWriter, r *http.Request) 
 	case "reload-license":
 		if r.Method == http.MethodPost {
 			s.triggerReloadLicense(w, r, namespace, name)
+			return
+		}
+	case "license":
+		if r.Method == http.MethodGet {
+			s.handleClusterLicense(w, r, namespace, name)
+			return
+		} else if r.Method == http.MethodPost {
+			s.handleLicenseUpload(w, r, namespace, name)
+			return
+		}
+	case "license-upload":
+		if r.Method == http.MethodPost {
+			s.handleLicenseUpload(w, r, namespace, name)
 			return
 		}
 	case "config":
@@ -1777,4 +1794,359 @@ func (s *Server) handleRestoreSubRoutes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	errorResponse(w, http.StatusNotFound, "Route not found")
+}
+
+// LicenseInfo represents detailed license status for a cluster
+type LicenseInfo struct {
+	ClusterName      string            `json:"clusterName"`
+	Namespace        string            `json:"namespace"`
+	Mode             string            `json:"mode"`
+	Version          string            `json:"version"`
+	LicenseMode      string            `json:"licenseMode"`
+	SecretName       string            `json:"secretName"`
+	Expiration       string            `json:"expiration"`
+	DaysRemaining    int               `json:"daysRemaining"`
+	Status           string            `json:"status"` // "active", "expiring_soon", "expired", "unknown"
+	ClientName       string            `json:"clientName"`
+	Authorization    string            `json:"authorization"`
+	MaxNodes         string            `json:"maxNodes"`
+	MaxCoresPerNode  string            `json:"maxCoresPerNode"`
+	MaxMemoryPerNode string            `json:"maxMemoryPerNode"`
+	Modules          string            `json:"modules"`
+	ModuleList       []string          `json:"moduleList"`
+	ProductKey       string            `json:"productKey"`
+	Available        bool              `json:"available"`
+	Message          string            `json:"message,omitempty"`
+}
+
+type NodeFingerprint struct {
+	Name       string `json:"name"`
+	Hostname   string `json:"hostname"`
+	IP         string `json:"ip"`
+	MachineID  string `json:"machineId"`
+	SystemUUID string `json:"systemUuid"`
+	OS         string `json:"os"`
+	Kernel     string `json:"kernel"`
+	Arch       string `json:"arch"`
+	Status     string `json:"status"`
+}
+
+func (s *Server) getClusterLicenseDetails(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) LicenseInfo {
+	info := LicenseInfo{
+		ClusterName:   cluster.Name,
+		Namespace:     cluster.Namespace,
+		Mode:          string(cluster.Spec.Mode),
+		Version:       cluster.Spec.Version,
+		LicenseMode:   string(cluster.Spec.License.Mode),
+		SecretName:    cluster.Spec.License.SecretName,
+		Status:        "unknown",
+		Authorization: "commercial",
+	}
+	if info.LicenseMode == "" {
+		info.LicenseMode = "machineFingerprint"
+	}
+	if info.SecretName == "" {
+		info.SecretName = "dolphindb-license"
+	}
+
+	// 1. Try querying live DolphinDB instance
+	targetPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
+	port := int32(8900)
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		targetPodName = fmt.Sprintf("%s-single-0", cluster.Name)
+		port = 8848
+		if cluster.Spec.Standalone != nil && cluster.Spec.Standalone.Port > 0 {
+			port = cluster.Spec.Standalone.Port
+		}
+	} else if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+		port = cluster.Spec.Controller.Port
+	}
+
+	pod := &corev1.Pod{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: targetPodName}, pod); err == nil &&
+		pod.Status.Phase == corev1.PodRunning && pod.Status.PodIP != "" {
+		cli := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port), "admin", "123456")
+		if details, err := cli.GetLicenseDetails(ctx); err == nil && len(details) > 0 {
+			info.Available = true
+			info.Expiration = details["expiration"]
+			info.ClientName = details["clientName"]
+			if auth, ok := details["authorization"]; ok && auth != "" {
+				info.Authorization = auth
+			}
+			info.MaxNodes = details["maxNodes"]
+			info.MaxCoresPerNode = details["maxCoresPerNode"]
+			info.MaxMemoryPerNode = details["maxMemoryPerNode"]
+			info.Modules = details["modules"]
+			if modNames, ok := details["moduleNames"]; ok {
+				info.ModuleList = strings.Fields(modNames)
+			}
+			info.ProductKey = details["productKey"]
+
+			if info.Expiration != "" {
+				if expDate, err := time.Parse("2006.01.02", info.Expiration); err == nil {
+					diff := time.Until(expDate)
+					info.DaysRemaining = int(diff.Hours() / 24)
+					if info.DaysRemaining < 0 {
+						info.Status = "expired"
+					} else if info.DaysRemaining <= 30 {
+						info.Status = "expiring_soon"
+					} else {
+						info.Status = "active"
+					}
+				}
+			}
+			return info
+		}
+	}
+
+	// 2. Fallback to inspecting Kubernetes Secret
+	sec := &corev1.Secret{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: info.SecretName}, sec); err == nil && sec.Data != nil {
+		var licBytes []byte
+		if b, ok := sec.Data["dolphindb.lic"]; ok && len(b) > 0 {
+			licBytes = b
+		} else {
+			for _, b := range sec.Data {
+				if len(b) > 0 {
+					licBytes = b
+					break
+				}
+			}
+		}
+		if len(licBytes) > 0 {
+			lines := strings.Split(string(licBytes), "\n")
+			if len(lines) > 0 {
+				parts := strings.Split(strings.TrimSpace(lines[0]), ",")
+				if len(parts) >= 10 {
+					expStr := ""
+					if len(parts) >= 13 && parts[12] != "" {
+						expStr = parts[12]
+					} else {
+						expStr = parts[0]
+					}
+					info.Available = true
+					info.Expiration = expStr
+					info.ClientName = parts[4]
+					info.MaxNodes = parts[6]
+					info.MaxCoresPerNode = parts[2]
+					info.MaxMemoryPerNode = parts[1]
+					if len(parts) > 9 && parts[9] != "" {
+						info.Authorization = parts[9]
+					}
+					if expDate, err := time.Parse("2006.01.02", expStr); err == nil {
+						diff := time.Until(expDate)
+						info.DaysRemaining = int(diff.Hours() / 24)
+						if info.DaysRemaining < 0 {
+							info.Status = "expired"
+						} else if info.DaysRemaining <= 30 {
+							info.Status = "expiring_soon"
+						} else {
+							info.Status = "active"
+						}
+					}
+					return info
+				}
+			}
+		}
+	}
+
+	info.Message = "Cluster pods offline or license details pending startup"
+	return info
+}
+
+func (s *Server) handleAllLicenses(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	clusterList := &v1alpha1.DolphinDBClusterList{}
+	listOpts := []client.ListOption{}
+	ns := r.URL.Query().Get("namespace")
+	if ns == "" && s.namespace != "" {
+		ns = s.namespace
+	}
+	if ns != "" {
+		listOpts = append(listOpts, client.InNamespace(ns))
+	}
+	if err := s.client.List(ctx, clusterList, listOpts...); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list clusters: %v", err))
+		return
+	}
+
+	var results []LicenseInfo
+	for _, c := range clusterList.Items {
+		results = append(results, s.getClusterLicenseDetails(ctx, &c))
+	}
+	jsonResponse(w, http.StatusOK, results)
+}
+
+func (s *Server) handleClusterLicense(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	cluster := &v1alpha1.DolphinDBCluster{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found", namespace, name))
+		return
+	}
+	info := s.getClusterLicenseDetails(ctx, cluster)
+	jsonResponse(w, http.StatusOK, info)
+}
+
+func (s *Server) handleNodeFingerprints(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	nodeList := &corev1.NodeList{}
+	if err := s.client.List(ctx, nodeList); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list nodes: %v", err))
+		return
+	}
+
+	var items []NodeFingerprint
+	var reportLines []string
+	reportLines = append(reportLines, "=== DolphinDB 商业版许可证申请硬件指纹清单 ===")
+	reportLines = append(reportLines, fmt.Sprintf("生成时间: %s", time.Now().Format("2006-01-02 15:04:05")))
+	reportLines = append(reportLines, "节点清单:")
+
+	for i, n := range nodeList.Items {
+		hostname := n.Name
+		ip := ""
+		for _, addr := range n.Status.Addresses {
+			if addr.Type == corev1.NodeHostName && addr.Address != "" {
+				hostname = addr.Address
+			}
+			if addr.Type == corev1.NodeInternalIP && ip == "" {
+				ip = addr.Address
+			}
+		}
+		status := "Ready"
+		for _, c := range n.Status.Conditions {
+			if c.Type == corev1.NodeReady {
+				if c.Status != corev1.ConditionTrue {
+					status = "NotReady"
+				}
+				break
+			}
+		}
+
+		item := NodeFingerprint{
+			Name:       n.Name,
+			Hostname:   hostname,
+			IP:         ip,
+			MachineID:  n.Status.NodeInfo.MachineID,
+			SystemUUID: n.Status.NodeInfo.SystemUUID,
+			OS:         n.Status.NodeInfo.OSImage,
+			Kernel:     n.Status.NodeInfo.KernelVersion,
+			Arch:       n.Status.NodeInfo.Architecture,
+			Status:     status,
+		}
+		items = append(items, item)
+		reportLines = append(reportLines, fmt.Sprintf("%d. 节点: %s | 主机名: %s | 物理IP: %s | Machine-ID: %s | UUID: %s | OS: %s",
+			i+1, n.Name, hostname, ip, n.Status.NodeInfo.MachineID, n.Status.NodeInfo.SystemUUID, n.Status.NodeInfo.OSImage))
+	}
+
+	reportLines = append(reportLines, "\n提示: 请将上述清单发送给 DolphinDB 商务或技术支持团队以申请/续期商业版许可证。")
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"nodes":          items,
+		"copyableReport": strings.Join(reportLines, "\n"),
+	})
+}
+
+func (s *Server) handleLicenseUpload(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	var req struct {
+		SecretName string `json:"secretName"`
+		TargetNode string `json:"targetNode"`
+		Content    string `json:"content"`
+		Files      []struct {
+			Filename string `json:"filename"`
+			Content  string `json:"content"`
+		} `json:"files"`
+		AutoReload bool `json:"autoReload"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid JSON body: %v", err))
+		return
+	}
+
+	if req.SecretName == "" {
+		req.SecretName = "dolphindb-license"
+	}
+
+	secretData := make(map[string][]byte)
+
+	for _, f := range req.Files {
+		cleanName := strings.TrimSpace(f.Filename)
+		if cleanName != "" && f.Content != "" {
+			secretData[cleanName] = []byte(f.Content)
+		}
+	}
+
+	if req.Content != "" {
+		if req.TargetNode != "" {
+			key := fmt.Sprintf("%s.lic", req.TargetNode)
+			secretData[key] = []byte(req.Content)
+		} else if len(secretData) == 0 {
+			secretData["dolphindb.lic"] = []byte(req.Content)
+		}
+	}
+
+	if len(secretData) == 0 {
+		errorResponse(w, http.StatusBadRequest, "No license file content provided")
+		return
+	}
+
+	sec := &corev1.Secret{}
+	err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: req.SecretName}, sec)
+	if errors.IsNotFound(err) {
+		sec = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      req.SecretName,
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name": "dolphindb-license",
+				},
+			},
+			Data: secretData,
+		}
+		if err := s.client.Create(ctx, sec); err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create license Secret: %v", err))
+			return
+		}
+	} else if err == nil {
+		if sec.Data == nil {
+			sec.Data = make(map[string][]byte)
+		}
+		for k, v := range secretData {
+			sec.Data[k] = v
+		}
+		if err := s.client.Update(ctx, sec); err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update license Secret: %v", err))
+			return
+		}
+	} else {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to fetch Secret: %v", err))
+		return
+	}
+
+	var op *v1alpha1.DDBOperation
+	if req.AutoReload {
+		opName := fmt.Sprintf("reload-license-%s-%d", name, time.Now().Unix())
+		op = &v1alpha1.DDBOperation{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      opName,
+				Namespace: namespace,
+				Labels: map[string]string{
+					"dolphindb.io/cluster-name": name,
+				},
+			},
+			Spec: v1alpha1.DDBOperationSpec{
+				Cluster: name,
+				Type:    v1alpha1.OpReloadLicense,
+			},
+		}
+		_ = s.client.Create(ctx, op)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"message":   fmt.Sprintf("许可证已成功保存至 Secret %s (共 %d 个证书文件)", req.SecretName, len(secretData)),
+		"operation": op,
+	})
 }

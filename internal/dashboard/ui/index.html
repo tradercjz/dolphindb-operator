@@ -1359,6 +1359,15 @@
           </svg>
           创建集群向导
         </button>
+
+        <button id="nav-license" class="nav-tab-btn" onclick="switchTab('license')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          许可证管理
+          <span class="badge-count" id="badge-license-count" style="display:none;">0</span>
+        </button>
       </div>
 
       <!-- Quick Filter -->
@@ -1858,6 +1867,109 @@
               立即提交并部署集群
             </button>
           </div>
+    <!-- Tab: License Management -->
+    <div id="tab-license" class="tab-pane" style="display: none;">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+        <div>
+          <h2 style="font-size: 20px; font-weight: 700; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+            <svg style="width: 22px; height: 22px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            DolphinDB 许可证中心 (License Management)
+          </h2>
+          <div style="font-size: 13px; color: var(--text-muted);">
+            实时监控集群商业版/社区版许可证到期与配额，在线更新 Kubernetes Secret 证书，一键导出物理节点硬件指纹，支持免重启热加载 (updateLicense)。
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-secondary btn-sm" onclick="fetchLicenseData()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            刷新状态
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="openLicenseUploadModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            上传 / 更新 License
+          </button>
+        </div>
+      </div>
+
+      <!-- Section 1: Cluster License Overview Cards -->
+      <div style="margin-bottom: 32px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <span style="display: inline-block; width: 4px; height: 16px; background: var(--primary); border-radius: 2px;"></span>
+            各集群当前许可证与配额状态
+          </h3>
+          <span style="font-size: 12px; color: var(--text-muted);" id="license-clusters-summary">加载中...</span>
+        </div>
+
+        <div id="license-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 16px;">
+          <div style="padding: 24px; text-align: center; color: var(--text-muted); background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+            正在检索各集群 License 详情...
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Physical Node Hardware Fingerprints & Application Helper -->
+      <div style="margin-bottom: 32px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <div>
+            <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; width: 4px; height: 16px; background: var(--success); border-radius: 2px;"></span>
+              物理节点硬件指纹采集与申请助手
+            </h3>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+              DolphinDB 商业许可证强绑定各物理机主机名及硬件指纹 (Machine-ID, UUID)。向官方商务申请新许可证或续期时，可直接一键复制下方清单。
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="copyFingerprintsReport()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            一键复制指纹清单 (发给商务)
+          </button>
+        </div>
+
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>物理节点 (Node)</th>
+                <th>物理主机名 (Hostname)</th>
+                <th>物理内网 IP</th>
+                <th>机器指纹 (Machine-ID)</th>
+                <th>系统 UUID</th>
+                <th>OS 镜像 / 架构</th>
+                <th>节点状态</th>
+              </tr>
+            </thead>
+            <tbody id="node-fingerprints-tbody">
+              <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">正在获取集群节点指纹...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Section 3: User Guide & Best Practices -->
+      <div class="card" style="background: var(--bg-subtle); border-left: 4px solid var(--primary);">
+        <h4 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 8px;">
+          💡 DolphinDB Kubernetes 许可证管理操作指南
+        </h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; font-size: 12px; line-height: 1.6; color: var(--text-muted);">
+          <div>
+            <strong style="color: var(--text-main); display: block; margin-bottom: 4px;">1. 首次申请与获取 License</strong>
+            点击上方“一键复制指纹清单”，直接发送给 DolphinDB 官方商务团队。官方将针对各节点的主机名及 Machine-ID 签发对应的商业版 <code>dolphindb.lic</code>。
+          </div>
+          <div>
+            <strong style="color: var(--text-main); display: block; margin-bottom: 4px;">2. 在线更新与云原生 Secret</strong>
+            通过页面“上传 / 更新 License”功能，将官方签发的许可证直接存入 Kubernetes Secret (<code>dolphindb-license</code>)，无需逐台 SSH 登录物理机，云原生全自动同步。
+          </div>
+          <div>
+            <strong style="color: var(--text-main); display: block; margin-bottom: 4px;">3. 零停机免重启热加载</strong>
+            许可证更新后，点击“免重启热加载”，系统自动向集群各控制器与数据节点广播 <code>updateLicense()</code>，新配额与到期时间秒级生效，生产业务零中断！
+          </div>
         </div>
       </div>
     </div>
@@ -2074,9 +2186,82 @@
     </div>
   </div>
 
+  <!-- Modal: Upload License -->
+  <div id="modal-license-upload" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3>
+          <svg style="width: 18px; height: 18px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          上传与更新 DolphinDB 许可证 (License Upload)
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-license-upload')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+          上传 DolphinDB 商业版或试用版许可证 (<code>.lic</code>)。系统将安全注入至 Kubernetes Secret 资源，并支持一键广播热加载。
+        </p>
+
+        <div class="form-group">
+          <label>目标集群 (Target Cluster)</label>
+          <select id="license-upload-cluster-select" class="form-control">
+            <!-- populated dynamically -->
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>适用范围 / 目标物理节点 (Scope / Physical Node)</label>
+          <select id="license-upload-node-select" class="form-control">
+            <option value="">全部节点通用 (集群通用 dolphindb.lic)</option>
+            <!-- dynamically populated with physical nodes for multi-machine licenses -->
+          </select>
+          <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+            若商务为每台机器签发了绑机 License（如 <code>aftersale1.lic</code>），请选择对应节点；若为单机或同机集群，选择“全部节点通用”。
+          </small>
+        </div>
+
+        <div class="form-group">
+          <label>选择许可证文件 (.lic)</label>
+          <div style="border: 2px dashed var(--border-default); border-radius: var(--radius-md); padding: 20px; text-align: center; background: var(--bg-subtle); cursor: pointer;" onclick="document.getElementById('license-file-input').click()">
+            <svg style="width: 32px; height: 32px; color: var(--primary); margin-bottom: 8px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <line x1="9" y1="15" x2="12" y2="12"/>
+              <line x1="15" y1="15" x2="12" y2="12"/>
+            </svg>
+            <div id="license-file-name-display" style="font-size: 13px; font-weight: 600; color: var(--text-main);">点击此处选择本地 dolphindb.lic 文件</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">支持 .lic 商业/试用许可证</div>
+            <input type="file" id="license-file-input" style="display: none;" accept=".lic" onchange="onLicenseFileSelected(event)">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 16px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="license-auto-reload-checkbox" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">
+              上传成功后立即自动执行 <code>updateLicense()</code> 免重启热加载
+            </span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-license-upload')">取消</button>
+        <button class="btn btn-primary" id="btn-submit-license" onclick="submitLicenseUpload()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          确认上传并应用
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // State
     let currentClusters = [];
+    let currentLicenses = [];
+    let currentNodeFingerprints = null;
+    let selectedLicenseFile = null;
     let selectedCluster = null;
     let selectedClusterDetail = null;
     let currentLogNode = null;
@@ -2145,6 +2330,9 @@
 
       if (tabId === 'wizard') {
         updateWizardYAML();
+      }
+      if (tabId === 'license') {
+        fetchLicenseData();
       }
     }
 
@@ -3287,6 +3475,341 @@ spec:
         showToast(`已清理恢复记录 ${name}`, 'info');
         fetchDashboardData();
       } catch (e) {}
+    }
+
+    // ==========================================
+    // License Management
+    // ==========================================
+
+    async function fetchLicenseData() {
+      const summaryEl = document.getElementById('license-clusters-summary');
+      if (summaryEl) summaryEl.textContent = '正在刷新...';
+
+      try {
+        const [licRes, nodeRes] = await Promise.all([
+          fetch('/api/licenses'),
+          fetch('/api/k8s/nodes-fingerprints')
+        ]);
+
+        if (licRes.ok) {
+          currentLicenses = await licRes.json();
+          renderLicenses(currentLicenses);
+        }
+
+        if (nodeRes.ok) {
+          currentNodeFingerprints = await nodeRes.json();
+          renderNodeFingerprints(currentNodeFingerprints);
+        }
+      } catch (err) {
+        console.error('Failed to fetch license data:', err);
+        showToast('获取 License 状态失败: ' + err.message, 'danger');
+      }
+    }
+
+    function renderLicenses(licenses) {
+      const container = document.getElementById('license-cards-container');
+      const summaryEl = document.getElementById('license-clusters-summary');
+      if (!container) return;
+
+      if (!licenses || licenses.length === 0) {
+        if (summaryEl) summaryEl.textContent = '共 0 个集群';
+        container.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 36px 20px; text-align: center; background: var(--bg-surface); border: 1px dashed var(--border-default); border-radius: var(--radius-md);">
+            <svg style="width: 40px; height: 40px; color: var(--text-muted); margin-bottom: 12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <div style="font-size: 15px; font-weight: 600; color: var(--text-main); margin-bottom: 6px;">当前没有检测到 DolphinDB 集群</div>
+            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">请先在“向导创建”中部署集群，或点击“上传 / 更新 License”配置集群证书。</div>
+            <button class="btn btn-primary btn-sm" onclick="switchTab('wizard')">前往创建集群</button>
+          </div>
+        `;
+        return;
+      }
+
+      if (summaryEl) {
+        summaryEl.textContent = `共监控 ${licenses.length} 个集群的许可证授权`;
+      }
+
+      container.innerHTML = licenses.map(lic => {
+        let statusBadge = '';
+        if (lic.status === 'active') {
+          statusBadge = `<span class="badge badge-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width: 12px; height: 12px;"><polyline points="20 6 9 17 4 12"/></svg> 商业授权正常 (余 ${lic.daysRemaining} 天)</span>`;
+        } else if (lic.status === 'expiring_soon') {
+          statusBadge = `<span class="badge badge-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width: 12px; height: 12px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> 即将过期 (余 ${lic.daysRemaining} 天)</span>`;
+        } else if (lic.status === 'expired') {
+          statusBadge = `<span class="badge badge-danger">已过期</span>`;
+        } else {
+          statusBadge = `<span class="badge badge-secondary">${lic.status || '未启动'}</span>`;
+        }
+
+        const modules = (lic.moduleList && lic.moduleList.length > 0)
+          ? lic.moduleList.map(m => `<span class="tag" style="font-size: 10px; padding: 2px 6px; background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: 4px; color: var(--primary); font-family: var(--font-mono);">${m}</span>`).join(' ')
+          : `<span style="color: var(--text-muted); font-size: 11px;">${lic.modules || '标准商业模块'}</span>`;
+
+        return `
+          <div class="card" style="display: flex; flex-direction: column; justify-content: space-between; border-top: 3px solid var(--primary); padding: 18px 20px;">
+            <div>
+              <!-- Card Header -->
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <h4 style="font-size: 16px; font-weight: 700; color: var(--text-main); margin: 0;">${lic.clusterName}</h4>
+                    <span class="badge badge-info" style="font-size: 10px;">${lic.namespace}</span>
+                    <span class="tag" style="font-size: 10px;">${lic.mode === 'standalone' ? '单节点' : '高可用集群'}</span>
+                  </div>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    DolphinDB Server: <strong style="color: var(--text-main);">${lic.version || 'v3.00.6'}</strong> | 证书模式: <code>${lic.licenseMode}</code>
+                  </div>
+                </div>
+                <div>
+                  ${statusBadge}
+                </div>
+              </div>
+
+              <!-- Quota & Details Grid -->
+              <div style="background: var(--bg-subtle); border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center;">
+                <div>
+                  <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">到期时间</div>
+                  <div style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-top: 2px; font-family: var(--font-mono);">${lic.expiration || '未获取'}</div>
+                </div>
+                <div>
+                  <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">最大节点数</div>
+                  <div style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-top: 2px;">${lic.maxNodes || '无限制'}</div>
+                </div>
+                <div>
+                  <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">单节点 CPU 核数</div>
+                  <div style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-top: 2px;">${lic.maxCoresPerNode || '无限制'}</div>
+                </div>
+                <div>
+                  <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">单节点内存配额</div>
+                  <div style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-top: 2px;">${lic.maxMemoryPerNode ? lic.maxMemoryPerNode + ' GB' : '无限制'}</div>
+                </div>
+              </div>
+
+              <!-- Metadata Rows -->
+              <div style="font-size: 12px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">客户 / 授权对象:</span>
+                  <strong style="color: var(--text-main); font-family: var(--font-mono);">${lic.clientName || '商业用户 (Commercial)'}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Secret 资源名称:</span>
+                  <code style="font-size: 11px;">${lic.secretName || 'dolphindb-license'}</code>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="color: var(--text-muted);">授权激活模块:</span>
+                  <div style="display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 65%;">
+                    ${modules}
+                  </div>
+                </div>
+                ${lic.message ? `<div style="font-size: 11px; color: var(--warning); margin-top: 4px;">ℹ️ ${lic.message}</div>` : ''}
+              </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border-default); padding-top: 12px;">
+              <button class="btn btn-secondary btn-sm" onclick="triggerHotReload('${lic.namespace}', '${lic.clusterName}')" title="执行 updateLicense() 免重启平滑加载">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                免重启热加载
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="openLicenseUploadModal('${lic.namespace}', '${lic.clusterName}')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                上传 / 更新 License
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderNodeFingerprints(data) {
+      const tbody = document.getElementById('node-fingerprints-tbody');
+      if (!tbody) return;
+
+      if (!data || !data.nodes || data.nodes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">未检索到物理节点</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = data.nodes.map(n => {
+        const isReady = n.status === 'Ready';
+        const statusBadge = isReady
+          ? `<span class="badge badge-success">就绪 (Ready)</span>`
+          : `<span class="badge badge-danger">${n.status}</span>`;
+
+        return `
+          <tr>
+            <td>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <svg style="width: 14px; height: 14px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                <strong style="color: var(--text-main);">${n.name}</strong>
+              </div>
+            </td>
+            <td><code style="font-size: 11px;">${n.hostname}</code></td>
+            <td><code style="font-size: 11px; color: var(--primary);">${n.ip}</code></td>
+            <td>
+              <code style="font-size: 11px; background: var(--bg-subtle); padding: 2px 6px; border-radius: 4px; font-weight: 600;">${n.machineId || '未知'}</code>
+            </td>
+            <td><code style="font-size: 10px; color: var(--text-muted);">${n.systemUuid || '未知'}</code></td>
+            <td style="font-size: 11px; color: var(--text-dim);">${n.os || ''} (${n.arch || 'amd64'})</td>
+            <td>${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function copyFingerprintsReport() {
+      if (!currentNodeFingerprints || !currentNodeFingerprints.copyableReport) {
+        showToast('暂无指纹数据可复制', 'warning');
+        return;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(currentNodeFingerprints.copyableReport).then(() => {
+          showToast('已复制指纹清单！可直接粘贴发送给商务申请 License', 'success');
+        }).catch(() => {
+          fallbackCopyText(currentNodeFingerprints.copyableReport);
+        });
+      } else {
+        fallbackCopyText(currentNodeFingerprints.copyableReport);
+      }
+    }
+
+    function fallbackCopyText(text) {
+      const t = document.createElement('textarea');
+      t.value = text;
+      t.style.position = 'fixed';
+      t.style.left = '-9999px';
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand('copy');
+      document.body.removeChild(t);
+      showToast('已复制指纹清单！', 'success');
+    }
+
+    function openLicenseUploadModal(targetNs, targetCluster, targetNode) {
+      const clusterSelect = document.getElementById('license-upload-cluster-select');
+      if (clusterSelect && currentClusters) {
+        clusterSelect.innerHTML = currentClusters.map(c => {
+          const val = `${c.namespace}/${c.name}`;
+          const selected = (targetNs && targetCluster && c.namespace === targetNs && c.name === targetCluster) ? 'selected' : '';
+          return `<option value="${val}" ${selected}>${c.name} (${c.namespace}) - ${c.mode === 'standalone' ? '单节点' : '集群'}</option>`;
+        }).join('');
+      }
+
+      const nodeSelect = document.getElementById('license-upload-node-select');
+      if (nodeSelect) {
+        let opts = `<option value="">全部节点通用 (集群通用 dolphindb.lic)</option>`;
+        if (currentNodeFingerprints && currentNodeFingerprints.nodes) {
+          opts += currentNodeFingerprints.nodes.map(n => {
+            const selected = (targetNode && targetNode === n.name) ? 'selected' : '';
+            return `<option value="${n.name}" ${selected}>仅物理机 ${n.name} (${n.ip}) - 绑定 ${n.name}.lic</option>`;
+          }).join('');
+        }
+        nodeSelect.innerHTML = opts;
+      }
+
+      selectedLicenseFile = null;
+      const fileInput = document.getElementById('license-file-input');
+      if (fileInput) fileInput.value = '';
+      const display = document.getElementById('license-file-name-display');
+      if (display) display.innerHTML = '点击此处选择本地 dolphindb.lic 文件';
+
+      document.getElementById('modal-license-upload').classList.add('open');
+    }
+
+    function onLicenseFileSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        selectedLicenseFile = {
+          name: file.name,
+          content: e.target.result
+        };
+        const display = document.getElementById('license-file-name-display');
+        if (display) {
+          display.innerHTML = `已选择: <strong style="color: var(--primary);">${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)`;
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    async function submitLicenseUpload() {
+      if (!selectedLicenseFile || !selectedLicenseFile.content) {
+        showToast('请先选择需要上传的 .lic 许可证文件！', 'warning');
+        return;
+      }
+
+      const clusterSelect = document.getElementById('license-upload-cluster-select');
+      if (!clusterSelect || !clusterSelect.value) {
+        showToast('请选择目标集群！', 'warning');
+        return;
+      }
+
+      const [namespace, clusterName] = clusterSelect.value.split('/');
+      const nodeSelect = document.getElementById('license-upload-node-select');
+      const targetNode = nodeSelect ? nodeSelect.value : '';
+      const autoReload = document.getElementById('license-auto-reload-checkbox')?.checked ?? true;
+
+      const btn = document.getElementById('btn-submit-license');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '正在上传并注入...';
+      }
+
+      try {
+        const res = await fetch(`/api/clusters/${namespace}/${clusterName}/license-upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            secretName: 'dolphindb-license',
+            targetNode: targetNode,
+            content: selectedLicenseFile.content,
+            autoReload: autoReload
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || '上传许可证失败');
+        }
+
+        showToast(data.message || '许可证上传成功并更新至 Kubernetes Secret！', 'success');
+        closeModal('modal-license-upload');
+        if (autoReload) {
+          showToast('已自动触发平滑热加载 (updateLicense)，生效中...', 'info');
+        }
+        await fetchLicenseData();
+      } catch (err) {
+        console.error('License upload error:', err);
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg> 确认上传并应用`;
+        }
+      }
+    }
+
+    async function triggerHotReload(namespace, clusterName) {
+      if (!confirm(`确认向集群 ${clusterName} 下发 updateLicense() 免重启热加载指令？`)) return;
+
+      try {
+        const res = await fetch(`/api/clusters/${namespace}/${clusterName}/reload-license`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || '触发热加载失败');
+        }
+        showToast(`已向集群 ${clusterName} 广播 updateLicense() 热加载操作！`, 'success');
+        setTimeout(fetchLicenseData, 1500);
+      } catch (err) {
+        console.error('Trigger hot reload error:', err);
+        showToast(err.message, 'error');
+      }
     }
 
     function formatAge(date) {

@@ -233,14 +233,14 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 			}
 		}
 		if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
-			hasHostLic := false
+			hasLic := false
 			for _, v := range pod.Spec.Volumes {
-				if v.Name == "host-dolphindb-license" {
-					hasHostLic = true
+				if v.Name == "host-dolphindb-license" || v.Name == "ddb-license" {
+					hasLic = true
 					break
 				}
 			}
-			if !hasHostLic {
+			if !hasLic {
 				needsRecreate = true
 			}
 		}
@@ -279,7 +279,7 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 	}
 
 	// Build new Pod
-	newPod := r.buildPod(node, pvcs)
+	newPod := r.buildPod(ctx, node, pvcs)
 	if err := ctrl.SetControllerReference(node, newPod, r.Scheme); err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 	return newPod, nil
 }
 
-func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.PersistentVolumeClaim) *corev1.Pod {
+func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode, pvcs []corev1.PersistentVolumeClaim) *corev1.Pod {
 	headlessSvc := fmt.Sprintf("%s-headless", node.Spec.ClusterName)
 
 	var volumes []corev1.Volume
@@ -315,8 +315,46 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		MountPath: "/data/ddb/server/config",
 	})
 
-	// Mount License: if Fingerprint AutoPassthrough is active, mount the host's per-machine dolphindb.lic directly
-	if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
+	// Mount License: check Secret first (supports per-node <nodeName>.lic or dolphindb.lic), fallback to host passthrough
+	secretName := node.Spec.LicenseSecretName
+	if secretName == "" && node.Spec.Fingerprint != nil {
+		secretName = "dolphindb-license"
+	}
+	hasSecretLicense := false
+	secretKey := "dolphindb.lic"
+	if secretName != "" {
+		sec := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: secretName}, sec); err == nil && sec.Data != nil {
+			nodeKey := fmt.Sprintf("%s.lic", node.Spec.NodeName)
+			if node.Spec.NodeName != "" && len(sec.Data[nodeKey]) > 0 {
+				secretKey = nodeKey
+				hasSecretLicense = true
+			} else if len(sec.Data["dolphindb.lic"]) > 0 {
+				secretKey = "dolphindb.lic"
+				hasSecretLicense = true
+			}
+		}
+	}
+
+	if hasSecretLicense {
+		licVolName := "ddb-license"
+		volumes = append(volumes, corev1.Volume{
+			Name: licVolName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secretName,
+					Items: []corev1.KeyToPath{
+						{Key: secretKey, Path: "dolphindb.lic"},
+					},
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      licVolName,
+			MountPath: "/data/ddb/server/dolphindb.lic",
+			SubPath:   "dolphindb.lic",
+		})
+	} else if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
 		licVolName := "host-dolphindb-license"
 		licPath := "/home/jzchen/dolphindb.lic"
 		if node.Spec.Fingerprint.LicensePath != "" {
@@ -333,24 +371,6 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      licVolName,
 			MountPath: "/data/ddb/server/dolphindb.lic",
-		})
-	} else if node.Spec.LicenseSecretName != "" {
-		licVolName := "ddb-license"
-		volumes = append(volumes, corev1.Volume{
-			Name: licVolName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: node.Spec.LicenseSecretName,
-					Items: []corev1.KeyToPath{
-						{Key: "dolphindb.lic", Path: "dolphindb.lic"},
-					},
-				},
-			},
-		})
-		ddbMounts = append(ddbMounts, corev1.VolumeMount{
-			Name:      licVolName,
-			MountPath: "/data/ddb/server/dolphindb.lic",
-			SubPath:   "dolphindb.lic",
 		})
 	}
 
