@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -85,6 +86,19 @@ func (r *DDBNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 func (r *DDBNodeReconciler) ensurePVCs(ctx context.Context, node *v1alpha1.DDBNode) ([]corev1.PersistentVolumeClaim, error) {
 	var pvcs []corev1.PersistentVolumeClaim
+
+	// If explicit existing PVC claims are given (e.g. from legacy migration adoption), adopt them directly!
+	if len(node.Spec.Storage.ExistingClaims) > 0 {
+		for _, claimName := range node.Spec.Storage.ExistingClaims {
+			pvc := &corev1.PersistentVolumeClaim{}
+			if err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: claimName}, pvc); err == nil {
+				pvcs = append(pvcs, *pvc)
+			}
+		}
+		if len(pvcs) > 0 {
+			return pvcs, nil
+		}
+	}
 
 	// Meta PVC for redo logs, chunk metadata, raft logs (only for cluster nodes)
 	if node.Spec.Role != v1alpha1.NodeRoleSingle {
@@ -426,12 +440,27 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					MountPath: "/data/ddb/server/data",
 				})
 			} else {
-				volIdx := strings.Split(pvc.Name, "-")[1]
+				volIdx := fmt.Sprintf("%d", i)
+				parts := strings.Split(pvc.Name, "-")
+				if len(parts) >= 2 {
+					if _, err := strconv.Atoi(parts[1]); err == nil {
+						volIdx = parts[1]
+					}
+				}
 				ddbMounts = append(ddbMounts, corev1.VolumeMount{
 					Name:      volName,
 					MountPath: fmt.Sprintf("/var/lib/dolphindb/data/vol-%s", volIdx),
 				})
 			}
+		} else {
+			mountPath := "/data/ddb/server/data"
+			if node.Spec.Role != v1alpha1.NodeRoleSingle {
+				mountPath = fmt.Sprintf("/var/lib/dolphindb/data/vol-%d", i)
+			}
+			ddbMounts = append(ddbMounts, corev1.VolumeMount{
+				Name:      volName,
+				MountPath: mountPath,
+			})
 		}
 	}
 

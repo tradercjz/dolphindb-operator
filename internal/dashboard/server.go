@@ -28,6 +28,7 @@ import (
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/ddbclient"
+	"dolphindb.io/operator/internal/migration"
 )
 
 //go:embed ui/*
@@ -78,6 +79,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/licenses", s.handleAllLicenses)
 	mux.HandleFunc("/api/k8s/nodes-fingerprints", s.handleNodeFingerprints)
 	mux.HandleFunc("/api/k8s/nodes-fingerprints/probe", s.handleProbeFingerprints)
+
+	mux.HandleFunc("/api/migration/legacy-clusters", s.handleLegacyClusters)
+	mux.HandleFunc("/api/migration/legacy-clusters/", s.handleLegacyClusterSubRoutes)
 
 	// Embedded UI Static Assets
 	subUI, err := fs.Sub(uiFS, "ui")
@@ -2470,4 +2474,109 @@ func (s *Server) handleLicenseUpload(w http.ResponseWriter, r *http.Request, nam
 		"message":   fmt.Sprintf("许可证已成功保存至 Secret %s (共 %d 个证书文件)", req.SecretName, len(secretData)),
 		"operation": op,
 	})
+}
+
+// handleLegacyClusters lists discovered legacy clusters
+func (s *Server) handleLegacyClusters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	ns := r.URL.Query().Get("namespace")
+	if ns == "" {
+		ns = s.namespace
+	}
+
+	clusters, err := migration.DiscoverLegacyClusters(r.Context(), s.client, ns)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to discover legacy clusters: %v", err))
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"clusters": clusters,
+	})
+}
+
+// handleLegacyClusterSubRoutes handles /api/migration/legacy-clusters/{ns}/{name}/{action}
+func (s *Server) handleLegacyClusterSubRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/migration/legacy-clusters/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 3 {
+		errorResponse(w, http.StatusBadRequest, "Invalid URL format, expected /api/migration/legacy-clusters/{namespace}/{name}/{action}")
+		return
+	}
+
+	namespace := parts[0]
+	name := parts[1]
+	action := parts[2]
+
+	switch action {
+	case "assess":
+		if r.Method != http.MethodGet {
+			errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		detail, report, err := migration.AnalyzeLegacyCluster(r.Context(), s.client, s.kubeClient, namespace, name)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to assess legacy cluster: %v", err))
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"detail": detail,
+			"report": report,
+		})
+
+	case "convert":
+		if r.Method != http.MethodPost {
+			errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		var opts migration.ConversionOptions
+		if err := json.NewDecoder(r.Body).Decode(&opts); err != nil && err != io.EOF {
+			errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid conversion options: %v", err))
+			return
+		}
+		if opts.TargetNamespace == "" {
+			opts.TargetNamespace = namespace
+		}
+
+		detail, _, err := migration.AnalyzeLegacyCluster(r.Context(), s.client, s.kubeClient, namespace, name)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to analyze legacy cluster: %v", err))
+			return
+		}
+
+		res, err := migration.ConvertLegacyCluster(detail, opts)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to convert legacy cluster: %v", err))
+			return
+		}
+		jsonResponse(w, http.StatusOK, res)
+
+	case "adopt-step":
+		if r.Method != http.MethodPost {
+			errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		var req struct {
+			StepID        string                     `json:"stepId"`
+			TargetCluster *v1alpha1.DolphinDBCluster `json:"targetCluster"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid request: %v", err))
+			return
+		}
+
+		stepRes, err := migration.ExecuteAdoptionStep(r.Context(), s.client, s.kubeClient, namespace, name, req.StepID, req.TargetCluster)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Step execution failed: %v", err))
+			return
+		}
+		jsonResponse(w, http.StatusOK, stepRes)
+
+	default:
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Unknown migration action: %s", action))
+	}
 }

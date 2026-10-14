@@ -1368,6 +1368,17 @@
           许可证管理
           <span class="badge-count" id="badge-license-count" style="display:none;">0</span>
         </button>
+
+        <button id="nav-migration" class="nav-tab-btn" onclick="switchTab('migration')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="17 1 21 5 17 9"/>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+            <polyline points="7 23 3 19 7 15"/>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+          旧版平滑升级
+          <span class="badge-count" id="badge-migration-count" style="display:none; background: #ea580c; color: #fff;">0</span>
+        </button>
       </div>
 
       <!-- Quick Filter -->
@@ -1984,9 +1995,303 @@
       </div>
     </div>
 
+    <!-- Tab: Legacy Migration Workbench -->
+    <div id="tab-migration" class="tab-pane" style="display: none;">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+        <div>
+          <h2 style="font-size: 20px; font-weight: 700; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+            <svg style="width: 22px; height: 22px; color: #ea580c;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <polyline points="17 1 21 5 17 9"/>
+              <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+              <polyline points="7 23 3 19 7 15"/>
+              <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+            </svg>
+            旧版 K8s 套件平滑升级工作台 (Legacy Migration Toolchain)
+          </h2>
+          <div style="font-size: 13px; color: var(--text-muted);">
+            自动探测 Kubernetes 集群中基于 <code>dolphindbs.dolphindb.dolphindb.io/v1</code> 的存量旧集群，提供深度兼容性体检预检、配置参数提取、双轨蓝绿平滑迁移以及存量 PVC 原地接管向导。
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-secondary btn-sm" onclick="fetchMigrationData()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            扫描旧集群资产
+          </button>
+        </div>
+      </div>
+
+      <!-- Banner: Quick Migration Guide Summary -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+        <div class="card" style="border-left: 4px solid var(--primary); padding: 18px 20px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <span class="badge badge-info" style="font-size: 11px; font-weight: 700;">方案 A：强烈推荐</span>
+            <strong style="font-size: 15px; color: var(--text-main);">双轨蓝绿平滑迁移 (Blue-Green)</strong>
+          </div>
+          <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
+            在同集群并行部署全新云原生集群，利用 DolphinDB 原生分布式工具进行全量与增量同步，业务灰度切流，<strong>业务 0 停机、零风险随时可回滚</strong>！
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); display: flex; gap: 14px;">
+            <span>⏱️ 停机时间: <strong>0 停机</strong></span>
+            <span>🛡️ 风险评级: <strong>极低 (无历史包袱)</strong></span>
+            <span>📦 适用: <strong>中小数据量 (TB 级内)</strong></span>
+          </div>
+        </div>
+
+        <div class="card" style="border-left: 4px solid #ea580c; padding: 18px 20px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <span class="badge badge-warning" style="font-size: 11px; font-weight: 700;">方案 B：海量数据专用</span>
+            <strong style="font-size: 15px; color: var(--text-main);">存量 PVC 原地安全接管 (In-Place Adoption)</strong>
+          </div>
+          <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
+            通过 <code>--cascade=orphan</code> 孤儿化解除旧版 StatefulSet 强级联绑定，原位复用 Longhorn/本地 NVMe 数据卷，由新 Operator 轻量换壳接管。
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); display: flex; gap: 14px;">
+            <span>⏱️ 停机时间: <strong>3~8 分钟快速换壳</strong></span>
+            <span>🛡️ 风险评级: <strong>可控 (严格刷盘)</strong></span>
+            <span>📦 适用: <strong>超大海量数据 (免搬迁)</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Discovered Legacy Clusters Card -->
+      <div class="card" style="padding: 24px; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="font-size: 16px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <span style="display: inline-block; width: 4px; height: 16px; background: #ea580c; border-radius: 2px;"></span>
+            发现的存量旧版 DolphinDB 集群
+          </h3>
+          <span style="font-size: 12px; color: var(--text-muted);" id="migration-clusters-count">正在扫描...</span>
+        </div>
+
+        <div class="table-container">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>集群名称</th>
+                <th>命名空间</th>
+                <th>部署架构</th>
+                <th>镜像版本</th>
+                <th>节点规模</th>
+                <th>存储类与容量</th>
+                <th>健康状态</th>
+                <th style="text-align: right;">平滑升级操作</th>
+              </tr>
+            </thead>
+            <tbody id="migration-clusters-table-body">
+              <tr>
+                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                  正在检索旧版 CRD (dolphindbs.dolphindb.dolphindb.io)...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Helper: Command Line Alternative -->
+      <div class="card" style="padding: 18px 20px; background: var(--bg-subtle);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <strong style="color: var(--text-main); font-size: 13px;">💻 GitOps / CLI 命令行迁移工具现已就绪</strong>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">
+              平台同时提供了独立的 CLI 工具 <code>ddb-migrate</code>。您可直接在终端执行 <code>ddb-migrate scan</code>、<code>ddb-migrate inspect -n &lt;ns&gt; &lt;cluster&gt;</code> 与 <code>ddb-migrate convert</code> 实现无头自动化迁移。
+            </p>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="copyMigrationCliSnippet()">复制 CLI 命令</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- MODALS -->
+
+  <!-- Modal: Migration Wizard -->
+  <div id="modal-migration-wizard" class="modal-overlay">
+    <div class="modal-dialog modal-lg" style="max-width: 960px;">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px;">
+          <svg style="width: 20px; height: 20px; color: #ea580c;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="17 1 21 5 17 9"/>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+            <polyline points="7 23 3 19 7 15"/>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+          平滑升级向导: <span id="mig-cluster-title" style="color: var(--primary); font-family: var(--font-mono); font-size: 14px;"></span>
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-migration-wizard')">✕</button>
+      </div>
+
+      <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 20px 24px;">
+        <!-- Stepper Navigation -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-default);">
+          <div class="mig-step-item" id="mig-step-nav-1" onclick="switchMigStep(1)" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span class="mig-step-num" style="width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">1</span>
+            <span style="font-size: 13px; font-weight: 600;">兼容性体检预检</span>
+          </div>
+          <div style="flex: 1; height: 2px; background: var(--border-default); margin: 0 12px;"></div>
+          <div class="mig-step-item" id="mig-step-nav-2" onclick="switchMigStep(2)" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span class="mig-step-num" style="width: 26px; height: 26px; border-radius: 50%; background: var(--bg-surface-hover); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">2</span>
+            <span style="font-size: 13px; font-weight: 600;">迁移策略选择</span>
+          </div>
+          <div style="flex: 1; height: 2px; background: var(--border-default); margin: 0 12px;"></div>
+          <div class="mig-step-item" id="mig-step-nav-3" onclick="switchMigStep(3)" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span class="mig-step-num" style="width: 26px; height: 26px; border-radius: 50%; background: var(--bg-surface-hover); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">3</span>
+            <span style="font-size: 13px; font-weight: 600;">YAML 生成预览</span>
+          </div>
+          <div style="flex: 1; height: 2px; background: var(--border-default); margin: 0 12px;"></div>
+          <div class="mig-step-item" id="mig-step-nav-4" onclick="switchMigStep(4)" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span class="mig-step-num" style="width: 26px; height: 26px; border-radius: 50%; background: var(--bg-surface-hover); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">4</span>
+            <span style="font-size: 13px; font-weight: 600;">执行与数据同步</span>
+          </div>
+        </div>
+
+        <!-- STEP 1: Assessment Report -->
+        <div id="mig-step-pane-1">
+          <!-- Overview Cards -->
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px;">
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 14px;">
+              <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">升级健康体检评分</div>
+              <div style="display: flex; align-items: baseline; gap: 6px;">
+                <span id="mig-report-score" style="font-size: 26px; font-weight: 800; color: var(--success);">--</span>
+                <span style="font-size: 13px; color: var(--text-muted);">/ 100</span>
+                <span id="mig-report-risk" class="badge badge-success" style="margin-left: 8px;">LOW</span>
+              </div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 14px;">
+              <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">架构精简与内存节约</div>
+              <div style="font-size: 18px; font-weight: 700; color: var(--primary);">约 480MB / 节点</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">消除 3 个 Sidecar 容器</div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 14px;">
+              <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">存量数据卷总容量</div>
+              <div id="mig-report-storage" style="font-size: 18px; font-weight: 700; color: var(--text-main);">--</div>
+              <div id="mig-report-storage-class" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">StorageClass: --</div>
+            </div>
+          </div>
+
+          <!-- Strategy Recommendation Banner -->
+          <div id="mig-rec-banner" style="background: var(--primary-subtle); border: 1px solid var(--primary-border); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px; font-size: 13px; color: var(--primary-text); display: flex; align-items: center; gap: 10px;">
+            <svg style="width: 20px; height: 20px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <div id="mig-report-rec-text">评估中...</div>
+          </div>
+
+          <!-- Findings List -->
+          <div style="margin-bottom: 20px;">
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 10px;">体检诊断项与风险提示</h4>
+            <div id="mig-findings-list" style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="color: var(--text-muted); font-size: 13px;">正在加载诊断项目...</div>
+            </div>
+          </div>
+
+          <!-- Captured Configs -->
+          <div style="margin-bottom: 10px;">
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 10px;">自动提取的原集群定制配置 (来自 dolphindb.cnf)</h4>
+            <div id="mig-captured-configs" style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 12px 14px; font-family: var(--font-mono); font-size: 12px; color: var(--text-main);">
+              无自定义参数
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: Strategy Selection -->
+        <div id="mig-step-pane-2" style="display: none;">
+          <h4 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 14px;">请选择适合该业务场景的迁移策略</h4>
+          
+          <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px;">
+            <label id="mig-opt-blue-green-card" style="border: 2px solid var(--primary); border-radius: var(--radius-md); padding: 18px; display: flex; gap: 14px; cursor: pointer; background: var(--bg-surface);">
+              <input type="radio" name="mig-strategy-radio" value="blue-green" checked style="margin-top: 3px;" onchange="onStrategyChanged()">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                  <strong style="font-size: 15px; color: var(--text-main);">方案 A：双轨蓝绿平滑迁移 (Blue-Green) —— 推荐首选</strong>
+                  <span class="badge badge-success">零风险 / 0 停机</span>
+                </div>
+                <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px;">
+                  新版 Operator 部署独立的新集群实例，通过 DolphinDB 官方备份恢复工具或分布式流表网络进行全量+增量数据同步。数据验证无误后在接入网关切流，旧集群毫发无损，随时可一键回滚。
+                </p>
+                <div style="font-size: 12px; color: var(--text-secondary);">
+                  适合场景：中小数据量（几百 GB ~ 数 TB）、生产金融级别对连续性要求极高的核心业务。
+                </div>
+              </div>
+            </label>
+
+            <label id="mig-opt-in-place-card" style="border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 18px; display: flex; gap: 14px; cursor: pointer; background: var(--bg-surface);">
+              <input type="radio" name="mig-strategy-radio" value="in-place" style="margin-top: 3px;" onchange="onStrategyChanged()">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                  <strong style="font-size: 15px; color: var(--text-main);">方案 B：存量 PVC 原地安全接管 (In-Place Adoption)</strong>
+                  <span class="badge badge-warning">免搬迁 / 3-8分钟换壳</span>
+                </div>
+                <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px;">
+                  在源节点执行强制刷盘（Checkpoint）后，使用 <code>--cascade=orphan</code> 解绑旧 StatefulSet，新 Operator 基于已有 PVC 拉起全新的轻量化数据节点，不搬迁任何数据文件。
+                </p>
+                <div style="font-size: 12px; color: var(--text-secondary);">
+                  适合场景：海量大数据（数十 TB 甚至 PB 级）、磁盘与网络无法支撑全量复制的大型行情回测与高频数据分析集群。
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="form-group">
+              <label>目标 DolphinDB 镜像版本 (Target Version)</label>
+              <input type="text" id="mig-target-version" class="form-control" value="3.00.6">
+            </div>
+            <div class="form-group">
+              <label>新集群名称 (Cluster Name)</label>
+              <input type="text" id="mig-target-name" class="form-control" value="">
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: YAML Preview -->
+        <div id="mig-step-pane-3" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--text-main);">生成的新版 DolphinDBCluster 声明式配置</h4>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="copyMigrationYaml()">复制代码</button>
+              <button class="btn btn-secondary btn-sm" onclick="downloadMigrationYaml()">下载 YAML 文件</button>
+            </div>
+          </div>
+          <textarea id="mig-generated-yaml" class="form-control" style="font-family: var(--font-mono); font-size: 12px; height: 380px; line-height: 1.5; background: var(--bg-surface); resize: vertical;" readonly></textarea>
+        </div>
+
+        <!-- STEP 4: Execution & Scripts -->
+        <div id="mig-step-pane-4" style="display: none;">
+          <div id="mig-pane-blue-green" style="display: none;">
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 18px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="font-size: 14px; font-weight: 700; color: var(--text-main);">DolphinDB 跨集群平滑数据同步脚本</h4>
+                <button class="btn btn-secondary btn-sm" onclick="copyMigrationSyncScript()">复制同步脚本</button>
+              </div>
+              <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                请在 DolphinDB GUI 或客户端中打开源集群与目标新集群，执行以下函数完成全量冷热备同步或在线流表追加：
+              </p>
+              <textarea id="mig-sync-script-area" class="form-control" style="font-family: var(--font-mono); font-size: 12px; height: 260px; line-height: 1.5; background: var(--bg-base);" readonly></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end;">
+              <button class="btn btn-primary" onclick="deployMigratedCluster()">在集群中立即部署新版集群</button>
+            </div>
+          </div>
+
+          <div id="mig-pane-in-place" style="display: none;">
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 12px;">存量 PVC 原地接管分步执行面板</h4>
+            <div id="mig-adoption-steps-container" style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px;">
+              <!-- Populated via JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-secondary" id="mig-btn-prev" onclick="migPrevStep()" style="display: none;">上一步</button>
+        <div>
+          <button class="btn btn-secondary" onclick="closeModal('modal-migration-wizard')">关闭</button>
+          <button class="btn btn-primary" id="mig-btn-next" onclick="migNextStep()">下一步：选择策略</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal: Scale Cluster -->
   <div id="modal-scale" class="modal-overlay">
@@ -2343,6 +2648,9 @@
       }
       if (tabId === 'license') {
         fetchLicenseData();
+      }
+      if (tabId === 'migration') {
+        fetchMigrationData();
       }
     }
 
@@ -3923,12 +4231,442 @@ spec:
       });
     });
 
+    // =========================================================================
+    // MIGRATION & UPGRADE WORKBENCH (旧版平滑升级工具链)
+    // =========================================================================
+    let legacyClustersData = [];
+    let currentMigDetail = null;
+    let currentMigReport = null;
+    let currentMigResult = null;
+    let currentMigStep = 1;
+
+    async function fetchMigrationData() {
+      const tbody = document.getElementById('migration-clusters-table-body');
+      const countEl = document.getElementById('migration-clusters-count');
+      const badge = document.getElementById('badge-migration-count');
+
+      try {
+        const res = await fetch('/api/migration/legacy-clusters');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        legacyClustersData = data.clusters || [];
+
+        if (countEl) {
+          countEl.textContent = `共扫描到 ${legacyClustersData.length} 个旧版集群`;
+        }
+
+        if (badge) {
+          if (legacyClustersData.length > 0) {
+            badge.style.display = 'inline-block';
+            badge.textContent = legacyClustersData.length;
+          } else {
+            badge.style.display = 'none';
+          }
+        }
+
+        if (!tbody) return;
+
+        if (legacyClustersData.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 40px 20px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">🎉</div>
+                <strong style="color: var(--text-main); font-size: 14px; display: block; margin-bottom: 4px;">未检测到旧版 DolphinDB CR 实例</strong>
+                <span style="font-size: 12px;">当前 Kubernetes 集群中无基于 dolphindb.dolphindb.io/v1 的存量集群，环境运行良好！</span>
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = legacyClustersData.map(c => `
+          <tr>
+            <td>
+              <strong style="font-family: var(--font-mono); font-size: 13px; color: var(--text-main);">${c.name}</strong>
+              <div style="font-size: 11px; color: var(--text-muted);">CRD: dolphindb.dolphindb.io/v1</div>
+            </td>
+            <td><span class="badge badge-info">${c.namespace}</span></td>
+            <td>
+              <span class="badge ${c.mode === 'cluster' ? 'badge-primary' : 'badge-secondary'}">
+                ${c.mode === 'cluster' ? '分布式集群 (Cluster)' : '单节点 (Standalone)'}
+              </span>
+            </td>
+            <td><span class="badge badge-secondary" style="font-family: var(--font-mono);">${c.version || 'v3.00.5'}</span></td>
+            <td><strong>${c.nodeCount}</strong> 个节点</td>
+            <td>
+              <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">${c.dataSize || '默认'}</div>
+              <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${c.storageClassName || '默认'}</div>
+            </td>
+            <td>
+              <span class="badge badge-success">
+                <span class="status-dot online"></span>
+                ${c.status || 'Available'}
+              </span>
+            </td>
+            <td style="text-align: right;">
+              <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button class="btn btn-primary btn-sm" onclick="openMigrationWizard('${c.namespace}', '${c.name}')">
+                  平滑升级向导
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="quickExportMigrationYaml('${c.namespace}', '${c.name}')">
+                  导出 YAML
+                </button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+
+      } catch (err) {
+        console.error('Failed to fetch legacy clusters:', err);
+        if (tbody) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="8" style="text-align: center; color: var(--danger); padding: 30px;">
+                扫描旧集群失败: ${err.message}
+              </td>
+            </tr>
+          `;
+        }
+      }
+    }
+
+    async function openMigrationWizard(namespace, name) {
+      document.getElementById('mig-cluster-title').textContent = `${namespace}/${name}`;
+      currentMigStep = 1;
+      updateMigStepperUI();
+
+      // Reset step 1 views
+      document.getElementById('mig-report-score').textContent = '--';
+      document.getElementById('mig-report-risk').className = 'badge badge-secondary';
+      document.getElementById('mig-report-risk').textContent = '检测中';
+      document.getElementById('mig-report-storage').textContent = '--';
+      document.getElementById('mig-report-storage-class').textContent = 'StorageClass: --';
+      document.getElementById('mig-report-rec-text').textContent = '正在发起 Kubernetes API 深度扫描与配置提取...';
+      document.getElementById('mig-findings-list').innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">正在深度体检中，请稍候...</div>';
+      document.getElementById('mig-captured-configs').textContent = '加载中...';
+
+      document.getElementById('modal-migration-wizard').classList.add('open');
+
+      try {
+        const res = await fetch(`/api/migration/legacy-clusters/${namespace}/${name}/assess`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        currentMigDetail = data.detail;
+        currentMigReport = data.report;
+
+        // Render Step 1 Overview
+        const score = currentMigReport.healthScore || 85;
+        const scoreEl = document.getElementById('mig-report-score');
+        scoreEl.textContent = score;
+        if (score >= 80) scoreEl.style.color = 'var(--success)';
+        else if (score >= 60) scoreEl.style.color = 'var(--warning)';
+        else scoreEl.style.color = 'var(--danger)';
+
+        const riskBadge = document.getElementById('mig-report-risk');
+        riskBadge.textContent = currentMigReport.riskLevel || 'LOW';
+        riskBadge.className = `badge ${currentMigReport.riskLevel === 'LOW' ? 'badge-success' : currentMigReport.riskLevel === 'MEDIUM' ? 'badge-warning' : 'badge-danger'}`;
+
+        document.getElementById('mig-report-storage').textContent = currentMigReport.storageSummary.totalCapacity || '4Gi';
+        document.getElementById('mig-report-storage-class').textContent = `StorageClass: ${currentMigReport.storageSummary.storageClass || 'longhorn'} (${currentMigReport.storageSummary.totalVolumes} 个 PVC)`;
+        document.getElementById('mig-report-rec-text').innerHTML = `<strong>推荐策略：${currentMigReport.recommendedStrategy === 'BlueGreen' ? '双轨蓝绿平滑迁移 (推荐)' : '存量 PVC 原地安全接管'}</strong><br/>${currentMigReport.recommendationReason}`;
+
+        // Render Findings
+        const findingsList = document.getElementById('mig-findings-list');
+        if (currentMigReport.findings && currentMigReport.findings.length > 0) {
+          findingsList.innerHTML = currentMigReport.findings.map((f, i) => {
+            const badgeClass = f.severity === 'WARNING' ? 'badge-warning' : f.severity === 'CRITICAL' ? 'badge-danger' : 'badge-info';
+            return `
+              <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 12px 14px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <strong style="font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                    <span class="badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px;">${f.severity}</span>
+                    [${f.category}] ${f.title}
+                  </strong>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 4px;">${f.detail}</div>
+                <div style="font-size: 12px; color: var(--primary);"><span style="font-weight: 600;">建议：</span>${f.recommendation}</div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          findingsList.innerHTML = '<div style="color: var(--success); font-size: 13px;">未发现任何兼容性阻碍。</div>';
+        }
+
+        // Render Configs
+        const configsEl = document.getElementById('mig-captured-configs');
+        const cfgs = currentMigReport.customConfigs || {};
+        const cfgKeys = Object.keys(cfgs);
+        if (cfgKeys.length > 0) {
+          configsEl.innerHTML = cfgKeys.map(k => `<div><span style="color: var(--primary); font-weight: 600;">${k}</span> = <span style="color: var(--success);">${cfgs[k]}</span></div>`).join('');
+        } else {
+          configsEl.textContent = '无额外自定义参数 (将使用官方新版最佳实践默认参数)';
+        }
+
+        // Set Step 2 Defaults
+        document.getElementById('mig-target-version').value = currentMigDetail.info.version ? currentMigDetail.info.version.replace(/^v/, '') : '3.00.6';
+        document.getElementById('mig-target-name').value = `${currentMigDetail.info.name}-v2`;
+
+      } catch (err) {
+        console.error('Failed to analyze legacy cluster:', err);
+        showToast(`体检失败: ${err.message}`, 'error');
+      }
+    }
+
+    function switchMigStep(step) {
+      currentMigStep = step;
+      updateMigStepperUI();
+      if (step === 3) {
+        generateMigrationConversion();
+      }
+    }
+
+    function migNextStep() {
+      if (currentMigStep < 4) {
+        currentMigStep++;
+        updateMigStepperUI();
+        if (currentMigStep === 3) {
+          generateMigrationConversion();
+        }
+      } else {
+        closeModal('modal-migration-wizard');
+      }
+    }
+
+    function migPrevStep() {
+      if (currentMigStep > 1) {
+        currentMigStep--;
+        updateMigStepperUI();
+      }
+    }
+
+    function updateMigStepperUI() {
+      for (let i = 1; i <= 4; i++) {
+        const pane = document.getElementById(`mig-step-pane-${i}`);
+        const nav = document.getElementById(`mig-step-nav-${i}`);
+        if (pane) pane.style.display = (i === currentMigStep) ? 'block' : 'none';
+        if (nav) {
+          const num = nav.querySelector('.mig-step-num');
+          if (i === currentMigStep) {
+            num.style.background = 'var(--primary)';
+            num.style.color = '#fff';
+            nav.style.color = 'var(--text-main)';
+          } else if (i < currentMigStep) {
+            num.style.background = 'var(--success)';
+            num.style.color = '#fff';
+            nav.style.color = 'var(--text-muted)';
+          } else {
+            num.style.background = 'var(--bg-surface-hover)';
+            num.style.color = 'var(--text-muted)';
+            nav.style.color = 'var(--text-muted)';
+          }
+        }
+      }
+
+      const prevBtn = document.getElementById('mig-btn-prev');
+      const nextBtn = document.getElementById('mig-btn-next');
+      if (prevBtn) prevBtn.style.display = (currentMigStep > 1) ? 'inline-block' : 'none';
+
+      if (nextBtn) {
+        if (currentMigStep === 1) nextBtn.textContent = '下一步：选择策略';
+        else if (currentMigStep === 2) nextBtn.textContent = '下一步：生成并预览 YAML';
+        else if (currentMigStep === 3) nextBtn.textContent = '下一步：执行与数据同步';
+        else if (currentMigStep === 4) nextBtn.textContent = '完成向导并关闭';
+      }
+    }
+
+    function onStrategyChanged() {
+      const mode = document.querySelector('input[name="mig-strategy-radio"]:checked').value;
+      const blueCard = document.getElementById('mig-opt-blue-green-card');
+      const inPlaceCard = document.getElementById('mig-opt-in-place-card');
+      const nameInput = document.getElementById('mig-target-name');
+
+      if (mode === 'blue-green') {
+        blueCard.style.border = '2px solid var(--primary)';
+        inPlaceCard.style.border = '1px solid var(--border-default)';
+        if (currentMigDetail) nameInput.value = `${currentMigDetail.info.name}-v2`;
+      } else {
+        inPlaceCard.style.border = '2px solid #ea580c';
+        blueCard.style.border = '1px solid var(--border-default)';
+        if (currentMigDetail) nameInput.value = currentMigDetail.info.name;
+      }
+    }
+
+    async function generateMigrationConversion() {
+      if (!currentMigDetail) return;
+      const mode = document.querySelector('input[name="mig-strategy-radio"]:checked').value;
+      const targetVersion = document.getElementById('mig-target-version').value.trim() || '3.00.6';
+      const targetName = document.getElementById('mig-target-name').value.trim() || (mode === 'in-place' ? currentMigDetail.info.name : `${currentMigDetail.info.name}-v2`);
+
+      document.getElementById('mig-generated-yaml').value = '正在根据旧集群元数据自动生成新版 DolphinDBCluster YAML...';
+
+      try {
+        const res = await fetch(`/api/migration/legacy-clusters/${currentMigDetail.info.namespace}/${currentMigDetail.info.name}/convert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetMode: mode,
+            targetVersion: targetVersion,
+            newClusterName: targetName,
+            targetNamespace: currentMigDetail.info.namespace
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        currentMigResult = await res.json();
+
+        // Populate YAML
+        document.getElementById('mig-generated-yaml').value = currentMigResult.targetYaml;
+
+        // Populate Step 4
+        if (mode === 'blue-green') {
+          document.getElementById('mig-pane-blue-green').style.display = 'block';
+          document.getElementById('mig-pane-in-place').style.display = 'none';
+          document.getElementById('mig-sync-script-area').value = currentMigResult.syncScript || '';
+        } else {
+          document.getElementById('mig-pane-blue-green').style.display = 'none';
+          document.getElementById('mig-pane-in-place').style.display = 'block';
+
+          const container = document.getElementById('mig-adoption-steps-container');
+          container.innerHTML = (currentMigResult.adoptionSteps || []).map((s, idx) => `
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 14px 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <strong style="font-size: 13px; color: var(--text-main);">${s.title}</strong>
+                <button class="btn btn-secondary btn-sm" id="btn-mig-step-${s.stepId}" onclick="executeAdoptionStepInUI('${s.stepId}')">
+                  一键执行此步骤
+                </button>
+              </div>
+              <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">${s.description}</p>
+              <div style="background: var(--bg-base); padding: 8px 10px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 11px; color: var(--primary); word-break: break-all;">
+                ${s.command}
+              </div>
+              <div id="result-mig-step-${s.stepId}" style="display: none; margin-top: 8px; font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--bg-subtle);"></div>
+            </div>
+          `).join('');
+        }
+
+      } catch (err) {
+        console.error('Failed to convert legacy cluster:', err);
+        document.getElementById('mig-generated-yaml').value = `转换失败: ${err.message}`;
+        showToast(`转换失败: ${err.message}`, 'error');
+      }
+    }
+
+    async function executeAdoptionStepInUI(stepId) {
+      if (!currentMigDetail || !currentMigResult) return;
+      const btn = document.getElementById(`btn-mig-step-${stepId}`);
+      const resBox = document.getElementById(`result-mig-step-${stepId}`);
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '执行中...';
+      }
+
+      try {
+        const res = await fetch(`/api/migration/legacy-clusters/${currentMigDetail.info.namespace}/${currentMigDetail.info.name}/adopt-step`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stepId: stepId,
+            targetCluster: currentMigResult.targetCluster
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+        if (btn) {
+          btn.textContent = '已完成 ✓';
+          btn.className = 'btn btn-success btn-sm';
+        }
+        if (resBox) {
+          resBox.style.display = 'block';
+          resBox.style.color = 'var(--success-text)';
+          resBox.innerHTML = `<strong>执行成功：</strong> ${data.output || '步骤顺利完成'}`;
+        }
+        showToast(`步骤 ${stepId} 执行成功`, 'success');
+
+      } catch (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '重试执行';
+        }
+        if (resBox) {
+          resBox.style.display = 'block';
+          resBox.style.color = 'var(--danger-text)';
+          resBox.innerHTML = `<strong>执行失败：</strong> ${err.message}`;
+        }
+        showToast(`执行失败: ${err.message}`, 'error');
+      }
+    }
+
+    async function quickExportMigrationYaml(namespace, name) {
+      await openMigrationWizard(namespace, name);
+      switchMigStep(3);
+    }
+
+    function copyMigrationYaml() {
+      const yaml = document.getElementById('mig-generated-yaml').value;
+      navigator.clipboard.writeText(yaml).then(() => {
+        showToast('新版 DolphinDBCluster YAML 已复制到剪贴板', 'success');
+      });
+    }
+
+    function downloadMigrationYaml() {
+      const yaml = document.getElementById('mig-generated-yaml').value;
+      const targetName = document.getElementById('mig-target-name').value.trim() || 'dolphindb-cluster';
+      const blob = new Blob([yaml], { type: 'text/yaml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${targetName}.yaml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`已下载 ${targetName}.yaml`, 'success');
+    }
+
+    function copyMigrationSyncScript() {
+      const script = document.getElementById('mig-sync-script-area').value;
+      navigator.clipboard.writeText(script).then(() => {
+        showToast('DolphinDB 数据同步脚本已复制到剪贴板', 'success');
+      });
+    }
+
+    function copyMigrationCliSnippet() {
+      const cmd = `ddb-migrate scan\nddb-migrate inspect -n dolphindb <cluster-name>\nddb-migrate convert --mode blue-green -n dolphindb <cluster-name> -o new-cluster.yaml`;
+      navigator.clipboard.writeText(cmd).then(() => {
+        showToast('ddb-migrate 命令行示例已复制到剪贴板', 'success');
+      });
+    }
+
+    async function deployMigratedCluster() {
+      if (!currentMigResult || !currentMigResult.targetCluster) {
+        showToast('无可用集群定义', 'error');
+        return;
+      }
+      try {
+        const res = await fetch('/api/clusters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentMigResult.targetCluster)
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        showToast(`新集群 ${currentMigResult.targetCluster.metadata.name} 部署请求已下发！`, 'success');
+        closeModal('modal-migration-wizard');
+        switchTab('clusters');
+        fetchDashboardData();
+      } catch (err) {
+        showToast(`部署新集群失败: ${err.message}`, 'error');
+      }
+    }
+
     // Init
     window.addEventListener('DOMContentLoaded', () => {
       initTheme();
       fetchMetadata();
       fetchDashboardData();
       fetchLicenseData();
+      fetchMigrationData();
       startAutoRefresh();
       updateWizardYAML();
     });

@@ -171,6 +171,9 @@ type StorageSpec struct {
 	// DataVolumeSize size of each data volume
 	// +kubebuilder:default="100Gi"
 	DataVolumeSize string `json:"dataVolumeSize,omitempty"`
+
+	// ExistingClaims specifies names of pre-existing PVCs to adopt
+	ExistingClaims []string `json:"existingClaims,omitempty"`
 }
 
 // NodeBinding maps an indexed instance to a specific physical node
