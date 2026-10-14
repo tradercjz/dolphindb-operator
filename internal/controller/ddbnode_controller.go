@@ -232,7 +232,37 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 				needsRecreate = true
 			}
 		}
+		if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
+			hasHostLic := false
+			for _, v := range pod.Spec.Volumes {
+				if v.Name == "host-dolphindb-license" {
+					hasHostLic = true
+					break
+				}
+			}
+			if !hasHostLic {
+				needsRecreate = true
+			}
+		}
+		expectedHostname := node.Name
+		if node.Spec.Hostname != "" {
+			expectedHostname = node.Spec.Hostname
+		} else if node.Spec.Fingerprint != nil {
+			if node.Spec.Fingerprint.Hostname != "" {
+				expectedHostname = node.Spec.Fingerprint.Hostname
+			} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
+				expectedHostname = node.Spec.NodeName
+			} else if node.Spec.NodeName != "" {
+				expectedHostname = node.Spec.NodeName
+			}
+		}
+		if pod.Spec.Hostname != expectedHostname {
+			needsRecreate = true
+		}
 		if node.Spec.NodeName != "" && pod.Spec.NodeName != "" && pod.Spec.NodeName != node.Spec.NodeName {
+			needsRecreate = true
+		}
+		if node.Spec.NodeName == "" && pod.Spec.NodeName != "" && pod.Spec.Affinity == nil {
 			needsRecreate = true
 		}
 		if needsRecreate && pod.DeletionTimestamp == nil {
@@ -285,8 +315,26 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		MountPath: "/data/ddb/server/config",
 	})
 
-	// Mount License if configured
-	if node.Spec.LicenseSecretName != "" {
+	// Mount License: if Fingerprint AutoPassthrough is active, mount the host's per-machine dolphindb.lic directly
+	if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
+		licVolName := "host-dolphindb-license"
+		licPath := "/home/jzchen/dolphindb.lic"
+		if node.Spec.Fingerprint.LicensePath != "" {
+			licPath = node.Spec.Fingerprint.LicensePath
+		}
+		volumes = append(volumes, corev1.Volume{
+			Name: licVolName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: licPath,
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      licVolName,
+			MountPath: "/data/ddb/server/dolphindb.lic",
+		})
+	} else if node.Spec.LicenseSecretName != "" {
 		licVolName := "ddb-license"
 		volumes = append(volumes, corev1.Volume{
 			Name: licVolName,
@@ -376,6 +424,8 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			podHostname = node.Spec.Fingerprint.Hostname
 		} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
 			podHostname = node.Spec.NodeName
+		} else if node.Spec.NodeName != "" {
+			podHostname = node.Spec.NodeName
 		}
 	}
 
@@ -423,6 +473,9 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		"-stdoutLog", "1",
 		"-mode", string(node.Spec.Role),
 		"-lanCluster", "0",
+	}
+	if (node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough) || node.Spec.LicenseSecretName != "" {
+		args = append(args, "-license", "/data/ddb/server/dolphindb.lic")
 	}
 	domain := fmt.Sprintf("%s.%s.svc.cluster.local", node.Name, node.Namespace)
 	args = append(args, "-localSite", fmt.Sprintf("%s:%d:%s", domain, node.Spec.Port, node.Spec.Alias))
@@ -510,6 +563,7 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			Subdomain:                     headlessSvc,
 			NodeName:                      podNodeName,
 			NodeSelector:                  node.Spec.NodeSelector,
+			Affinity:                      buildPodAntiAffinity(node),
 			Tolerations:                   node.Spec.Tolerations,
 			TerminationGracePeriodSeconds: &graceSeconds,
 			Volumes:                       volumes,
@@ -598,3 +652,60 @@ func (r *DDBNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
 }
+
+func buildPodAntiAffinity(node *v1alpha1.DDBNode) *corev1.Affinity {
+	mode := node.Spec.AntiAffinity
+	if mode == "" {
+		if node.Spec.Role != v1alpha1.NodeRoleSingle {
+			mode = v1alpha1.AntiAffinityPreferred
+		} else {
+			return nil
+		}
+	}
+	if mode == v1alpha1.AntiAffinityDisabled {
+		return nil
+	}
+
+	labelSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "app.kubernetes.io/instance",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{node.Spec.ClusterName},
+			},
+			{
+				Key:      "app.kubernetes.io/component",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{string(node.Spec.Role)},
+			},
+		},
+	}
+
+	if mode == v1alpha1.AntiAffinityRequired {
+		return &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{
+						LabelSelector: labelSelector,
+						TopologyKey:   "kubernetes.io/hostname",
+					},
+				},
+			},
+		}
+	}
+
+	return &corev1.Affinity{
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+				{
+					Weight: 100,
+					PodAffinityTerm: corev1.PodAffinityTerm{
+						LabelSelector: labelSelector,
+						TopologyKey:   "kubernetes.io/hostname",
+					},
+				},
+			},
+		},
+	}
+}
+

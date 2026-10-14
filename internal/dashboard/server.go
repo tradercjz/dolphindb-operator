@@ -444,9 +444,7 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 						AutoPassthrough: true,
 						MountMachineId:  true,
 						MountHostEtc:    true,
-						UseHostName:     true,
-						NodeName:        "aftersale2",
-						Hostname:        "aftersale2",
+						UseHostName:     false,
 					},
 				},
 			}

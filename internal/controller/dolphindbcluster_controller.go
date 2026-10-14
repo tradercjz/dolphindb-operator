@@ -278,6 +278,44 @@ func (r *DolphinDBClusterReconciler) ensureConfigMap(ctx context.Context, cluste
 	return err
 }
 
+func (r *DolphinDBClusterReconciler) getAvailableK8sNodes(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) []string {
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return nil
+	}
+	var nodeNames []string
+	for _, n := range nodeList.Items {
+		if n.Spec.Unschedulable {
+			continue
+		}
+		isReady := false
+		for _, c := range n.Status.Conditions {
+			if c.Type == corev1.NodeReady && c.Status == corev1.ConditionTrue {
+				isReady = true
+				break
+			}
+		}
+		if !isReady {
+			continue
+		}
+		if cluster.Spec.Scheduling.NodeSelector != nil {
+			matches := true
+			for k, v := range cluster.Spec.Scheduling.NodeSelector {
+				if n.Labels[k] != v {
+					matches = false
+					break
+				}
+			}
+			if !matches {
+				continue
+			}
+		}
+		nodeNames = append(nodeNames, n.Name)
+	}
+	sort.Strings(nodeNames)
+	return nodeNames
+}
+
 func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
 	image := cluster.Spec.Image
 	if image == "" {
@@ -287,11 +325,23 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 		}
 	}
 
+	availableNodes := r.getAvailableK8sNodes(ctx, cluster)
+
 	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
-		return r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleSingle, 0, 8848, image, nil)
+		defaultNode := ""
+		if len(availableNodes) > 0 {
+			defaultNode = availableNodes[0]
+			for _, nd := range availableNodes {
+				if nd == "aftersale2" {
+					defaultNode = "aftersale2"
+					break
+				}
+			}
+		}
+		return r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleSingle, 0, 8848, image, nil, defaultNode)
 	}
 
-	// 1. Controller Nodes
+	// 1. Controller Nodes: distribute across available physical nodes
 	if cluster.Spec.Controller != nil {
 		for i := int32(0); i < cluster.Spec.Controller.Replicas; i++ {
 			var binding *v1alpha1.NodeBinding
@@ -301,11 +351,15 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 					break
 				}
 			}
+			defaultNode := ""
+			if len(availableNodes) > 0 {
+				defaultNode = availableNodes[int(i)%len(availableNodes)]
+			}
 			port := cluster.Spec.Controller.Port
 			if port == 0 {
 				port = 8900
 			}
-			if err := r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleController, i, port, image, binding); err != nil {
+			if err := r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleController, i, port, image, binding, defaultNode); err != nil {
 				return err
 			}
 		}
@@ -317,7 +371,7 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 		return fmt.Errorf("waiting for controller acl key: %w", err)
 	}
 
-	// 3. DataNodes
+	// 3. DataNodes: distribute across available physical nodes
 	if cluster.Spec.DataNode != nil {
 		for i := int32(0); i < cluster.Spec.DataNode.Replicas; i++ {
 			var binding *v1alpha1.NodeBinding
@@ -327,24 +381,32 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 					break
 				}
 			}
+			defaultNode := ""
+			if len(availableNodes) > 0 {
+				defaultNode = availableNodes[int(i)%len(availableNodes)]
+			}
 			port := cluster.Spec.DataNode.Port
 			if port == 0 {
 				port = 8901
 			}
-			if err := r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleDataNode, i, port, image, binding); err != nil {
+			if err := r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleDataNode, i, port, image, binding, defaultNode); err != nil {
 				return err
 			}
 		}
 	}
 
-	// 3. ComputeNodes
+	// 4. ComputeNodes: distribute across available physical nodes
 	if cluster.Spec.ComputeNode != nil {
 		for i := int32(0); i < cluster.Spec.ComputeNode.Replicas; i++ {
+			defaultNode := ""
+			if len(availableNodes) > 0 {
+				defaultNode = availableNodes[(int(i)+len(availableNodes)-1)%len(availableNodes)]
+			}
 			port := cluster.Spec.ComputeNode.Port
 			if port == 0 {
 				port = 8902
 			}
-			if err := r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleComputeNode, i, port, image, nil); err != nil {
+			if err := r.ensureDDBNode(ctx, cluster, v1alpha1.NodeRoleComputeNode, i, port, image, nil, defaultNode); err != nil {
 				return err
 			}
 		}
@@ -361,6 +423,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	port int32,
 	image string,
 	binding *v1alpha1.NodeBinding,
+	defaultNodeName string,
 ) error {
 	name := fmt.Sprintf("%s-%s-%d", cluster.Name, rolePrefix(role), index)
 	alias := name
@@ -396,12 +459,17 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	}
 
 	if cluster.Spec.License.MachineFingerprint != nil {
-		nodeSpec.Fingerprint = cluster.Spec.License.MachineFingerprint
-		if nodeSpec.NodeName == "" && cluster.Spec.License.MachineFingerprint.NodeName != "" {
-			nodeSpec.NodeName = cluster.Spec.License.MachineFingerprint.NodeName
+		nodeSpec.Fingerprint = cluster.Spec.License.MachineFingerprint.DeepCopy()
+		if nodeSpec.Fingerprint.LicensePath == "" {
+			nodeSpec.Fingerprint.LicensePath = "/home/jzchen/dolphindb.lic"
 		}
-		if nodeSpec.Hostname == "" && cluster.Spec.License.MachineFingerprint.Hostname != "" {
-			nodeSpec.Hostname = cluster.Spec.License.MachineFingerprint.Hostname
+		if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+			if nodeSpec.NodeName == "" && cluster.Spec.License.MachineFingerprint.NodeName != "" {
+				nodeSpec.NodeName = cluster.Spec.License.MachineFingerprint.NodeName
+			}
+			if nodeSpec.Hostname == "" && cluster.Spec.License.MachineFingerprint.Hostname != "" {
+				nodeSpec.Hostname = cluster.Spec.License.MachineFingerprint.Hostname
+			}
 		}
 	} else if cluster.Spec.License.Mode == v1alpha1.LicenseModeMachineFingerprint || cluster.Spec.License.Mode == "" {
 		// Auto-default fingerprint if mode is machineFingerprint
@@ -410,80 +478,53 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 			MountMachineId:  true,
 			MountHostEtc:    true,
 			UseHostName:     true,
-			NodeName:        "aftersale2",
-			Hostname:        "aftersale2",
-		}
-		if nodeSpec.NodeName == "" {
-			nodeSpec.NodeName = "aftersale2"
-		}
-		if nodeSpec.Hostname == "" {
-			nodeSpec.Hostname = "aftersale2"
+			LicensePath:     "/home/jzchen/dolphindb.lic",
 		}
 	}
 
-	if binding != nil {
+	// Apply node placement
+	if binding != nil && binding.NodeName != "" {
 		nodeSpec.NodeName = binding.NodeName
-		nodeSpec.Hostname = binding.Hostname
+		if binding.Hostname != "" {
+			nodeSpec.Hostname = binding.Hostname
+		} else {
+			nodeSpec.Hostname = binding.NodeName
+		}
 		if binding.LicenseSecretName != "" {
 			nodeSpec.LicenseSecretName = binding.LicenseSecretName
 		}
+	} else if nodeSpec.NodeName == "" && defaultNodeName != "" {
+		nodeSpec.NodeName = defaultNodeName
+		if nodeSpec.Hostname == "" {
+			nodeSpec.Hostname = defaultNodeName
+		}
 	}
 
-	existing := &v1alpha1.DDBNode{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
-	if err == nil {
-		needsUpdate := false
-		if existing.Spec.Sites != expectedSites {
-			existing.Spec.Sites = expectedSites
-			needsUpdate = true
-		}
-		if existing.Spec.ControllerSite != expectedCtlSite {
-			existing.Spec.ControllerSite = expectedCtlSite
-			needsUpdate = true
-		}
-		if existing.Spec.Fingerprint == nil && nodeSpec.Fingerprint != nil {
-			existing.Spec.Fingerprint = nodeSpec.Fingerprint
-			needsUpdate = true
-		}
-		if existing.Spec.NodeName == "" && nodeSpec.NodeName != "" {
-			existing.Spec.NodeName = nodeSpec.NodeName
-			needsUpdate = true
-		}
-		if existing.Spec.Hostname == "" && nodeSpec.Hostname != "" {
-			existing.Spec.Hostname = nodeSpec.Hostname
-			needsUpdate = true
-		}
-		if existing.Spec.LicenseSecretName == "" && nodeSpec.LicenseSecretName != "" {
-			existing.Spec.LicenseSecretName = nodeSpec.LicenseSecretName
-			needsUpdate = true
-		}
-		if needsUpdate {
-			return r.Update(ctx, existing)
-		}
-		return nil
-	}
-	if !errors.IsNotFound(err) {
-		return err
-	}
-
-	// Apply resources & storage from group spec
+	// Apply resources, storage & anti-affinity from group spec
 	switch role {
 	case v1alpha1.NodeRoleController:
 		if cluster.Spec.Controller != nil {
 			nodeSpec.Resources = cluster.Spec.Controller.Resources
 			nodeSpec.Storage = cluster.Spec.Controller.Storage
 			nodeSpec.AntiAffinity = cluster.Spec.Controller.AntiAffinity
+			if nodeSpec.AntiAffinity == "" {
+				nodeSpec.AntiAffinity = v1alpha1.AntiAffinityPreferred
+			}
 		}
 	case v1alpha1.NodeRoleDataNode:
 		if cluster.Spec.DataNode != nil {
 			nodeSpec.Resources = cluster.Spec.DataNode.Resources
 			nodeSpec.Storage = cluster.Spec.DataNode.Storage
 			nodeSpec.AntiAffinity = cluster.Spec.DataNode.AntiAffinity
+			if nodeSpec.AntiAffinity == "" {
+				nodeSpec.AntiAffinity = v1alpha1.AntiAffinityPreferred
+			}
 		}
 	case v1alpha1.NodeRoleComputeNode:
 		if cluster.Spec.ComputeNode != nil {
 			nodeSpec.Resources = cluster.Spec.ComputeNode.Resources
 			nodeSpec.Storage = cluster.Spec.ComputeNode.Storage
+			nodeSpec.AntiAffinity = v1alpha1.AntiAffinityPreferred
 		}
 	case v1alpha1.NodeRoleSingle:
 		if cluster.Spec.Standalone != nil {
@@ -500,6 +541,56 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 
 	nodeSpec.NodeSelector = cluster.Spec.Scheduling.NodeSelector
 	nodeSpec.Tolerations = cluster.Spec.Scheduling.Tolerations
+
+	existing := &v1alpha1.DDBNode{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
+	if err == nil {
+		needsUpdate := false
+		if existing.Spec.Sites != expectedSites {
+			existing.Spec.Sites = expectedSites
+			needsUpdate = true
+		}
+		if existing.Spec.ControllerSite != expectedCtlSite {
+			existing.Spec.ControllerSite = expectedCtlSite
+			needsUpdate = true
+		}
+		if existing.Spec.Fingerprint == nil && nodeSpec.Fingerprint != nil {
+			existing.Spec.Fingerprint = nodeSpec.Fingerprint
+			needsUpdate = true
+		} else if existing.Spec.Fingerprint != nil && nodeSpec.Fingerprint != nil {
+			if existing.Spec.Fingerprint.LicensePath != nodeSpec.Fingerprint.LicensePath {
+				existing.Spec.Fingerprint.LicensePath = nodeSpec.Fingerprint.LicensePath
+				needsUpdate = true
+			}
+			if existing.Spec.Fingerprint.UseHostName != nodeSpec.Fingerprint.UseHostName {
+				existing.Spec.Fingerprint.UseHostName = nodeSpec.Fingerprint.UseHostName
+				needsUpdate = true
+			}
+		}
+		if existing.Spec.NodeName != nodeSpec.NodeName {
+			existing.Spec.NodeName = nodeSpec.NodeName
+			needsUpdate = true
+		}
+		if existing.Spec.Hostname != nodeSpec.Hostname {
+			existing.Spec.Hostname = nodeSpec.Hostname
+			needsUpdate = true
+		}
+		if existing.Spec.AntiAffinity != nodeSpec.AntiAffinity {
+			existing.Spec.AntiAffinity = nodeSpec.AntiAffinity
+			needsUpdate = true
+		}
+		if existing.Spec.LicenseSecretName == "" && nodeSpec.LicenseSecretName != "" {
+			existing.Spec.LicenseSecretName = nodeSpec.LicenseSecretName
+			needsUpdate = true
+		}
+		if needsUpdate {
+			return r.Update(ctx, existing)
+		}
+		return nil
+	}
+	if !errors.IsNotFound(err) {
+		return err
+	}
 
 	newNode := &v1alpha1.DDBNode{
 		ObjectMeta: metav1.ObjectMeta{

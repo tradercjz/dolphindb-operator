@@ -61,6 +61,9 @@ type MachineFingerprintSpec struct {
 
 	// NodeName manual node pinning if specified
 	NodeName string `json:"nodeName,omitempty"`
+
+	// LicensePath optional host license file path (defaults to /home/jzchen/dolphindb.lic)
+	LicensePath string `json:"licensePath,omitempty"`
 }
 
 // LicenseSpec defines licensing configuration
