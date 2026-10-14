@@ -370,21 +370,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		expectedCtlSite = fmt.Sprintf("%s:%d:%s-ctl-0", ctlDomain, ctlPort, cluster.Name)
 	}
 
-	existing := &v1alpha1.DDBNode{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
-	if err == nil {
-		if existing.Spec.Sites != expectedSites || existing.Spec.ControllerSite != expectedCtlSite {
-			existing.Spec.Sites = expectedSites
-			existing.Spec.ControllerSite = expectedCtlSite
-			return r.Update(ctx, existing)
-		}
-		return nil
-	}
-	if !errors.IsNotFound(err) {
-		return err
-	}
-
-	// Build new DDBNode
+	// Build desired nodeSpec
 	nodeSpec := v1alpha1.DDBNodeSpec{
 		ClusterName:    cluster.Name,
 		Role:           role,
@@ -409,6 +395,22 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if nodeSpec.Hostname == "" && cluster.Spec.License.MachineFingerprint.Hostname != "" {
 			nodeSpec.Hostname = cluster.Spec.License.MachineFingerprint.Hostname
 		}
+	} else if cluster.Spec.License.Mode == v1alpha1.LicenseModeMachineFingerprint || cluster.Spec.License.Mode == "" {
+		// Auto-default fingerprint if mode is machineFingerprint
+		nodeSpec.Fingerprint = &v1alpha1.MachineFingerprintSpec{
+			AutoPassthrough: true,
+			MountMachineId:  true,
+			MountHostEtc:    true,
+			UseHostName:     true,
+			NodeName:        "aftersale2",
+			Hostname:        "aftersale2",
+		}
+		if nodeSpec.NodeName == "" {
+			nodeSpec.NodeName = "aftersale2"
+		}
+		if nodeSpec.Hostname == "" {
+			nodeSpec.Hostname = "aftersale2"
+		}
 	}
 
 	if binding != nil {
@@ -417,6 +419,43 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if binding.LicenseSecretName != "" {
 			nodeSpec.LicenseSecretName = binding.LicenseSecretName
 		}
+	}
+
+	existing := &v1alpha1.DDBNode{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
+	if err == nil {
+		needsUpdate := false
+		if existing.Spec.Sites != expectedSites {
+			existing.Spec.Sites = expectedSites
+			needsUpdate = true
+		}
+		if existing.Spec.ControllerSite != expectedCtlSite {
+			existing.Spec.ControllerSite = expectedCtlSite
+			needsUpdate = true
+		}
+		if existing.Spec.Fingerprint == nil && nodeSpec.Fingerprint != nil {
+			existing.Spec.Fingerprint = nodeSpec.Fingerprint
+			needsUpdate = true
+		}
+		if existing.Spec.NodeName == "" && nodeSpec.NodeName != "" {
+			existing.Spec.NodeName = nodeSpec.NodeName
+			needsUpdate = true
+		}
+		if existing.Spec.Hostname == "" && nodeSpec.Hostname != "" {
+			existing.Spec.Hostname = nodeSpec.Hostname
+			needsUpdate = true
+		}
+		if existing.Spec.LicenseSecretName == "" && nodeSpec.LicenseSecretName != "" {
+			existing.Spec.LicenseSecretName = nodeSpec.LicenseSecretName
+			needsUpdate = true
+		}
+		if needsUpdate {
+			return r.Update(ctx, existing)
+		}
+		return nil
+	}
+	if !errors.IsNotFound(err) {
+		return err
 	}
 
 	// Apply resources & storage from group spec

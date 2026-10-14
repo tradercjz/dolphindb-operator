@@ -1281,6 +1281,18 @@ spec:
         }
       }
 
+      yamlText += `  license:
+    mode: "machineFingerprint"
+    secretName: "dolphindb-license"
+    autoReload: true
+    machineFingerprint:
+      autoPassthrough: true
+      mountMachineId: true
+      mountHostEtc: true
+      useHostName: true
+      nodeName: "aftersale2"
+      hostname: "aftersale2"\n`;
+
       document.getElementById('wiz-yaml-editor').value = yamlText;
     }
 

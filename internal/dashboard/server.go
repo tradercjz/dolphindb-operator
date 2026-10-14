@@ -399,6 +399,19 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 				Mode:    mode,
 				Version: version,
 				Image:   image,
+				License: v1alpha1.LicenseSpec{
+					Mode:       v1alpha1.LicenseModeMachineFingerprint,
+					SecretName: "dolphindb-license",
+					AutoReload: true,
+					MachineFingerprint: &v1alpha1.MachineFingerprintSpec{
+						AutoPassthrough: true,
+						MountMachineId:  true,
+						MountHostEtc:    true,
+						UseHostName:     true,
+						NodeName:        "aftersale2",
+						Hostname:        "aftersale2",
+					},
+				},
 			}
 
 			scGlobal := req.StorageClass
