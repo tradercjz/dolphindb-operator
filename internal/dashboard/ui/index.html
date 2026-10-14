@@ -1922,16 +1922,22 @@
           <div>
             <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
               <span style="display: inline-block; width: 4px; height: 16px; background: var(--success); border-radius: 2px;"></span>
-              物理节点硬件指纹采集与申请助手
+              物理节点 DolphinDB 官方机器指纹采集与申请单 (generateMachineFingerprint)
             </h3>
             <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-              DolphinDB 商业许可证强绑定各物理机主机名及硬件指纹 (Machine-ID, UUID)。向官方商务申请新许可证或续期时，可直接一键复制下方清单。
+              DolphinDB 商业许可证强绑定各物理机的官方机器指纹。系统优先通过集群活跃实例提取；若节点尚未部署实例，可一键调度轻量社区单节点探针自动采集。
             </div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="copyFingerprintsReport()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            一键复制指纹清单 (发给商务)
-          </button>
+          <div style="display: flex; gap: 8px;">
+            <button id="btn-probe-fingerprints" class="btn btn-secondary btn-sm" onclick="runProbeFingerprints()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              一键探针全节点指纹探测
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="copyFingerprintsReport()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              一键复制官方申请单 (发给商务)
+            </button>
+          </div>
         </div>
 
         <div class="card" style="padding: 0; overflow: hidden;">
@@ -1941,8 +1947,8 @@
                 <th>物理节点 (Node)</th>
                 <th>物理主机名 (Hostname)</th>
                 <th>物理内网 IP</th>
-                <th>机器指纹 (Machine-ID)</th>
-                <th>系统 UUID</th>
+                <th>DolphinDB 官方机器指纹 (generateMachineFingerprint)</th>
+                <th>采集来源</th>
                 <th>OS 镜像 / 架构</th>
                 <th>节点状态</th>
               </tr>
@@ -3644,8 +3650,39 @@ spec:
       tbody.innerHTML = data.nodes.map(n => {
         const isReady = n.status === 'Ready';
         const statusBadge = isReady
-          ? `<span class="badge badge-success">就绪 (Ready)</span>`
+          ? `<span class="badge badge-success">Ready</span>`
           : `<span class="badge badge-danger">${n.status}</span>`;
+
+        let fpDisplay = '';
+        if (n.ddbFingerprint) {
+          const shortFp = n.ddbFingerprint.substring(0, 24) + '...' + n.ddbFingerprint.substring(n.ddbFingerprint.length - 12);
+          fpDisplay = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <code style="font-size: 11px; background: var(--bg-subtle); padding: 3px 6px; border-radius: 4px; font-weight: 600; color: var(--primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${n.ddbFingerprint}">
+                ${shortFp}
+              </code>
+              <button class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;" onclick="copySingleFingerprint('${n.name}', '${n.ddbFingerprint.replace(/\n/g, '\\n')}')">复制</button>
+            </div>
+          `;
+        } else {
+          fpDisplay = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="badge badge-warning" style="font-size: 11px;">未采集</span>
+              <button class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 11px;" onclick="runProbeFingerprints('${n.name}')">探针采集</button>
+            </div>
+          `;
+        }
+
+        let sourceBadge = '';
+        if (n.source === 'live-pod') {
+          sourceBadge = `<span class="badge badge-success" style="font-size: 10px;">实时实例提取</span>`;
+        } else if (n.source === 'probe') {
+          sourceBadge = `<span class="badge badge-info" style="font-size: 10px;">探针采集</span>`;
+        } else if (n.source === 'cached') {
+          sourceBadge = `<span class="badge badge-secondary" style="font-size: 10px;">已缓存</span>`;
+        } else {
+          sourceBadge = `<span class="badge badge-warning" style="font-size: 10px;">待探测</span>`;
+        }
 
         return `
           <tr>
@@ -3657,15 +3694,49 @@ spec:
             </td>
             <td><code style="font-size: 11px;">${n.hostname}</code></td>
             <td><code style="font-size: 11px; color: var(--primary);">${n.ip}</code></td>
-            <td>
-              <code style="font-size: 11px; background: var(--bg-subtle); padding: 2px 6px; border-radius: 4px; font-weight: 600;">${n.machineId || '未知'}</code>
-            </td>
-            <td><code style="font-size: 10px; color: var(--text-muted);">${n.systemUuid || '未知'}</code></td>
+            <td>${fpDisplay}</td>
+            <td>${sourceBadge}</td>
             <td style="font-size: 11px; color: var(--text-dim);">${n.os || ''} (${n.arch || 'amd64'})</td>
             <td>${statusBadge}</td>
           </tr>
         `;
       }).join('');
+    }
+
+    function copySingleFingerprint(nodeName, fp) {
+      fallbackCopyText(fp.replace(/\\n/g, '\n'));
+      showToast(`已复制节点 ${nodeName} 的官方 DolphinDB 机器指纹！`, 'success');
+    }
+
+    async function runProbeFingerprints(nodeName = '') {
+      showToast(nodeName ? `正在为节点 ${nodeName} 启动探针提取指纹...` : '正在为全集群节点启动探针提取官方指纹...', 'info');
+      const btn = document.getElementById('btn-probe-fingerprints');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '正在探针采集中...';
+      }
+
+      try {
+        const res = await fetch('/api/k8s/nodes-fingerprints/probe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodeName: nodeName })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || '探针采集失败');
+        }
+        showToast(data.message || '官方指纹采集成功！', 'success');
+        await fetchLicenseData();
+      } catch (err) {
+        console.error('Probe fingerprints error:', err);
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> 一键探针全节点指纹探测`;
+        }
+      }
     }
 
     function copyFingerprintsReport() {
@@ -3675,7 +3746,7 @@ spec:
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(currentNodeFingerprints.copyableReport).then(() => {
-          showToast('已复制指纹清单！可直接粘贴发送给商务申请 License', 'success');
+          showToast('已复制 DolphinDB 官方指纹申请单！可直接发送给商务签发 License', 'success');
         }).catch(() => {
           fallbackCopyText(currentNodeFingerprints.copyableReport);
         });
@@ -3693,7 +3764,7 @@ spec:
       t.select();
       document.execCommand('copy');
       document.body.removeChild(t);
-      showToast('已复制指纹清单！', 'success');
+      showToast('已复制指纹申请单！', 'success');
     }
 
     function openLicenseUploadModal(targetNs, targetCluster, targetNode) {

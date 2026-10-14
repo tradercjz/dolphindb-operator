@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,18 +35,21 @@ var uiFS embed.FS
 
 // Server provides the HTTP dashboard and REST API
 type Server struct {
-	client     client.Client
-	kubeClient kubernetes.Interface
-	listen     string
-	namespace  string
+	client           client.Client
+	kubeClient       kubernetes.Interface
+	listen           string
+	namespace        string
+	fingerprintCache map[string]string
+	fpMu             sync.RWMutex
 }
 
 func NewServer(cli client.Client, kubeClient kubernetes.Interface, listen string, defaultNamespace string) *Server {
 	return &Server{
-		client:     cli,
-		kubeClient: kubeClient,
-		listen:     listen,
-		namespace:  defaultNamespace,
+		client:           cli,
+		kubeClient:       kubeClient,
+		listen:           listen,
+		namespace:        defaultNamespace,
+		fingerprintCache: make(map[string]string),
 	}
 }
 
@@ -73,6 +77,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	mux.HandleFunc("/api/licenses", s.handleAllLicenses)
 	mux.HandleFunc("/api/k8s/nodes-fingerprints", s.handleNodeFingerprints)
+	mux.HandleFunc("/api/k8s/nodes-fingerprints/probe", s.handleProbeFingerprints)
 
 	// Embedded UI Static Assets
 	subUI, err := fs.Sub(uiFS, "ui")
@@ -1820,15 +1825,17 @@ type LicenseInfo struct {
 }
 
 type NodeFingerprint struct {
-	Name       string `json:"name"`
-	Hostname   string `json:"hostname"`
-	IP         string `json:"ip"`
-	MachineID  string `json:"machineId"`
-	SystemUUID string `json:"systemUuid"`
-	OS         string `json:"os"`
-	Kernel     string `json:"kernel"`
-	Arch       string `json:"arch"`
-	Status     string `json:"status"`
+	Name           string `json:"name"`
+	Hostname       string `json:"hostname"`
+	IP             string `json:"ip"`
+	DDBFingerprint string `json:"ddbFingerprint"`
+	MachineID      string `json:"machineId"`
+	SystemUUID     string `json:"systemUuid"`
+	OS             string `json:"os"`
+	Kernel         string `json:"kernel"`
+	Arch           string `json:"arch"`
+	Status         string `json:"status"`
+	Source         string `json:"source"`
 }
 
 func (s *Server) getClusterLicenseDetails(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) LicenseInfo {
@@ -1988,6 +1995,186 @@ func (s *Server) handleClusterLicense(w http.ResponseWriter, r *http.Request, na
 	jsonResponse(w, http.StatusOK, info)
 }
 
+func queryDDBFingerprint(ctx context.Context, podIP string, port int) (string, error) {
+	if podIP == "" || port <= 0 {
+		return "", fmt.Errorf("invalid podIP or port")
+	}
+	url := fmt.Sprintf("http://%s:%d/", podIP, port)
+	script := `login("admin", "123456"); generateMachineFingerprint("/tmp"); concat(file("/tmp/MachineFingerprint").readLines(), "\n")`
+
+	payload := map[string]interface{}{
+		"functionName": "executeCode",
+		"params": []map[string]string{
+			{
+				"name":  "script",
+				"form":  "scalar",
+				"type":  "string",
+				"value": script,
+			},
+		},
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Close = true
+
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			Proxy:             nil, // Bypass any proxy
+			DisableKeepAlives: true,
+		},
+		Timeout: 4 * time.Second,
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		ResultCode string `json:"resultCode"`
+		Msg        string `json:"msg"`
+		Object     []struct {
+			Value string `json:"value"`
+		} `json:"object"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if result.ResultCode != "0" {
+		return "", fmt.Errorf("ddb error: %s", result.Msg)
+	}
+	if len(result.Object) > 0 && result.Object[0].Value != "" {
+		return strings.TrimSpace(result.Object[0].Value), nil
+	}
+	return "", fmt.Errorf("empty fingerprint returned")
+}
+
+func (s *Server) runProbePodForNode(ctx context.Context, nodeName, targetNs string) (string, error) {
+	if targetNs == "" {
+		targetNs = "default"
+	}
+	cleanNode := strings.ReplaceAll(strings.ToLower(nodeName), ".", "-")
+	podName := fmt.Sprintf("ddb-probe-%s-%d", cleanNode, time.Now().Unix()%100000)
+
+	probePod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: targetNs,
+			Labels: map[string]string{
+				"app.kubernetes.io/name": "ddb-fingerprint-probe",
+			},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:      nodeName,
+			RestartPolicy: corev1.RestartPolicyNever,
+			Volumes: []corev1.Volume{
+				{
+					Name: "host-machine-id",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc/machine-id",
+						},
+					},
+				},
+				{
+					Name: "host-etc",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc",
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:  "probe",
+					Image: "192.168.100.250/dolphindb/dolphindb:v3.00.6",
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "host-machine-id",
+							MountPath: "/etc/machine-id",
+							ReadOnly:  true,
+						},
+						{
+							Name:      "host-etc",
+							MountPath: "/dolphindb/etc",
+							ReadOnly:  true,
+						},
+					},
+					Command: []string{"/bin/sh", "-c"},
+					Args: []string{
+						`echo 'login("admin", "123456"); generateMachineFingerprint("/tmp");' > /tmp/gen.dos
+/data/ddb/server/dolphindb -console 0 -mode single -localSite 127.0.0.1:9999:tmpnode -startup /tmp/gen.dos &
+for i in $(seq 1 40); do
+  if [ -f /tmp/MachineFingerprint ]; then
+    echo "===FINGERPRINT_BEGIN==="
+    cat /tmp/MachineFingerprint
+    echo "===FINGERPRINT_END==="
+    exit 0
+  fi
+  sleep 0.2
+done
+exit 1`,
+					},
+				},
+			},
+		},
+	}
+
+	if err := s.client.Create(ctx, probePod); err != nil {
+		return "", fmt.Errorf("failed to create probe pod: %w", err)
+	}
+	defer func() {
+		delCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.client.Delete(delCtx, probePod)
+	}()
+
+	// Wait up to 10s for pod completion
+	for i := 0; i < 25; i++ {
+		time.Sleep(400 * time.Millisecond)
+		freshPod := &corev1.Pod{}
+		if err := s.client.Get(ctx, client.ObjectKey{Namespace: targetNs, Name: podName}, freshPod); err != nil {
+			continue
+		}
+		if freshPod.Status.Phase == corev1.PodSucceeded || freshPod.Status.Phase == corev1.PodFailed {
+			break
+		}
+	}
+
+	if s.kubeClient != nil {
+		req := s.kubeClient.CoreV1().Pods(targetNs).GetLogs(podName, &corev1.PodLogOptions{})
+		stream, err := req.Stream(ctx)
+		if err == nil {
+			defer stream.Close()
+			buf := new(bytes.Buffer)
+			_, _ = io.Copy(buf, stream)
+			out := buf.String()
+			start := strings.Index(out, "===FINGERPRINT_BEGIN===")
+			end := strings.Index(out, "===FINGERPRINT_END===")
+			if start != -1 && end != -1 && end > start {
+				fp := strings.TrimSpace(out[start+len("===FINGERPRINT_BEGIN===") : end])
+				if fp != "" {
+					s.fpMu.Lock()
+					s.fingerprintCache[nodeName] = fp
+					s.fpMu.Unlock()
+					return fp, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("probe pod timed out or failed to output fingerprint")
+}
+
 func (s *Server) handleNodeFingerprints(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	nodeList := &corev1.NodeList{}
@@ -1996,13 +2183,26 @@ func (s *Server) handleNodeFingerprints(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var items []NodeFingerprint
-	var reportLines []string
-	reportLines = append(reportLines, "=== DolphinDB 商业版许可证申请硬件指纹清单 ===")
-	reportLines = append(reportLines, fmt.Sprintf("生成时间: %s", time.Now().Format("2006-01-02 15:04:05")))
-	reportLines = append(reportLines, "节点清单:")
+	// List DolphinDB pods across cluster to find live pods per physical node
+	podList := &corev1.PodList{}
+	_ = s.client.List(ctx, podList, client.MatchingLabels{"app.kubernetes.io/name": "dolphindb"})
 
-	for i, n := range nodeList.Items {
+	// Map nodeName -> live pod
+	nodePodMap := make(map[string]*corev1.Pod)
+	for i := range podList.Items {
+		p := &podList.Items[i]
+		if p.Status.Phase == corev1.PodRunning && p.Status.PodIP != "" && p.Spec.NodeName != "" {
+			curr := nodePodMap[p.Spec.NodeName]
+			if curr == nil {
+				nodePodMap[p.Spec.NodeName] = p
+			} else if curr.Labels["app.kubernetes.io/component"] == "controller" && p.Labels["app.kubernetes.io/component"] != "controller" {
+				nodePodMap[p.Spec.NodeName] = p
+			}
+		}
+	}
+
+	var items []NodeFingerprint
+	for _, n := range nodeList.Items {
 		hostname := n.Name
 		ip := ""
 		for _, addr := range n.Status.Addresses {
@@ -2023,27 +2223,148 @@ func (s *Server) handleNodeFingerprints(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
+		s.fpMu.RLock()
+		ddbFP := s.fingerprintCache[n.Name]
+		s.fpMu.RUnlock()
+
+		source := "cached"
+		if ddbFP == "" {
+			if p, ok := nodePodMap[n.Name]; ok {
+				port := 8900
+				switch p.Labels["app.kubernetes.io/component"] {
+				case "datanode":
+					port = 8901
+				case "computenode":
+					port = 8902
+				case "single":
+					port = 8848
+				}
+				for _, c := range p.Spec.Containers {
+					for _, cp := range c.Ports {
+						if cp.ContainerPort > 0 {
+							port = int(cp.ContainerPort)
+							break
+						}
+					}
+				}
+
+				fp, err := queryDDBFingerprint(ctx, p.Status.PodIP, port)
+				if err == nil && fp != "" {
+					ddbFP = fp
+					source = "live-pod"
+					s.fpMu.Lock()
+					s.fingerprintCache[n.Name] = fp
+					s.fpMu.Unlock()
+				}
+			}
+		}
+
+		if ddbFP == "" {
+			source = "pending"
+		}
+
 		item := NodeFingerprint{
-			Name:       n.Name,
-			Hostname:   hostname,
-			IP:         ip,
-			MachineID:  n.Status.NodeInfo.MachineID,
-			SystemUUID: n.Status.NodeInfo.SystemUUID,
-			OS:         n.Status.NodeInfo.OSImage,
-			Kernel:     n.Status.NodeInfo.KernelVersion,
-			Arch:       n.Status.NodeInfo.Architecture,
-			Status:     status,
+			Name:           n.Name,
+			Hostname:       hostname,
+			IP:             ip,
+			DDBFingerprint: ddbFP,
+			MachineID:      n.Status.NodeInfo.MachineID,
+			SystemUUID:     n.Status.NodeInfo.SystemUUID,
+			OS:             n.Status.NodeInfo.OSImage,
+			Kernel:         n.Status.NodeInfo.KernelVersion,
+			Arch:           n.Status.NodeInfo.Architecture,
+			Status:         status,
+			Source:         source,
 		}
 		items = append(items, item)
-		reportLines = append(reportLines, fmt.Sprintf("%d. 节点: %s | 主机名: %s | 物理IP: %s | Machine-ID: %s | UUID: %s | OS: %s",
-			i+1, n.Name, hostname, ip, n.Status.NodeInfo.MachineID, n.Status.NodeInfo.SystemUUID, n.Status.NodeInfo.OSImage))
 	}
 
-	reportLines = append(reportLines, "\n提示: 请将上述清单发送给 DolphinDB 商务或技术支持团队以申请/续期商业版许可证。")
+	var reportLines []string
+	reportLines = append(reportLines, "==================================================")
+	reportLines = append(reportLines, "DolphinDB 商业版许可证申请表 (官方 generateMachineFingerprint)")
+	reportLines = append(reportLines, fmt.Sprintf("生成时间: %s", time.Now().Format("2006-01-02 15:04:05")))
+	reportLines = append(reportLines, "==================================================")
+
+	for i, item := range items {
+		reportLines = append(reportLines, "")
+		reportLines = append(reportLines, fmt.Sprintf("【物理节点 %d】: %s", i+1, item.Name))
+		reportLines = append(reportLines, fmt.Sprintf("- 物理主机名: %s", item.Hostname))
+		reportLines = append(reportLines, fmt.Sprintf("- 物理内网 IP: %s", item.IP))
+		reportLines = append(reportLines, fmt.Sprintf("- 操作系统: %s (%s)", item.OS, item.Arch))
+		if item.DDBFingerprint != "" {
+			reportLines = append(reportLines, "- DolphinDB 机器指纹 (用于商务签发 License):")
+			reportLines = append(reportLines, item.DDBFingerprint)
+		} else {
+			reportLines = append(reportLines, "- DolphinDB 机器指纹: [未采集，请点击一键探针采集]")
+		}
+	}
+	reportLines = append(reportLines, "")
+	reportLines = append(reportLines, "==================================================")
+	reportLines = append(reportLines, "提示: 请直接复制上述清单发送给 DolphinDB 商务团队，商务将根据各节点的 MachineFingerprint 签发绑机商业许可证。")
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"nodes":          items,
 		"copyableReport": strings.Join(reportLines, "\n"),
+	})
+}
+
+func (s *Server) handleProbeFingerprints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	ctx := r.Context()
+
+	var req struct {
+		NodeName string `json:"nodeName"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	nodeList := &corev1.NodeList{}
+	if err := s.client.List(ctx, nodeList); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list nodes: %v", err))
+		return
+	}
+
+	targetNs := "default"
+	if s.namespace != "" {
+		targetNs = s.namespace
+	}
+
+	probed := make(map[string]string)
+	var errs []string
+
+	for _, n := range nodeList.Items {
+		if req.NodeName != "" && n.Name != req.NodeName {
+			continue
+		}
+
+		s.fpMu.RLock()
+		cached := s.fingerprintCache[n.Name]
+		s.fpMu.RUnlock()
+		if cached != "" && req.NodeName == "" {
+			probed[n.Name] = cached
+			continue
+		}
+
+		fp, err := s.runProbePodForNode(ctx, n.Name, targetNs)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("Node %s: %v", n.Name, err))
+		} else {
+			probed[n.Name] = fp
+		}
+	}
+
+	if len(errs) > 0 && len(probed) == 0 {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("探针采集失败: %s", strings.Join(errs, "; ")))
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"probed":  probed,
+		"errors":  errs,
+		"message": fmt.Sprintf("成功为 %d 个物理节点采集 DolphinDB 官方机器指纹", len(probed)),
 	})
 }
 
