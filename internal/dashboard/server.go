@@ -420,7 +420,7 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 
 			version := req.Version
 			if version == "" {
-				version = "3.00.5"
+				version = "3.00.6"
 			}
 
 			image := req.Image
