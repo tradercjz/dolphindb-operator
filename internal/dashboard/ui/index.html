@@ -6,12 +6,77 @@
   <title>DolphinDB Cloud Manager | Kubernetes Enterprise Console</title>
   <style>
     :root {
+      /* Light Theme (Default) - Clean, Modern Enterprise SaaS (Stripe / Linear / Vercel style) */
+      --bg-base: #f8fafc;
+      --bg-canvas: #f1f5f9;
+      --bg-surface: #ffffff;
+      --bg-surface-elevated: #ffffff;
+      --bg-surface-hover: #f8fafc;
+      --bg-subtle: #f8fafc;
+
+      --border-subtle: #f1f5f9;
+      --border-default: #e2e8f0;
+      --border-hover: #cbd5e1;
+      --border-focus: #2563eb;
+
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-dim: #94a3b8;
+
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --primary-border: #bfdbfe;
+      --primary-glow: rgba(37, 99, 235, 0.15);
+
+      --success: #059669;
+      --success-bg: #ecfdf5;
+      --success-border: #a7f3d0;
+      --success-text: #065f46;
+
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+      --warning-border: #fde68a;
+      --warning-text: #92400e;
+
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --danger-text: #991b1b;
+
+      --cyan: #0891b2;
+      --cyan-bg: #ecfeff;
+      --cyan-border: #a5f3fc;
+      --cyan-text: #155e75;
+
+      --purple: #7c3aed;
+      --purple-bg: #f5f3ff;
+      --purple-border: #ddd6fe;
+      --purple-text: #5b21b6;
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-full: 9999px;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+      --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+      --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Optional Dark Theme (Switchable via top button) */
+    body.dark-theme {
       --bg-base: #070a12;
       --bg-canvas: #0b0f19;
       --bg-surface: #111827;
       --bg-surface-elevated: #162032;
       --bg-surface-hover: #1c283f;
-      --bg-glass: rgba(17, 24, 39, 0.85);
+      --bg-subtle: #162032;
 
       --border-subtle: #1e293b;
       --border-default: #29354d;
@@ -24,42 +89,40 @@
 
       --primary: #3b82f6;
       --primary-hover: #2563eb;
+      --primary-light: rgba(59, 130, 246, 0.15);
+      --primary-border: rgba(59, 130, 246, 0.3);
       --primary-glow: rgba(59, 130, 246, 0.3);
 
       --success: #10b981;
-      --success-glow: rgba(16, 185, 129, 0.3);
       --success-bg: rgba(16, 185, 129, 0.12);
       --success-border: rgba(16, 185, 129, 0.28);
+      --success-text: #34d399;
 
       --warning: #f59e0b;
       --warning-bg: rgba(245, 158, 11, 0.12);
       --warning-border: rgba(245, 158, 11, 0.28);
+      --warning-text: #fbbf24;
 
       --danger: #ef4444;
       --danger-hover: #dc2626;
       --danger-bg: rgba(239, 68, 68, 0.12);
       --danger-border: rgba(239, 68, 68, 0.28);
+      --danger-text: #f87171;
 
       --cyan: #06b6d4;
       --cyan-bg: rgba(6, 182, 212, 0.12);
       --cyan-border: rgba(6, 182, 212, 0.3);
+      --cyan-text: #22d3ee;
 
       --purple: #8b5cf6;
       --purple-bg: rgba(139, 92, 246, 0.12);
       --purple-border: rgba(139, 92, 246, 0.3);
-
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 14px;
-      --radius-full: 9999px;
-
-      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+      --purple-text: #c084fc;
 
       --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
       --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
       --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-      --shadow-glow: 0 0 20px var(--primary-glow);
+      --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -68,21 +131,22 @@
       font-family: var(--font-sans);
       background-color: var(--bg-base);
       background-image: 
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.15), transparent),
-        radial-gradient(circle at 100% 0%, rgba(6, 182, 212, 0.08), transparent 40%);
+        radial-gradient(ellipse 60% 40% at 50% -10%, rgba(37, 99, 235, 0.06), transparent),
+        radial-gradient(circle at 100% 0%, rgba(6, 182, 212, 0.04), transparent 30%);
       background-attachment: fixed;
       color: var(--text-main);
       line-height: 1.5;
       font-size: 13px;
       -webkit-font-smoothing: antialiased;
       min-height: 100vh;
+      transition: background-color 0.25s ease, color 0.25s ease;
     }
 
     /* Layout Framework */
     .app-container {
       max-width: 1540px;
       margin: 0 auto;
-      padding: 20px 28px 60px 28px;
+      padding: 24px 32px 64px 32px;
     }
 
     /* Top Navigation Header */
@@ -90,13 +154,13 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 14px 20px;
+      padding: 14px 24px;
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-md);
-      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow-sm);
       margin-bottom: 24px;
+      transition: all 0.2s ease;
     }
 
     .brand-section {
@@ -106,14 +170,14 @@
     }
 
     .brand-logo {
-      width: 40px;
-      height: 40px;
+      width: 42px;
+      height: 42px;
       border-radius: var(--radius-md);
-      background: linear-gradient(135deg, #2563eb, #06b6d4);
+      background: linear-gradient(135deg, #2563eb, #0891b2);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 16px rgba(37, 99, 235, 0.4);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
       flex-shrink: 0;
     }
 
@@ -127,6 +191,7 @@
       font-size: 16px;
       font-weight: 700;
       letter-spacing: -0.02em;
+      color: var(--text-main);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -136,12 +201,12 @@
       font-size: 10px;
       text-transform: uppercase;
       font-weight: 700;
-      padding: 2px 7px;
+      padding: 2px 8px;
       border-radius: var(--radius-full);
-      background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(6, 182, 212, 0.2));
-      border: 1px solid rgba(59, 130, 246, 0.4);
-      color: #60a5fa;
-      letter-spacing: 0.05em;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      letter-spacing: 0.04em;
     }
 
     .brand-sub {
@@ -150,6 +215,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      margin-top: 2px;
     }
 
     .k8s-indicator {
@@ -157,7 +223,7 @@
       align-items: center;
       gap: 6px;
       padding: 3px 10px;
-      background: var(--bg-surface-elevated);
+      background: var(--bg-canvas);
       border: 1px solid var(--border-default);
       border-radius: var(--radius-full);
       font-size: 11px;
@@ -170,14 +236,14 @@
       height: 7px;
       border-radius: 50%;
       background: var(--success);
-      box-shadow: 0 0 8px var(--success);
+      box-shadow: 0 0 6px var(--success);
       animation: pulseAnim 2s infinite ease-in-out;
     }
 
     @keyframes pulseAnim {
-      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.6); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(5, 150, 105, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(5, 150, 105, 0); }
     }
 
     .header-actions {
@@ -198,7 +264,7 @@
       border-radius: var(--radius-sm);
       border: 1px solid transparent;
       cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
       user-select: none;
       white-space: nowrap;
       text-decoration: none;
@@ -215,27 +281,27 @@
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      background: var(--primary);
       color: #ffffff;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
-      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+      border-color: transparent;
     }
 
     .btn-primary:hover {
-      background: linear-gradient(135deg, #60a5fa, #3b82f6);
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.5);
+      background: var(--primary-hover);
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
     }
 
     .btn-secondary {
-      background: var(--bg-surface-elevated);
+      background: var(--bg-surface);
       color: var(--text-main);
-      border-color: var(--border-default);
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-sm);
     }
 
     .btn-secondary:hover {
       background: var(--bg-surface-hover);
       border-color: var(--border-hover);
-      color: #ffffff;
     }
 
     .btn-ghost {
@@ -245,14 +311,14 @@
     }
 
     .btn-ghost:hover {
-      background: var(--bg-surface-elevated);
+      background: var(--bg-canvas);
       color: var(--text-main);
     }
 
     .btn-danger {
       background: var(--danger-bg);
-      color: #f87171;
-      border-color: var(--danger-border);
+      color: var(--danger-text);
+      border: 1px solid var(--danger-border);
     }
 
     .btn-danger:hover {
@@ -262,13 +328,13 @@
 
     .btn-warning {
       background: var(--warning-bg);
-      color: #fbbf24;
-      border-color: var(--warning-border);
+      color: var(--warning-text);
+      border: 1px solid var(--warning-border);
     }
 
     .btn-warning:hover {
       background: var(--warning);
-      color: #000;
+      color: #ffffff;
     }
 
     .btn-sm {
@@ -304,18 +370,20 @@
 
     .kpi-card {
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-md);
-      padding: 16px 20px;
+      padding: 18px 22px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      transition: border-color 0.2s, transform 0.2s;
+      box-shadow: var(--shadow-card);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .kpi-card:hover {
       border-color: var(--border-hover);
-      transform: translateY(-1px);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
     }
 
     .kpi-info h4 {
@@ -328,17 +396,18 @@
     }
 
     .kpi-info .kpi-val {
-      font-size: 24px;
-      font-weight: 700;
-      color: #ffffff;
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text-main);
       font-feature-settings: "tnum";
       font-variant-numeric: tabular-nums;
+      line-height: 1.2;
     }
 
     .kpi-info .kpi-sub {
       font-size: 11px;
       color: var(--text-dim);
-      margin-top: 2px;
+      margin-top: 4px;
     }
 
     .kpi-icon-wrap {
@@ -356,17 +425,17 @@
       height: 22px;
     }
 
-    .icon-blue { background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.25); }
-    .icon-green { background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25); }
-    .icon-purple { background: rgba(139, 92, 246, 0.12); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.25); }
-    .icon-cyan { background: rgba(6, 182, 212, 0.12); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.25); }
+    .icon-blue { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+    .icon-green { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+    .icon-purple { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+    .icon-cyan { background: #ecfeff; color: #0891b2; border: 1px solid #a5f3fc; }
 
     /* Navigation Tabs */
     .nav-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-default);
       margin-bottom: 24px;
       padding-bottom: 12px;
       gap: 16px;
@@ -376,9 +445,9 @@
     .nav-tabs-group {
       display: flex;
       gap: 6px;
-      background: var(--bg-surface);
+      background: var(--bg-canvas);
       padding: 4px;
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-md);
     }
 
@@ -394,7 +463,7 @@
       border: none;
       border-radius: var(--radius-sm);
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
 
     .nav-tab-btn svg {
@@ -405,26 +474,26 @@
 
     .nav-tab-btn:hover {
       color: var(--text-main);
-      background: var(--bg-surface-elevated);
+      background: rgba(255, 255, 255, 0.6);
     }
 
     .nav-tab-btn.active {
-      color: #ffffff;
-      background: var(--primary);
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+      color: var(--primary);
+      background: var(--bg-surface);
+      box-shadow: var(--shadow-sm);
     }
 
     .nav-tab-btn .badge-count {
       font-size: 10px;
       padding: 1px 6px;
       border-radius: var(--radius-full);
-      background: rgba(255, 255, 255, 0.2);
-      color: #ffffff;
+      background: var(--border-default);
+      color: var(--text-muted);
     }
 
-    .nav-tab-btn:not(.active) .badge-count {
-      background: var(--bg-surface-hover);
-      color: var(--text-dim);
+    .nav-tab-btn.active .badge-count {
+      background: var(--primary-light);
+      color: var(--primary);
     }
 
     .filter-bar {
@@ -454,35 +523,36 @@
       padding: 7px 12px 7px 32px;
       font-size: 12px;
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-sm);
       color: var(--text-main);
       outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
+      box-shadow: var(--shadow-sm);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
 
     .search-input:focus {
       border-color: var(--border-focus);
-      box-shadow: 0 0 0 2px var(--primary-glow);
+      box-shadow: 0 0 0 3px var(--primary-glow);
     }
 
     /* Cards & Containers */
     .card {
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-md);
-      box-shadow: var(--shadow-sm);
+      box-shadow: var(--shadow-card);
       overflow: hidden;
       margin-bottom: 24px;
     }
 
     .card-header {
       padding: 16px 20px;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-default);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: rgba(255, 255, 255, 0.015);
+      background: var(--bg-subtle);
     }
 
     .card-title {
@@ -523,8 +593,8 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
-      background: var(--bg-surface);
-      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-default);
       font-weight: 600;
       white-space: nowrap;
     }
@@ -532,14 +602,14 @@
     .table td {
       padding: 14px 16px;
       font-size: 12px;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-default);
       color: var(--text-main);
       vertical-align: middle;
       transition: background 0.15s;
     }
 
     .table tbody tr:hover td {
-      background: var(--bg-surface-elevated);
+      background: var(--bg-surface-hover);
     }
 
     .table tbody tr:last-child td {
@@ -561,42 +631,42 @@
 
     .badge-success {
       background: var(--success-bg);
-      color: #34d399;
+      color: var(--success-text);
       border: 1px solid var(--success-border);
     }
 
     .badge-warning {
       background: var(--warning-bg);
-      color: #fbbf24;
+      color: var(--warning-text);
       border: 1px solid var(--warning-border);
     }
 
     .badge-danger {
       background: var(--danger-bg);
-      color: #f87171;
+      color: var(--danger-text);
       border: 1px solid var(--danger-border);
     }
 
     .badge-info {
-      background: rgba(59, 130, 246, 0.12);
-      color: #60a5fa;
-      border: 1px solid rgba(59, 130, 246, 0.28);
+      background: var(--primary-light);
+      color: var(--primary);
+      border: 1px solid var(--primary-border);
     }
 
     .badge-purple {
       background: var(--purple-bg);
-      color: #c084fc;
+      color: var(--purple-text);
       border: 1px solid var(--purple-border);
     }
 
     .badge-cyan {
       background: var(--cyan-bg);
-      color: #22d3ee;
+      color: var(--cyan-text);
       border: 1px solid var(--cyan-border);
     }
 
     .badge-neutral {
-      background: var(--bg-surface-elevated);
+      background: var(--bg-canvas);
       color: var(--text-muted);
       border: 1px solid var(--border-default);
     }
@@ -611,21 +681,21 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 3px 10px;
-      background: rgba(99, 102, 241, 0.12);
-      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 4px 10px;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
       border-radius: var(--radius-sm);
-      color: #a5b4fc;
+      color: var(--primary);
       font-size: 11px;
       font-weight: 600;
       text-decoration: none;
-      transition: all 0.2s;
+      transition: all 0.15s;
     }
 
     .web-access-pill:hover {
-      background: #6366f1;
+      background: var(--primary);
       color: #ffffff;
-      box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 2px 6px var(--primary-glow);
     }
 
     .web-access-pill svg {
@@ -635,8 +705,8 @@
 
     /* Cluster Topology Visualizer */
     .topology-hero {
-      background: linear-gradient(180deg, var(--bg-surface-elevated), var(--bg-surface));
-      border: 1px solid var(--border-default);
+      background: linear-gradient(135deg, #f0fdf4, #eff6ff);
+      border: 1px solid #bfdbfe;
       border-radius: var(--radius-md);
       padding: 20px 24px;
       margin-bottom: 24px;
@@ -647,10 +717,15 @@
       flex-wrap: wrap;
     }
 
+    body.dark-theme .topology-hero {
+      background: linear-gradient(180deg, var(--bg-surface-elevated), var(--bg-surface));
+      border-color: var(--border-default);
+    }
+
     .topology-hero-info h3 {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 700;
-      color: #ffffff;
+      color: var(--text-main);
       display: flex;
       align-items: center;
       gap: 10px;
@@ -673,15 +748,16 @@
 
     .node-card {
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-md);
       padding: 16px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       gap: 14px;
+      box-shadow: var(--shadow-card);
       position: relative;
-      transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .node-card:hover {
@@ -696,7 +772,7 @@
 
     .node-card.leader {
       border-top: 3px solid var(--cyan);
-      background: linear-gradient(180deg, rgba(6, 182, 212, 0.05), var(--bg-surface));
+      background: linear-gradient(180deg, var(--cyan-bg), var(--bg-surface));
     }
 
     .node-card.not-ready {
@@ -736,18 +812,18 @@
       width: fit-content;
     }
 
-    .role-controller { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-    .role-datanode { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .role-computenode { background: rgba(139, 92, 246, 0.15); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3); }
-    .role-single { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .role-controller { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .role-datanode { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .role-computenode { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+    .role-single { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
 
     .node-kv-list {
       display: flex;
       flex-direction: column;
       gap: 6px;
       font-size: 11px;
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px solid var(--border-subtle);
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-sm);
       padding: 10px 12px;
     }
@@ -759,13 +835,13 @@
     }
 
     .node-kv-label {
-      color: var(--text-dim);
+      color: var(--text-muted);
     }
 
     .node-kv-val {
       font-family: var(--font-mono);
-      color: var(--text-muted);
-      font-weight: 500;
+      color: var(--text-main);
+      font-weight: 600;
     }
 
     .node-actions-bar {
@@ -798,17 +874,18 @@
       width: 100%;
       padding: 9px 12px;
       font-size: 13px;
-      background: var(--bg-canvas);
+      background: var(--bg-surface);
       border: 1px solid var(--border-default);
       border-radius: var(--radius-sm);
       color: var(--text-main);
       outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
+      box-shadow: var(--shadow-sm);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
 
     .form-control:focus {
       border-color: var(--border-focus);
-      box-shadow: 0 0 0 2px var(--primary-glow);
+      box-shadow: 0 0 0 3px var(--primary-glow);
     }
 
     /* Mode Selection Radio Cards */
@@ -820,29 +897,31 @@
     }
 
     .mode-card {
-      background: var(--bg-surface-elevated);
-      border: 2px solid var(--border-subtle);
+      background: var(--bg-surface);
+      border: 2px solid var(--border-default);
       border-radius: var(--radius-md);
-      padding: 16px 18px;
+      padding: 18px 20px;
       cursor: pointer;
-      transition: all 0.2s;
+      box-shadow: var(--shadow-card);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       position: relative;
     }
 
     .mode-card:hover {
       border-color: var(--border-hover);
+      box-shadow: var(--shadow-md);
     }
 
     .mode-card.selected {
       border-color: var(--primary);
-      background: rgba(59, 130, 246, 0.08);
-      box-shadow: 0 0 16px var(--primary-glow);
+      background: var(--primary-light);
+      box-shadow: 0 0 0 3px var(--primary-glow);
     }
 
     .mode-card h4 {
       font-size: 14px;
       font-weight: 700;
-      color: #ffffff;
+      color: var(--text-main);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -850,9 +929,9 @@
     }
 
     .mode-card p {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-muted);
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
     /* Toggle Switch */
@@ -882,7 +961,7 @@
       position: absolute;
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
-      background-color: var(--border-default);
+      background-color: var(--border-hover);
       transition: .25s;
       border-radius: 20px;
     }
@@ -897,6 +976,7 @@
       background-color: white;
       transition: .25s;
       border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
     }
 
     input:checked + .slider {
@@ -910,8 +990,8 @@
     /* Code & Terminal Windows */
     .code-view {
       font-family: var(--font-mono);
-      background: #060911;
-      border: 1px solid var(--border-subtle);
+      background: #0f172a;
+      border: 1px solid var(--border-default);
       border-radius: var(--radius-sm);
       color: #38bdf8;
       font-size: 12px;
@@ -923,20 +1003,20 @@
     }
 
     .terminal-window {
-      background: #050810;
-      border: 1px solid var(--border-default);
+      background: #0b0f19;
+      border: 1px solid #1e293b;
       border-radius: var(--radius-md);
       overflow: hidden;
       box-shadow: var(--shadow-lg);
     }
 
     .terminal-header {
-      background: #0d131f;
+      background: #111827;
       padding: 10px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid #1e293b;
     }
 
     .window-dots {
@@ -957,11 +1037,11 @@
       padding: 16px;
       font-family: var(--font-mono);
       font-size: 11px;
-      color: #cbd5e1;
+      color: #e2e8f0;
       line-height: 1.6;
       max-height: 520px;
       overflow-y: auto;
-      background: #050810;
+      background: #0b0f19;
       white-space: pre-wrap;
       word-break: break-all;
     }
@@ -971,7 +1051,7 @@
       display: none;
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(3, 7, 18, 0.75);
+      background: rgba(15, 23, 42, 0.45);
       backdrop-filter: blur(8px);
       z-index: 1000;
       align-items: center;
@@ -1005,16 +1085,17 @@
 
     .modal-header {
       padding: 16px 22px;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-default);
       display: flex;
       justify-content: space-between;
       align-items: center;
+      background: var(--bg-subtle);
     }
 
     .modal-header h3 {
       font-size: 15px;
       font-weight: 700;
-      color: #ffffff;
+      color: var(--text-main);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -1028,11 +1109,11 @@
 
     .modal-footer {
       padding: 14px 22px;
-      border-top: 1px solid var(--border-subtle);
+      border-top: 1px solid var(--border-default);
       display: flex;
       justify-content: flex-end;
       gap: 10px;
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--bg-subtle);
     }
 
     /* Progress Bar */
@@ -1047,7 +1128,7 @@
 
     .progress-bar {
       height: 100%;
-      background: linear-gradient(90deg, #3b82f6, #06b6d4);
+      background: linear-gradient(90deg, #2563eb, #0891b2);
       border-radius: var(--radius-full);
       transition: width 0.3s;
     }
@@ -1071,12 +1152,12 @@
       gap: 10px;
       padding: 12px 18px;
       border-radius: var(--radius-sm);
-      background: var(--bg-surface-elevated);
+      background: var(--bg-surface);
       border: 1px solid var(--border-default);
       box-shadow: var(--shadow-lg);
       font-size: 12px;
-      font-weight: 500;
-      color: #ffffff;
+      font-weight: 600;
+      color: var(--text-main);
       min-width: 280px;
       max-width: 420px;
       animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1125,7 +1206,7 @@
               Kubernetes 集群已连接
             </span>
             <span style="color: var(--text-dim);">•</span>
-            <span id="current-time-display" style="font-family: var(--font-mono);"></span>
+            <span id="current-time-display" style="font-family: var(--font-mono); font-weight: 600;"></span>
           </div>
         </div>
       </div>
@@ -1146,6 +1227,24 @@
         <button class="btn btn-secondary btn-icon" onclick="fetchDashboardData()" title="立即手动刷新">
           <svg id="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+        </button>
+
+        <!-- Theme Toggle (Light / Dark switch) -->
+        <button class="btn btn-secondary btn-icon" onclick="toggleTheme()" id="theme-toggle-btn" title="切换明亮 / 暗色模式">
+          <svg id="theme-sun-icon" style="display:none;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+          <svg id="theme-moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
         </button>
 
@@ -1181,7 +1280,7 @@
         <div class="kpi-info">
           <h4>节点 Pod 健康率</h4>
           <div class="kpi-val" id="stat-nodes">0 / 0</div>
-          <div class="kpi-sub">在线 Ready Pod / 预期目标</div>
+          <div class="kpi-sub">在线就绪 Pod / 目标规格</div>
         </div>
         <div class="kpi-icon-wrap icon-green">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -1192,7 +1291,7 @@
 
       <div class="kpi-card">
         <div class="kpi-info">
-          <h4>运行中运维任务</h4>
+          <h4>运行中运维流水线</h4>
           <div class="kpi-val" id="stat-ops">0</div>
           <div class="kpi-sub">滚动更新 / 数据重平衡</div>
         </div>
@@ -1206,9 +1305,9 @@
 
       <div class="kpi-card">
         <div class="kpi-info">
-          <h4>备份快照总量</h4>
+          <h4>快照备份分区</h4>
           <div class="kpi-val" id="stat-chunks">0</div>
-          <div class="kpi-sub">已快照 Chunks 分区总数</div>
+          <div class="kpi-sub">已快照保护 Chunks 总数</div>
         </div>
         <div class="kpi-icon-wrap icon-cyan">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -1285,8 +1384,8 @@
             </svg>
             DolphinDB 集群实例列表
           </div>
-          <div style="font-size: 11px; color: var(--text-muted);">
-            支持一键直达 DolphinDB Web 管理终端、动态扩缩容与滚动更新
+          <div style="font-size: 12px; color: var(--text-muted);">
+            支持一键直达 DolphinDB Web 管理终端、动态扩缩容与平滑滚动更新
           </div>
         </div>
 
@@ -1307,7 +1406,7 @@
             </thead>
             <tbody id="clusters-table-body">
               <tr>
-                <td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                <td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">
                   正在加载 DolphinDB 集群状态...
                 </td>
               </tr>
@@ -1318,7 +1417,7 @@
 
       <!-- Cluster Detail & Visual Topology Card (Appears on click) -->
       <div id="cluster-topology-card" class="card" style="display: none;">
-        <div class="card-header" style="background: var(--bg-surface-elevated);">
+        <div class="card-header">
           <div class="card-title" id="topology-title">
             <!-- Populated dynamically -->
           </div>
@@ -1343,7 +1442,7 @@
           <div id="topology-access-banner"></div>
 
           <!-- Section: Nodes Topology Visual Grid -->
-          <div style="margin-bottom: 12px; font-size: 13px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+          <div style="margin-bottom: 14px; font-size: 13px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
             <svg style="width: 16px; height: 16px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
               <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
@@ -1365,7 +1464,7 @@
         <div class="kpi-card" style="cursor: pointer;" onclick="triggerRollingRestartActionPrompt()">
           <div class="kpi-info">
             <h4 style="color: var(--primary);">滚动重启 DAG</h4>
-            <div style="font-size: 13px; font-weight: 600; color: #fff; margin-top: 4px;">按组有序平滑重启</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--text-main); margin-top: 4px;">按组有序平滑重启</div>
             <div class="kpi-sub">自动隔离/排空节点并等待探针 Ready</div>
           </div>
           <div class="kpi-icon-wrap icon-blue">
@@ -1376,7 +1475,7 @@
         <div class="kpi-card" style="cursor: pointer;" onclick="triggerRebalanceActionPrompt()">
           <div class="kpi-info">
             <h4 style="color: var(--warning);">DFS 数据重平衡</h4>
-            <div style="font-size: 13px; font-weight: 600; color: #fff; margin-top: 4px;">触发集群分区分片平衡</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--text-main); margin-top: 4px;">触发集群分区分片平衡</div>
             <div class="kpi-sub">基于 DataNode 存储水位自动迁移</div>
           </div>
           <div class="kpi-icon-wrap icon-purple">
@@ -1387,7 +1486,7 @@
         <div class="kpi-card" style="cursor: pointer;" onclick="triggerReloadLicenseActionPrompt()">
           <div class="kpi-info">
             <h4 style="color: var(--success);">热加载 License</h4>
-            <div style="font-size: 13px; font-weight: 600; color: #fff; margin-top: 4px;">免重启热刷授权</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--text-main); margin-top: 4px;">免重启热刷授权</div>
             <div class="kpi-sub">向 Controller 与 DataNode 发送热重载</div>
           </div>
           <div class="kpi-icon-wrap icon-green">
@@ -1420,7 +1519,7 @@
             </thead>
             <tbody id="operations-table-body">
               <tr>
-                <td colspan="9" style="text-align: center; color: var(--text-muted);">暂无运维任务记录</td>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无运维任务记录</td>
               </tr>
             </tbody>
           </table>
@@ -1458,7 +1557,7 @@
             </thead>
             <tbody id="backups-table-body">
               <tr>
-                <td colspan="9" style="text-align: center; color: var(--text-muted);">暂无备份任务</td>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无备份任务</td>
               </tr>
             </tbody>
           </table>
@@ -1488,7 +1587,7 @@
             </thead>
             <tbody id="restores-table-body">
               <tr>
-                <td colspan="8" style="text-align: center; color: var(--text-muted);">暂无数据恢复记录</td>
+                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无数据恢复记录</td>
               </tr>
             </tbody>
           </table>
@@ -1516,7 +1615,7 @@
             </thead>
             <tbody id="storageclasses-table-body">
               <tr>
-                <td colspan="3" style="text-align: center; color: var(--text-muted);">正在加载存储类列表...</td>
+                <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 30px;">正在加载存储类列表...</td>
               </tr>
             </tbody>
           </table>
@@ -1622,7 +1721,7 @@
                   <input type="checkbox" id="wiz-enable-nodeport" checked onchange="updateWizardYAML()">
                   <span class="slider"></span>
                 </label>
-                <span style="font-size: 12px; font-weight: 600; color: #60a5fa;">
+                <span style="font-size: 12px; font-weight: 600; color: var(--primary);">
                   开启物理机 NodePort 外部网络直连 (创建后可直接在外部浏览器打开 Web 终端)
                 </span>
               </div>
@@ -1636,72 +1735,72 @@
 
           <!-- Cluster specs panel -->
           <div id="wiz-cluster-specs">
-            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
-              <div style="font-weight: 700; font-size: 12px; color: #60a5fa; margin-bottom: 10px;">
+            <div style="background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 16px 18px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 13px; color: var(--primary); margin-bottom: 10px;">
                 Controller 组规格 (Raft 控制器)
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px;">
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">副本数量 (推荐 3 节点)</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">副本数量 (推荐 3 节点)</label>
                   <select id="wiz-ctl-replicas" class="form-control" onchange="updateWizardYAML()">
                     <option value="3" selected>3 节点 (Raft 高可用推荐)</option>
                     <option value="1">1 节点 (单控制器)</option>
                   </select>
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">CPU 申请/上限</label>
                   <input type="text" id="wiz-ctl-cpu" class="form-control" value="1000m/2000m" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">内存申请/上限</label>
                   <input type="text" id="wiz-ctl-mem" class="form-control" value="2Gi/4Gi" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">磁盘卷容量</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">磁盘卷容量</label>
                   <input type="text" id="wiz-ctl-disk" class="form-control" value="10Gi" oninput="updateWizardYAML()">
                 </div>
               </div>
             </div>
 
-            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
-              <div style="font-weight: 700; font-size: 12px; color: #34d399; margin-bottom: 10px;">
+            <div style="background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 16px 18px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 13px; color: var(--success); margin-bottom: 10px;">
                 DataNode 组规格 (分布式数据存储与计算节点)
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px;">
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">数据节点副本数</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">数据节点副本数</label>
                   <input type="number" id="wiz-dn-replicas" class="form-control" value="2" min="1" max="64" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">CPU 申请/上限</label>
                   <input type="text" id="wiz-dn-cpu" class="form-control" value="2000m/4000m" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">内存申请/上限</label>
                   <input type="text" id="wiz-dn-mem" class="form-control" value="4Gi/8Gi" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">数据卷容量</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">数据卷容量</label>
                   <input type="text" id="wiz-dn-disk" class="form-control" value="50Gi" oninput="updateWizardYAML()">
                 </div>
               </div>
             </div>
 
-            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
-              <div style="font-weight: 700; font-size: 12px; color: #c084fc; margin-bottom: 10px;">
+            <div style="background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 16px 18px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 13px; color: var(--purple); margin-bottom: 10px;">
                 ComputeNode 组规格 (无状态纯计算节点 - 可选)
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">计算节点副本数 (填 0 为不启用)</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">计算节点副本数 (填 0 为不启用)</label>
                   <input type="number" id="wiz-cn-replicas" class="form-control" value="1" min="0" max="32" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">CPU 申请/上限</label>
                   <input type="text" id="wiz-cn-cpu" class="form-control" value="1000m/2000m" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">内存申请/上限</label>
                   <input type="text" id="wiz-cn-mem" class="form-control" value="2Gi/4Gi" oninput="updateWizardYAML()">
                 </div>
               </div>
@@ -1710,21 +1809,21 @@
 
           <!-- Standalone specs panel -->
           <div id="wiz-standalone-specs" style="display: none;">
-            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
-              <div style="font-weight: 700; font-size: 12px; color: #fbbf24; margin-bottom: 10px;">
+            <div style="background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 16px 18px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 13px; color: var(--warning); margin-bottom: 10px;">
                 Standalone 单实例规格 (单机全功能节点)
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">CPU 申请/上限</label>
                   <input type="text" id="wiz-single-cpu" class="form-control" value="1000m/2000m" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">内存申请/上限</label>
                   <input type="text" id="wiz-single-mem" class="form-control" value="2Gi/4Gi" oninput="updateWizardYAML()">
                 </div>
                 <div>
-                  <label style="font-size: 11px; color: var(--text-dim);">数据卷容量</label>
+                  <label style="font-size: 11px; color: var(--text-muted);">数据卷容量</label>
                   <input type="text" id="wiz-single-disk" class="form-control" value="20Gi" oninput="updateWizardYAML()">
                 </div>
               </div>
@@ -1779,7 +1878,7 @@
       </div>
       <div class="modal-body">
         <p style="margin-bottom: 14px; color: var(--text-muted);">
-          正在对集群 <strong id="scale-cluster-name" style="color: #ffffff;"></strong> 执行节点副本数调整：
+          正在对集群 <strong id="scale-cluster-name" style="color: var(--text-main);"></strong> 执行节点副本数调整：
         </p>
         <div class="form-group">
           <label>DataNode 存储节点副本数 (至少 ≥ 副本因子 <span id="scale-repl-factor">2</span>)</label>
@@ -1810,7 +1909,7 @@
       </div>
       <div class="modal-body">
         <p style="margin-bottom: 14px; color: var(--text-muted);">
-          集群: <strong id="restart-cluster-name" style="color: #ffffff;"></strong>
+          集群: <strong id="restart-cluster-name" style="color: var(--text-main);"></strong>
         </p>
         <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
           Operator 将生成平滑重启 DAG 有序编排流水线：自动隔离待重启节点、优雅发送 kill -15 信号、等待节点健康就绪探针通过后，再推进至下一个批次，业务零中断。
@@ -1836,7 +1935,7 @@
   <div id="modal-delete-cluster" class="modal-overlay">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 style="color: #f87171;">
+        <h3 style="color: var(--danger-text);">
           <svg style="width: 18px; height: 18px; color: var(--danger);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           确认删除集群 (Delete Confirmation)
         </h3>
@@ -1844,7 +1943,7 @@
       </div>
       <div class="modal-body">
         <p style="color: var(--text-muted); margin-bottom: 12px;">
-          您正在删除集群 <strong id="delete-cluster-name-display" style="color: #ffffff;"></strong>。
+          您正在删除集群 <strong id="delete-cluster-name-display" style="color: var(--text-main);"></strong>。
           此操作将释放关联的所有 Pod 与调度资源。
         </p>
         <div class="form-group">
@@ -1865,7 +1964,7 @@
       <div class="modal-header">
         <h3>
           <svg style="width: 18px; height: 18px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-          节点容器实时运行日志: <span id="log-node-title" style="font-family: var(--font-mono); font-size: 13px; color: #38bdf8; margin-left: 6px;"></span>
+          节点容器实时运行日志: <span id="log-node-title" style="font-family: var(--font-mono); font-size: 13px; color: var(--primary); margin-left: 6px;"></span>
         </h3>
         <div style="display: flex; align-items: center; gap: 8px;">
           <select id="log-taillines" class="form-control" style="width: 110px; padding: 4px 8px; font-size: 11px;" onchange="fetchNodeLogs()">
@@ -1964,7 +2063,7 @@
           <input type="text" id="restore-database" class="form-control" value="dfs://demodb">
         </div>
         <div class="form-group">
-          <label>目标重命名库 (可选，留空为覆盖恢复原库)</label>
+          <label>目标重命名库 (可选，留空为恢复至原库)</label>
           <input type="text" id="restore-target-db" class="form-control" placeholder="留空为恢复至原库">
         </div>
       </div>
@@ -1987,7 +2086,29 @@
     let availableNamespaces = [];
     let availableStorageClasses = [];
 
-    // Toast Notification System (Replaces crude browser alerts)
+    // Theme Management (Default Light Theme, Switchable)
+    function initTheme() {
+      const savedTheme = localStorage.getItem('ddb_theme') || 'light';
+      if (savedTheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        document.getElementById('theme-sun-icon').style.display = 'block';
+        document.getElementById('theme-moon-icon').style.display = 'none';
+      } else {
+        document.body.classList.remove('dark-theme');
+        document.getElementById('theme-sun-icon').style.display = 'none';
+        document.getElementById('theme-moon-icon').style.display = 'block';
+      }
+    }
+
+    function toggleTheme() {
+      const isDark = document.body.classList.toggle('dark-theme');
+      localStorage.setItem('ddb_theme', isDark ? 'dark' : 'light');
+      document.getElementById('theme-sun-icon').style.display = isDark ? 'block' : 'none';
+      document.getElementById('theme-moon-icon').style.display = isDark ? 'none' : 'block';
+      showToast(`已切换为${isDark ? '暗色 (Dark)' : '明亮 (Light)'}主题`, 'info');
+    }
+
+    // Toast Notification System
     function showToast(message, type = 'info', duration = 3500) {
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');
@@ -1995,11 +2116,11 @@
 
       let icon = '';
       if (type === 'success') {
-        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#34d399"><polyline points="20 6 9 17 4 12"/></svg>';
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#059669"><polyline points="20 6 9 17 4 12"/></svg>';
       } else if (type === 'error') {
-        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#f87171"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#dc2626"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
       } else {
-        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#2563eb"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
       }
 
       toast.innerHTML = `${icon}<span>${message}</span>`;
@@ -2116,11 +2237,11 @@
       const tbody = document.getElementById('storageclasses-table-body');
       if (tbody) {
         if (availableStorageClasses.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">未检测到 Kubernetes StorageClass</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 30px;">未检测到 Kubernetes StorageClass</td></tr>';
         } else {
           tbody.innerHTML = availableStorageClasses.map(sc => `
             <tr>
-              <td><strong style="color: #60a5fa;">${sc.name}</strong></td>
+              <td><strong style="color: var(--primary);">${sc.name}</strong></td>
               <td style="color: var(--text-muted); font-family: var(--font-mono);">${sc.provisioner}</td>
               <td>${sc.isDefault ? '<span class="badge badge-success">DEFAULT</span>' : '<span style="color: var(--text-dim);">-</span>'}</td>
             </tr>
@@ -2252,8 +2373,8 @@
         return `
           <tr>
             <td>
-              <div style="font-weight: 700; color: #ffffff; cursor: pointer; display: flex; align-items: center; gap: 6px;" onclick="selectCluster('${c.namespace}', '${c.name}')">
-                <span style="color: #60a5fa;">●</span>
+              <div style="font-weight: 700; color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 6px;" onclick="selectCluster('${c.namespace}', '${c.name}')">
+                <span style="color: var(--primary);">●</span>
                 <span>${c.name}</span>
               </div>
             </td>
@@ -2261,7 +2382,7 @@
             <td>${modeBadge}</td>
             <td><span class="badge badge-neutral" style="font-family: var(--font-mono);">${c.version || '3.00.6'}</span></td>
             <td>${healthBadge}</td>
-            <td><strong style="color: #ffffff;">${c.readyNodes}</strong> / ${c.desiredNodes}</td>
+            <td><strong style="color: var(--text-main);">${c.readyNodes}</strong> / ${c.desiredNodes}</td>
             <td>${webPill}</td>
             <td>${masterText}</td>
             <td style="text-align: right;">
@@ -2320,7 +2441,7 @@
                 DolphinDB Web 交互式管理终端
               </h3>
               <div class="topology-hero-meta">
-                <span>外部直连地址: <code style="font-size: 13px; color: #38bdf8; font-weight: 700;">${detail.accessURL}</code></span>
+                <span>外部直连地址: <code style="font-size: 13px; color: var(--primary); font-weight: 700;">${detail.accessURL}</code></span>
                 <span>•</span>
                 <span>协议: HTTP REST / WebSocket</span>
               </div>
@@ -2338,7 +2459,7 @@
         `;
       } else {
         accessBanner.innerHTML = `
-          <div class="topology-hero" style="border-style: dashed;">
+          <div class="topology-hero" style="border-style: dashed; background: var(--bg-subtle);">
             <div class="topology-hero-info">
               <h3>
                 <span class="badge badge-neutral">ClusterIP (仅集群内私有)</span>
@@ -2362,7 +2483,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/></svg>
           <span>${c.metadata.name}</span>
           <span class="badge badge-info" style="font-size: 11px;">${c.metadata.namespace}</span>
-          <span class="badge badge-neutral" style="font-size: 11px;">v${c.spec.version || '3.00.6'}</span>
+          <span class="badge badge-neutral" style="font-family: var(--font-mono); font-size: 11px;">v${c.spec.version || '3.00.6'}</span>
         </div>
       `;
 
@@ -2396,10 +2517,10 @@
         let exposeBanner = '';
         if (n.externalURL) {
           exposeBanner = `
-            <div style="margin-top: 6px; padding: 6px 10px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
+            <div style="margin-top: 6px; padding: 6px 10px; background: var(--success-bg); border: 1px solid var(--success-border); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
               <div>
-                <div style="font-size: 11px; font-weight: 600; color: #34d399;">NodePort: ${n.nodePort}</div>
-                <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);">${n.externalURL}</div>
+                <div style="font-size: 11px; font-weight: 600; color: var(--success-text);">NodePort: ${n.nodePort}</div>
+                <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">${n.externalURL}</div>
               </div>
               <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 10px;">打开 Web ↗</a>
             </div>
@@ -2431,7 +2552,7 @@
                 </div>
                 <div class="node-kv-row">
                   <span class="node-kv-label">DDB 探针状态</span>
-                  <span class="node-kv-val" style="color: ${n.ddbState === 1 ? '#34d399' : '#f87171'};">
+                  <span class="node-kv-val" style="color: ${n.ddbState === 1 ? 'var(--success-text)' : 'var(--danger-text)'};">
                     ${n.ddbState === 1 ? '1 (Online 运行就绪)' : '0 (Offline 初始化中)'}
                   </span>
                 </div>
@@ -2459,7 +2580,7 @@
                 启动
               </button>
               ${n.externalURL ? `
-                <button class="btn btn-secondary btn-sm" style="color: var(--danger);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)" title="关闭 NodePort 映射">
+                <button class="btn btn-secondary btn-sm" style="color: var(--danger-text);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)" title="关闭 NodePort 映射">
                   关闭外网
                 </button>
               ` : `
@@ -2757,7 +2878,7 @@ spec:
         editor.style.borderColor = 'var(--primary)';
         showToast('已进入直接编辑模式，表单变动将不再覆盖下方 YAML', 'info');
       } else {
-        editor.style.borderColor = 'var(--border-subtle)';
+        editor.style.borderColor = 'var(--border-default)';
         updateWizardYAML();
       }
     }
@@ -3043,7 +3164,7 @@ spec:
 
         return `
           <tr>
-            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${o.metadata.name}</strong></td>
+            <td><strong style="color: var(--primary); font-family: var(--font-mono);">${o.metadata.name}</strong></td>
             <td><strong>${o.spec.cluster}</strong></td>
             <td><span class="badge badge-purple">${o.spec.type}</span></td>
             <td>${phaseBadge}</td>
@@ -3101,11 +3222,11 @@ spec:
 
         return `
           <tr>
-            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${b.metadata.name}</strong></td>
+            <td><strong style="color: var(--primary); font-family: var(--font-mono);">${b.metadata.name}</strong></td>
             <td><strong>${b.spec.cluster}</strong></td>
-            <td><code style="color: #38bdf8; font-size: 11px;">${dbs}</code></td>
+            <td><code style="color: var(--primary); font-size: 11px;">${dbs}</code></td>
             <td>${phaseBadge}</td>
-            <td><strong style="color: #ffffff;">${total}</strong></td>
+            <td><strong style="color: var(--text-main);">${total}</strong></td>
             <td>${sched}</td>
             <td style="color: var(--text-dim); font-size: 11px;">${next}</td>
             <td style="color: var(--text-dim); font-size: 11px;">${last}</td>
@@ -3138,7 +3259,7 @@ spec:
       tbody.innerHTML = restores.map(r => {
         const phase = r.status ? r.status.phase : 'Pending';
         let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
-        if (phase === 'Completed') phaseBadge = '<span class="badge badge-success">Completed</span>';
+        if (phase === 'Completed') phaseBadge = '<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Completed</span>';
         if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
 
         const completion = r.status && r.status.completionTime ? formatAge(new Date(r.status.completionTime)) : '-';
@@ -3146,10 +3267,10 @@ spec:
 
         return `
           <tr>
-            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${r.metadata.name}</strong></td>
+            <td><strong style="color: var(--primary); font-family: var(--font-mono);">${r.metadata.name}</strong></td>
             <td><strong>${r.spec.cluster}</strong></td>
             <td><code style="font-size: 11px;">${r.spec.database}</code></td>
-            <td><code style="font-size: 11px; color: #34d399;">${r.spec.targetDatabase || r.spec.database}</code></td>
+            <td><code style="font-size: 11px; color: var(--success);">${r.spec.targetDatabase || r.spec.database}</code></td>
             <td>${phaseBadge}</td>
             <td style="color: var(--text-dim); font-size: 11px;">${completion}</td>
             <td style="color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
@@ -3203,6 +3324,7 @@ spec:
 
     // Init
     window.addEventListener('DOMContentLoaded', () => {
+      initTheme();
       fetchMetadata();
       fetchDashboardData();
       startAutoRefresh();
