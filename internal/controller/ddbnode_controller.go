@@ -218,6 +218,30 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 	pod := &corev1.Pod{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Name}, pod)
 	if err == nil {
+		// Detect if pod spec has diverged on hardware fingerprint or node placement
+		needsRecreate := false
+		if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.MountMachineId {
+			hasMachineId := false
+			for _, v := range pod.Spec.Volumes {
+				if v.Name == "host-machine-id" {
+					hasMachineId = true
+					break
+				}
+			}
+			if !hasMachineId {
+				needsRecreate = true
+			}
+		}
+		if node.Spec.NodeName != "" && pod.Spec.NodeName != "" && pod.Spec.NodeName != node.Spec.NodeName {
+			needsRecreate = true
+		}
+		if needsRecreate && pod.DeletionTimestamp == nil {
+			log.FromContext(ctx).Info("Recreating pod due to updated hardware fingerprint / node placement", "pod", pod.Name)
+			if err := r.Delete(ctx, pod); err != nil {
+				return nil, err
+			}
+			return pod, nil
+		}
 		return pod, nil
 	}
 	if !errors.IsNotFound(err) {
