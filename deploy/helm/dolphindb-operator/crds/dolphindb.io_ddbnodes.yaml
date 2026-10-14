@@ -1,0 +1,405 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: ddbnodes.dolphindb.io
+spec:
+  group: dolphindb.io
+  names:
+    categories:
+    - dolphindb
+    kind: DDBNode
+    listKind: DDBNodeList
+    plural: ddbnodes
+    shortNames:
+    - ddbn
+    singular: ddbnode
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clusterName
+      name: Cluster
+      type: string
+    - jsonPath: .spec.role
+      name: Role
+      type: string
+    - jsonPath: .spec.alias
+      name: Alias
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.nodeName
+      name: Node
+      type: string
+    - jsonPath: .status.podIP
+      name: PodIP
+      type: string
+    - jsonPath: .status.ddbState
+      name: DDBState
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DDBNode is the Schema for the ddbnodes API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DDBNodeSpec defines the desired state of a single DDBNode
+              instance
+            properties:
+              alias:
+                description: Alias is the unique DolphinDB site alias (e.g., quant-dn-0)
+                type: string
+              antiAffinity:
+                description: AntiAffinity spreading strength
+                enum:
+                - Disabled
+                - Preferred
+                - Required
+                type: string
+              clusterName:
+                description: ClusterName references the parent DolphinDBCluster
+                type: string
+              configVolumeName:
+                description: ConfigVolumeName configmap or secret containing node
+                  config
+                type: string
+              controllerSite:
+                description: ControllerSite is the FQDN:port:alias of the controller
+                  master
+                type: string
+              fingerprint:
+                description: Fingerprint hardware fingerprint mount settings
+                properties:
+                  autoPassthrough:
+                    default: true
+                    description: AutoPassthrough automatically mounts /etc/machine-id
+                      and sets hostname to node name
+                    type: boolean
+                  hostname:
+                    description: Hostname manual override if not using host node name
+                    type: string
+                  mountDMI:
+                    default: false
+                    description: MountDMI mounts host /sys/class/dmi/id for system
+                      UUID
+                    type: boolean
+                  mountHostEtc:
+                    default: true
+                    description: MountHostEtc mounts host /etc to container /dolphindb/etc
+                    type: boolean
+                  mountMachineId:
+                    default: true
+                    description: MountMachineId mounts host /etc/machine-id to container
+                    type: boolean
+                  nodeName:
+                    description: NodeName manual node pinning if specified
+                    type: string
+                  useHostName:
+                    default: true
+                    description: UseHostName sets container hostname to host node
+                      name
+                    type: boolean
+                type: object
+              hostname:
+                description: Hostname override if pinned
+                type: string
+              image:
+                description: Image full container image
+                type: string
+              index:
+                description: Index ordinal index within the role (e.g., 0, 1, 2)
+                format: int32
+                type: integer
+              licenseSecretName:
+                description: LicenseSecretName name of secret containing dolphindb.lic
+                type: string
+              nodeName:
+                description: NodeName targeted physical host if pinned
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: NodeSelector pod node selector
+                type: object
+              paused:
+                default: false
+                description: Paused when true, container process is kept stopped without
+                  deleting PVCs
+                type: boolean
+              port:
+                description: Port listening port
+                format: int32
+                type: integer
+              resources:
+                description: Resources CPU and Memory requirements
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This is an alpha field and requires enabling the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              role:
+                description: Role of this instance
+                enum:
+                - controller
+                - datanode
+                - computenode
+                - single
+                type: string
+              sites:
+                description: Sites is the comma-separated list of all cluster sites
+                type: string
+              storage:
+                description: Storage specification for meta and data PVCs
+                properties:
+                  dataVolumeCount:
+                    default: 1
+                    description: DataVolumeCount number of independent data volumes
+                      (JBOD)
+                    type: integer
+                  dataVolumeSize:
+                    default: 100Gi
+                    description: DataVolumeSize size of each data volume
+                    type: string
+                  metaVolumeSize:
+                    default: 20Gi
+                    description: MetaVolumeSize for redo logs, chunk metadata and
+                      raft state
+                    type: string
+                  storageClassName:
+                    description: StorageClassName to use for PVCs
+                    type: string
+                type: object
+              tolerations:
+                description: Tolerations pod tolerations
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists and Equal. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+              version:
+                description: Version image version
+                type: string
+            required:
+            - alias
+            - clusterName
+            - image
+            - index
+            - port
+            - role
+            - version
+            type: object
+          status:
+            description: DDBNodeStatus defines the observed state of DDBNode
+            properties:
+              chunksCount:
+                description: ChunksCount total number of DFS chunks stored on this
+                  node
+                format: int32
+                type: integer
+              conditions:
+                description: Conditions condition array
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              ddbState:
+                description: DDBState internal state in getClusterPerf() (0=init,
+                  1=alive, 2=dead)
+                format: int32
+                type: integer
+              hostIP:
+                description: HostIP node IP where pod is scheduled
+                type: string
+              isMaster:
+                description: IsMaster true if this controller is the active Raft Master
+                type: boolean
+              nodeName:
+                description: NodeName physical node where pod is placed
+                type: string
+              phase:
+                description: Phase current lifecycle phase
+                type: string
+              podIP:
+                description: PodIP IP of the managed Pod
+                type: string
+              podName:
+                description: PodName name of the managed Pod
+                type: string
+              volumes:
+                description: Volumes list of managed PVCs
+                items:
+                  description: VolumeBinding tracks PVC status
+                  properties:
+                    bound:
+                      type: boolean
+                    mountPath:
+                      type: string
+                    name:
+                      type: string
+                    pvcName:
+                      type: string
+                  required:
+                  - bound
+                  - mountPath
+                  - name
+                  - pvcName
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

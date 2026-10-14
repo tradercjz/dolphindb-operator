@@ -31,6 +31,9 @@ spec:
     - jsonPath: .status.backupPath
       name: Path
       type: string
+    - jsonPath: .status.nextBackupTime
+      name: Next
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -110,6 +113,10 @@ spec:
                 type: string
               message:
                 description: Message human readable description or error message
+                type: string
+              nextBackupTime:
+                description: NextBackupTime timestamp of next scheduled backup
+                format: date-time
                 type: string
               node:
                 description: Node node alias where backup was executed

@@ -1,0 +1,139 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: ddbbackups.dolphindb.io
+spec:
+  group: dolphindb.io
+  names:
+    categories:
+    - dolphindb
+    kind: DDBBackup
+    listKind: DDBBackupList
+    plural: ddbbackups
+    shortNames:
+    - ddbbackup
+    singular: ddbbackup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cluster
+      name: Cluster
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.totalChunks
+      name: Chunks
+      type: integer
+    - jsonPath: .status.backupPath
+      name: Path
+      type: string
+    - jsonPath: .status.nextBackupTime
+      name: Next
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DDBBackup is the Schema for the ddbbackups API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DDBBackupSpec defines the desired backup action
+            properties:
+              backupPath:
+                description: BackupPath destination path for backup files (defaults
+                  to /data/ddb/backup/<cluster>/<name>)
+                type: string
+              cluster:
+                description: Cluster target DolphinDBCluster name
+                type: string
+              databases:
+                description: Databases list of DFS database URLs to back up (e.g.,
+                  ["dfs://k8sScaleTestDB"])
+                items:
+                  type: string
+                type: array
+              force:
+                description: Force whether to overwrite existing backup files
+                type: boolean
+              parallel:
+                description: Parallel whether to execute backup in parallel
+                type: boolean
+              schedule:
+                description: Schedule optional cron expression for recurring backups
+                  (e.g., "0 2 * * *")
+                type: string
+              snapshot:
+                description: Snapshot whether to take snapshot backup
+                type: boolean
+              tables:
+                description: Tables optional specific table names to back up
+                items:
+                  type: string
+                type: array
+            required:
+            - cluster
+            - databases
+            type: object
+          status:
+            description: DDBBackupStatus defines the backup execution state
+            properties:
+              backupPath:
+                description: BackupPath resolved directory path where backup was stored
+                type: string
+              completionTime:
+                description: CompletionTime timestamp when backup concluded
+                format: date-time
+                type: string
+              lastBackupTime:
+                description: LastBackupTime timestamp of last completed cron backup
+                format: date-time
+                type: string
+              message:
+                description: Message human readable description or error message
+                type: string
+              nextBackupTime:
+                description: NextBackupTime timestamp of next scheduled backup
+                format: date-time
+                type: string
+              node:
+                description: Node node alias where backup was executed
+                type: string
+              phase:
+                description: Phase current execution status
+                type: string
+              startTime:
+                description: StartTime timestamp when backup began
+                format: date-time
+                type: string
+              totalChunks:
+                description: TotalChunks total number of chunks backed up
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

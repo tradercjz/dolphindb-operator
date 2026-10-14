@@ -27,7 +27,8 @@ func NewClient(baseURL, username, password string) *Client {
 		Password: password,
 		HTTP: &http.Client{
 			Transport: &http.Transport{
-				Proxy: nil,
+				Proxy:             nil,
+				DisableKeepAlives: true,
 			},
 			Timeout: 10 * time.Second,
 		},
@@ -35,8 +36,8 @@ func NewClient(baseURL, username, password string) *Client {
 }
 
 type executePayload struct {
-	FunctionName string            `json:"functionName"`
-	Params       []paramEntry      `json:"params"`
+	FunctionName string       `json:"functionName"`
+	Params       []paramEntry `json:"params"`
 }
 
 type paramEntry struct {
@@ -86,6 +87,7 @@ func (c *Client) ExecuteScript(ctx context.Context, script string) (string, erro
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Close = true
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

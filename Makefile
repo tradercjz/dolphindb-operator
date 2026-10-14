@@ -43,9 +43,16 @@ vet: ## Run go vet against code.
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager and ddb-agent binaries.
+build: manifests generate fmt vet ## Build manager, ddb-agent, and ddb-dashboard binaries.
 	go build -o bin/manager cmd/operator/main.go
 	go build -o bin/ddb-agent cmd/ddb-agent/main.go
+	go build -o bin/ddb-dashboard cmd/ddb-dashboard/main.go
+
+.PHONY: build-linux
+build-linux: manifests generate fmt vet ## Cross compile Linux amd64 binaries.
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/linux_amd64/manager cmd/operator/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/linux_amd64/ddb-agent cmd/ddb-agent/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/linux_amd64/ddb-dashboard cmd/ddb-dashboard/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

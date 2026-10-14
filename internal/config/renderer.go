@@ -163,7 +163,7 @@ func (r *ConfigRenderer) renderControllerCfg() string {
 	cfg["lanCluster"] = "0"
 	cfg["dataSync"] = "1"
 	cfg["workerNum"] = "4"
-	cfg["maxConnections"] = "512"
+	cfg["maxConnections"] = "2048"
 	cfg["dfsMetaDir"] = "/var/lib/dolphindb/meta/dfsMeta"
 
 	ctlReplicas := int32(1)
@@ -222,7 +222,7 @@ func (r *ConfigRenderer) renderControllersCfg() string {
 func (r *ConfigRenderer) renderClusterProps() map[string]string {
 	cfg := make(map[string]string)
 	cfg["lanCluster"] = "0"
-	cfg["maxConnections"] = "512"
+	cfg["maxConnections"] = "2048"
 	cfg["workerNum"] = "4"
 	cfg["maxBatchJobWorker"] = "4"
 	cfg["subExecutors"] = "4"
@@ -415,4 +415,3 @@ func (r *ConfigRenderer) RenderSites() string {
 
 	return strings.Join(sites, ",")
 }
-

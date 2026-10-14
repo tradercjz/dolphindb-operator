@@ -1,0 +1,17 @@
+apiVersion: v2
+name: dolphindb-operator
+description: Enterprise High-Performance Kubernetes Operator for DolphinDB Distributed Time-Series Database
+type: application
+version: 0.2.0
+appVersion: "3.00.5"
+keywords:
+  - dolphindb
+  - operator
+  - database
+  - time-series
+  - high-availability
+home: https://github.com/tradercjz/dolphindb-operator
+sources:
+  - https://github.com/tradercjz/dolphindb-operator
+maintainers:
+  - name: tradercjz

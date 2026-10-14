@@ -66,6 +66,9 @@ type DDBBackupStatus struct {
 
 	// LastBackupTime timestamp of last completed cron backup
 	LastBackupTime *metav1.Time `json:"lastBackupTime,omitempty"`
+
+	// NextBackupTime timestamp of next scheduled backup
+	NextBackupTime *metav1.Time `json:"nextBackupTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -75,6 +78,7 @@ type DDBBackupStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Chunks",type=integer,JSONPath=`.status.totalChunks`
 // +kubebuilder:printcolumn:name="Path",type=string,JSONPath=`.status.backupPath`
+// +kubebuilder:printcolumn:name="Next",type=string,JSONPath=`.status.nextBackupTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // DDBBackup is the Schema for the ddbbackups API

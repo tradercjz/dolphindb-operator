@@ -296,13 +296,11 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 		})
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      aclVolName,
-			MountPath: "/data/ddb/server/data/keys/aclPublic.key",
-			SubPath:   "aclPublic.key",
+			MountPath: "/data/ddb/server/data/keys",
 		})
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      aclVolName,
-			MountPath: fmt.Sprintf("/data/ddb/server/data/%s/keys/aclPublic.key", node.Spec.Alias),
-			SubPath:   "aclPublic.key",
+			MountPath: fmt.Sprintf("/data/ddb/server/data/%s/keys", node.Spec.Alias),
 		})
 	}
 
@@ -438,11 +436,11 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 				Command: []string{"/bin/sh", "-c", probeCmd},
 			},
 		},
-		InitialDelaySeconds: 3,
-		PeriodSeconds:       3,
-		TimeoutSeconds:      2,
+		InitialDelaySeconds: 5,
+		PeriodSeconds:       5,
+		TimeoutSeconds:      5,
 		SuccessThreshold:    1,
-		FailureThreshold:    3,
+		FailureThreshold:    5,
 	}
 
 	startupProbe := &corev1.Probe{
@@ -451,11 +449,11 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 				Command: []string{"/bin/sh", "-c", probeCmd},
 			},
 		},
-		InitialDelaySeconds: 2,
-		PeriodSeconds:       2,
-		TimeoutSeconds:      2,
+		InitialDelaySeconds: 3,
+		PeriodSeconds:       3,
+		TimeoutSeconds:      5,
 		SuccessThreshold:    1,
-		FailureThreshold:    60, // allows up to 120s for node initialization and redo log playback
+		FailureThreshold:    60, // allows up to 180s for node initialization and redo log playback
 	}
 
 	lifecycle := &corev1.Lifecycle{
@@ -477,10 +475,10 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			Name:      node.Name,
 			Namespace: node.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name":       "dolphindb",
-				"app.kubernetes.io/instance":   node.Spec.ClusterName,
-				"app.kubernetes.io/component":  string(node.Spec.Role),
-				"dolphindb.io/node-alias":      node.Spec.Alias,
+				"app.kubernetes.io/name":      "dolphindb",
+				"app.kubernetes.io/instance":  node.Spec.ClusterName,
+				"app.kubernetes.io/component": string(node.Spec.Role),
+				"dolphindb.io/node-alias":     node.Spec.Alias,
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -493,16 +491,16 @@ func (r *DDBNodeReconciler) buildPod(node *v1alpha1.DDBNode, pvcs []corev1.Persi
 			Volumes:                       volumes,
 			Containers: []corev1.Container{
 				{
-					Name:            "dolphindb",
-					Image:           node.Spec.Image,
-					WorkingDir:      "/data/ddb/server",
-					Command:         []string{"/data/ddb/server/dolphindb"},
-					Args:            args,
-					Resources:       node.Spec.Resources,
-					VolumeMounts:    ddbMounts,
-					Lifecycle:       lifecycle,
-					StartupProbe:    startupProbe,
-					ReadinessProbe:  readinessProbe,
+					Name:           "dolphindb",
+					Image:          node.Spec.Image,
+					WorkingDir:     "/data/ddb/server",
+					Command:        []string{"/data/ddb/server/dolphindb"},
+					Args:           args,
+					Resources:      node.Spec.Resources,
+					VolumeMounts:   ddbMounts,
+					Lifecycle:      lifecycle,
+					StartupProbe:   startupProbe,
+					ReadinessProbe: readinessProbe,
 					Ports: []corev1.ContainerPort{
 						{Name: "ddb-port", ContainerPort: node.Spec.Port},
 					},

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -12,6 +13,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/robfig/cron/v3"
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/ddbclient"
@@ -36,21 +39,72 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Terminate if already completed or failed
-	if backup.Status.Phase == v1alpha1.BackupPhaseCompleted || backup.Status.Phase == v1alpha1.BackupPhaseFailed {
-		return ctrl.Result{}, nil
+	// 1. Check if cron schedule is defined
+	var cronSched cron.Schedule
+	if backup.Spec.Schedule != "" {
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		sched, err := parser.Parse(backup.Spec.Schedule)
+		if err != nil {
+			backup.Status.Phase = v1alpha1.BackupPhaseFailed
+			backup.Status.Message = fmt.Sprintf("Invalid cron schedule %q: %v", backup.Spec.Schedule, err)
+			return ctrl.Result{}, r.Status().Update(ctx, backup)
+		}
+		cronSched = sched
+	} else {
+		// Non-scheduled backup terminates if already completed or failed
+		if backup.Status.Phase == v1alpha1.BackupPhaseCompleted || backup.Status.Phase == v1alpha1.BackupPhaseFailed {
+			return ctrl.Result{}, nil
+		}
 	}
 
-	// Initialize status
+	now := time.Now()
+
+	// 2. Scheduled backup timing check
+	if cronSched != nil {
+		if backup.Status.LastBackupTime != nil {
+			nextTime := cronSched.Next(backup.Status.LastBackupTime.Time)
+			if now.Before(nextTime) {
+				backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
+				requeueWait := time.Until(nextTime)
+				if requeueWait <= 0 {
+					requeueWait = 1 * time.Second
+				}
+				logger.Info("Cron backup scheduled for future execution", "name", backup.Name, "nextTime", nextTime, "wait", requeueWait)
+				return ctrl.Result{RequeueAfter: requeueWait}, r.Status().Update(ctx, backup)
+			}
+			// Due for execution! Proceed below.
+		} else if backup.Status.StartTime != nil && backup.Status.Phase == v1alpha1.BackupPhasePending {
+			// First run has been scheduled, check if due
+			nextTime := cronSched.Next(backup.CreationTimestamp.Time)
+			if now.Before(nextTime) {
+				backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
+				requeueWait := time.Until(nextTime)
+				if requeueWait <= 0 {
+					requeueWait = 1 * time.Second
+				}
+				return ctrl.Result{RequeueAfter: requeueWait}, r.Status().Update(ctx, backup)
+			}
+		}
+	}
+
+	// 3. Initialize status if not yet initialized
 	if backup.Status.Phase == "" {
 		backup.Status.Phase = v1alpha1.BackupPhasePending
-		now := metav1.Now()
-		backup.Status.StartTime = &now
+		nowMeta := metav1.Now()
+		backup.Status.StartTime = &nowMeta
+		if cronSched != nil {
+			nextTime := cronSched.Next(backup.CreationTimestamp.Time)
+			backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
+			if now.Before(nextTime) {
+				backup.Status.Message = fmt.Sprintf("Scheduled next backup at %s", nextTime.Format("2006-01-02 15:04:05"))
+				return ctrl.Result{RequeueAfter: time.Until(nextTime)}, r.Status().Update(ctx, backup)
+			}
+		}
 		backup.Status.Message = "Initialized backup request"
 		return ctrl.Result{Requeue: true}, r.Status().Update(ctx, backup)
 	}
 
-	logger.Info("Reconciling DDBBackup", "name", backup.Name, "cluster", backup.Spec.Cluster, "phase", backup.Status.Phase)
+	logger.Info("Reconciling DDBBackup execution", "name", backup.Name, "cluster", backup.Spec.Cluster, "phase", backup.Status.Phase)
 
 	// Fetch target cluster
 	cluster := &v1alpha1.DolphinDBCluster{}
@@ -58,8 +112,8 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if errors.IsNotFound(err) {
 			backup.Status.Phase = v1alpha1.BackupPhaseFailed
 			backup.Status.Message = fmt.Sprintf("Cluster %q not found", backup.Spec.Cluster)
-			now := metav1.Now()
-			backup.Status.CompletionTime = &now
+			nowMeta := metav1.Now()
+			backup.Status.CompletionTime = &nowMeta
 			return ctrl.Result{}, r.Status().Update(ctx, backup)
 		}
 		return ctrl.Result{}, err
@@ -75,10 +129,23 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Select active DataNode for RPC execution
 	activeDN, err := r.findActiveDataNode(ctx, cli, cluster)
 	if err != nil {
+		if cronSched != nil {
+			nowMeta := metav1.Now()
+			backup.Status.Phase = v1alpha1.BackupPhaseFailed
+			backup.Status.CompletionTime = &nowMeta
+			nextTime := cronSched.Next(time.Now())
+			backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
+			backup.Status.Message = fmt.Sprintf("No active DataNode found to execute backup: %v; next attempt at %s", err, nextTime.Format("2006-01-02 15:04:05"))
+			return ctrl.Result{RequeueAfter: time.Until(nextTime)}, r.Status().Update(ctx, backup)
+		}
+		if backup.Status.StartTime != nil && time.Since(backup.Status.StartTime.Time) < 2*time.Minute {
+			backup.Status.Message = fmt.Sprintf("Awaiting active online DataNode (%v)...", err)
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, r.Status().Update(ctx, backup)
+		}
 		backup.Status.Phase = v1alpha1.BackupPhaseFailed
 		backup.Status.Message = fmt.Sprintf("No active DataNode found to execute backup: %v", err)
-		now := metav1.Now()
-		backup.Status.CompletionTime = &now
+		nowMeta := metav1.Now()
+		backup.Status.CompletionTime = &nowMeta
 		return ctrl.Result{}, r.Status().Update(ctx, backup)
 	}
 
@@ -105,25 +172,47 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		chunks, err := cli.Backup(ctx, activeDN, backupDir, db, table, force, parallel, snapshot)
 		if err != nil {
+			nowMeta := metav1.Now()
 			backup.Status.Phase = v1alpha1.BackupPhaseFailed
+			backup.Status.CompletionTime = &nowMeta
+			if cronSched != nil {
+				nextTime := cronSched.Next(time.Now())
+				backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
+				backup.Status.Message = fmt.Sprintf("Backup failed for DB %s: %v; next attempt at %s", db, err, nextTime.Format("2006-01-02 15:04:05"))
+				requeueWait := time.Until(nextTime)
+				if requeueWait <= 0 {
+					requeueWait = 5 * time.Second
+				}
+				return ctrl.Result{RequeueAfter: requeueWait}, r.Status().Update(ctx, backup)
+			}
 			backup.Status.Message = fmt.Sprintf("Backup failed for DB %s: %v", db, err)
-			now := metav1.Now()
-			backup.Status.CompletionTime = &now
 			return ctrl.Result{}, r.Status().Update(ctx, backup)
 		}
 		totalChunks += chunks
 	}
 
-	now := metav1.Now()
+	nowMeta := metav1.Now()
 	backup.Status.Phase = v1alpha1.BackupPhaseCompleted
 	backup.Status.Node = activeDN
 	backup.Status.TotalChunks = totalChunks
-	backup.Status.CompletionTime = &now
-	backup.Status.LastBackupTime = &now
-	backup.Status.Message = fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s)", totalChunks, backupDir, activeDN)
+	backup.Status.CompletionTime = &nowMeta
+	backup.Status.LastBackupTime = &nowMeta
 
 	metrics.BackupTotalChunks.WithLabelValues(backup.Spec.Cluster, backup.Namespace, backup.Name).Set(float64(totalChunks))
 
+	if cronSched != nil {
+		nextTime := cronSched.Next(nowMeta.Time)
+		backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
+		backup.Status.Message = fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s); next at %s",
+			totalChunks, backupDir, activeDN, nextTime.Format("2006-01-02 15:04:05"))
+		requeueWait := time.Until(nextTime)
+		if requeueWait <= 0 {
+			requeueWait = 1 * time.Second
+		}
+		return ctrl.Result{RequeueAfter: requeueWait}, r.Status().Update(ctx, backup)
+	}
+
+	backup.Status.Message = fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s)", totalChunks, backupDir, activeDN)
 	return ctrl.Result{}, r.Status().Update(ctx, backup)
 }
 
@@ -163,7 +252,7 @@ func (r *DDBBackupReconciler) findActiveDataNode(ctx context.Context, cli *ddbcl
 	}
 
 	for _, n := range perf {
-		if n.State == 1 {
+		if n.State == 1 && (n.Mode == 3 || strings.Contains(n.Name, "-dn-")) {
 			return n.Name, nil
 		}
 	}

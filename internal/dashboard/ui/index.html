@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DolphinDB Operator Console</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --accent: #8b5cf6;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #3b82f6, #06b6d4);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 20px;
+    }
+    h1 { font-size: 20px; font-weight: 600; }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn {
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary { background: var(--card-bg); color: var(--text); border-color: var(--card-border); }
+    .btn-secondary:hover { background: #283548; }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+    .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
+    .stat-val { font-size: 26px; font-weight: 700; color: #fff; }
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 8px;
+    }
+    .tab-btn {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 6px;
+    }
+    .tab-btn.active {
+      color: #fff;
+      background: #1e293b;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--card-border);
+      font-weight: 500;
+    }
+    td {
+      padding: 12px;
+      border-bottom: 1px solid #293548;
+      vertical-align: middle;
+    }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .badge {
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-block;
+    }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #059669; }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #d97706; }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #dc2626; }
+    .badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #2563eb; }
+    .badge-purple { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #7c3aed; }
+    .progress-bar-container {
+      width: 100px;
+      background: #334155;
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      transition: width 0.3s;
+    }
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .modal {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      width: 480px;
+      max-width: 90vw;
+      padding: 24px;
+    }
+    .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+    .form-control {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      background: #0f172a;
+      color: #fff;
+      font-size: 13px;
+    }
+    .form-control:focus { outline: none; border-color: var(--primary); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+    .node-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .node-card {
+      background: #151e2e;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 12px;
+    }
+    .node-card.ready { border-left: 3px solid var(--success); }
+    .node-card.not-ready { border-left: 3px solid var(--danger); }
+    .node-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; display: flex; justify-content: space-between; }
+    .node-meta { color: var(--text-muted); line-height: 1.6; }
+    .alert-banner {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--danger);
+      color: #fca5a5;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 12px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <div class="logo-area">
+      <div class="logo-icon">D</div>
+      <div>
+        <h1>DolphinDB Operator Console</h1>
+        <div style="font-size: 12px; color: var(--text-muted);">Enterprise High-Performance Distributed TSDB Platform on Kubernetes</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="auto-refresh-badge" class="badge badge-success">Auto-Refresh 5s</span>
+      <button class="btn btn-secondary" onclick="fetchDashboardData()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Metrics Row -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Active Clusters</div>
+      <div class="stat-val" id="stat-clusters">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Ready Nodes</div>
+      <div class="stat-val" id="stat-nodes">0 / 0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Operations</div>
+      <div class="stat-val" id="stat-ops">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Backed Chunks</div>
+      <div class="stat-val" id="stat-chunks">0</div>
+    </div>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('clusters')">Clusters & Topology</button>
+    <button class="tab-btn" onclick="switchTab('operations')">Day-2 Operations (DAG)</button>
+    <button class="tab-btn" onclick="switchTab('backups')">Backups & Restores</button>
+  </div>
+
+  <!-- TAB 1: Clusters -->
+  <div id="tab-clusters" class="tab-pane">
+    <div class="card">
+      <div class="card-title">
+        <span>Clusters</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Namespace</th>
+            <th>Mode</th>
+            <th>Version</th>
+            <th>Health</th>
+            <th>Nodes (Ready/Desired)</th>
+            <th>Replication</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="clusters-table-body">
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading clusters...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Cluster Detail & Topology Section -->
+    <div id="cluster-topology-card" class="card" style="display: none;">
+      <div class="card-title">
+        <span id="topology-title">Cluster Topology & Nodes</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" onclick="openScaleModal()">Scale Cluster</button>
+          <button class="btn btn-secondary" onclick="openRestartModal()">Rolling Restart</button>
+          <button class="btn btn-primary" onclick="openBackupModal()">Create Backup</button>
+        </div>
+      </div>
+      <div id="topology-nodes-container" class="node-grid"></div>
+    </div>
+  </div>
+
+  <!-- TAB 2: Operations -->
+  <div id="tab-operations" class="tab-pane" style="display: none;">
+    <div class="card">
+      <div class="card-title">
+        <span>Day-2 Operations Flow Execution</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Cluster</th>
+            <th>Type</th>
+            <th>Phase</th>
+            <th>Active Step</th>
+            <th>Progress</th>
+            <th>Message</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="operations-table-body">
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading operations...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 3: Backups & Restores -->
+  <div id="tab-backups" class="tab-pane" style="display: none;">
+    <div class="card">
+      <div class="card-title">
+        <span>DFS Database Backups</span>
+        <button class="btn btn-primary" onclick="openBackupModal()">+ New Backup</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Cluster</th>
+            <th>Databases</th>
+            <th>Phase</th>
+            <th>Chunks</th>
+            <th>Schedule (Cron)</th>
+            <th>Next Run</th>
+            <th>Last Backup</th>
+          </tr>
+        </thead>
+        <tbody id="backups-table-body">
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading backups...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Restore Executions</span>
+        <button class="btn btn-secondary" onclick="openRestoreModal()">+ Trigger Restore</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Cluster</th>
+            <th>Database</th>
+            <th>Target DB</th>
+            <th>Phase</th>
+            <th>Completion</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="restores-table-body">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading restores...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal: Scale Cluster -->
+  <div id="modal-scale" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Scale Cluster: <span id="scale-cluster-name"></span></div>
+      <div id="scale-alert" class="alert-banner"></div>
+      <div class="form-group">
+        <label>DataNodes (DFS Storage)</label>
+        <input type="number" id="scale-datanodes" class="form-control" min="1" max="128">
+        <small style="color: var(--text-muted); font-size: 11px;">Must be &gt;= cluster dfsReplicationFactor (<span id="scale-repl-factor">2</span>)</small>
+      </div>
+      <div class="form-group">
+        <label>ComputeNodes (Stateless Compute)</label>
+        <input type="number" id="scale-computenodes" class="form-control" min="0" max="128">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('modal-scale')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitScale()">Apply Scaling</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Rolling Restart -->
+  <div id="modal-restart" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Rolling Restart: <span id="restart-cluster-name"></span></div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Gracefully executes <code>kill -15</code> shutdown and chunk rebalance DAG per node, ensuring zero write/read downtime.
+      </p>
+      <div class="form-group">
+        <label>Target Node Type</label>
+        <select id="restart-node-type" class="form-control">
+          <option value="all">All Nodes (DataNode + Controller)</option>
+          <option value="datanode">DataNodes Only</option>
+          <option value="controller">Controller Only</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('modal-restart')">Cancel</button>
+        <button class="btn btn-danger" onclick="submitRollingRestart()">Confirm Rolling Restart</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Create Backup -->
+  <div id="modal-backup" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-title">New DFS Backup</div>
+      <div class="form-group">
+        <label>Target Cluster</label>
+        <input type="text" id="backup-cluster" class="form-control" placeholder="e.g. ddb-cluster">
+      </div>
+      <div class="form-group">
+        <label>Databases (comma separated)</label>
+        <input type="text" id="backup-dbs" class="form-control" placeholder="e.g. dfs://k8sScaleTestDB">
+      </div>
+      <div class="form-group">
+        <label>Schedule (Optional Cron, e.g. 0 2 * * * for 2 AM daily)</label>
+        <input type="text" id="backup-schedule" class="form-control" placeholder="Leave empty for one-off backup">
+      </div>
+      <div class="form-group">
+        <label>Destination Path (Optional)</label>
+        <input type="text" id="backup-path" class="form-control" placeholder="Defaults to /data/ddb/backup/<cluster>/<name>">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('modal-backup')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitBackup()">Create Backup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Create Restore -->
+  <div id="modal-restore" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Trigger DFS Restore</div>
+      <div class="form-group">
+        <label>Target Cluster</label>
+        <input type="text" id="restore-cluster" class="form-control" placeholder="e.g. ddb-cluster">
+      </div>
+      <div class="form-group">
+        <label>Source Backup Name</label>
+        <input type="text" id="restore-backup-name" class="form-control" placeholder="e.g. backup-ddb-cluster-12345">
+      </div>
+      <div class="form-group">
+        <label>Source Database URL</label>
+        <input type="text" id="restore-database" class="form-control" placeholder="e.g. dfs://k8sScaleTestDB">
+      </div>
+      <div class="form-group">
+        <label>Target Database URL (Optional override)</label>
+        <input type="text" id="restore-target-db" class="form-control" placeholder="e.g. dfs://k8sScaleTestDB_restored">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('modal-restore')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitRestore()">Trigger Restore</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentClusters = [];
+    let selectedCluster = null;
+    let selectedClusterDetail = null;
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabId).style.display = 'block';
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+    async function fetchDashboardData() {
+      try {
+        const [clustersRes, opsRes, backupsRes, restoresRes] = await Promise.all([
+          fetch('/api/clusters'),
+          fetch('/api/operations'),
+          fetch('/api/backups'),
+          fetch('/api/restores')
+        ]);
+
+        if (clustersRes.ok) {
+          currentClusters = await clustersRes.json();
+          renderClusters(currentClusters);
+        }
+        if (opsRes.ok) {
+          const ops = await opsRes.json();
+          renderOperations(ops);
+        }
+        if (backupsRes.ok) {
+          const backups = await backupsRes.json();
+          renderBackups(backups);
+        }
+        if (restoresRes.ok) {
+          const restores = await restoresRes.json();
+          renderRestores(restores);
+        }
+
+        if (selectedCluster) {
+          inspectCluster(selectedCluster.namespace, selectedCluster.name, false);
+        }
+      } catch (err) {
+        console.error("Dashboard refresh error:", err);
+      }
+    }
+
+    function renderClusters(clusters) {
+      document.getElementById('stat-clusters').textContent = clusters.length;
+      let totalReady = 0;
+      let totalDesired = 0;
+      clusters.forEach(c => {
+        totalReady += (c.readyNodes || 0);
+        totalDesired += (c.desiredNodes || 0);
+      });
+      document.getElementById('stat-nodes').textContent = `${totalReady} / ${totalDesired}`;
+
+      const tbody = document.getElementById('clusters-table-body');
+      if (clusters.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No DolphinDB clusters found.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = clusters.map(c => {
+        const healthBadge = c.health === 'Healthy' 
+          ? '<span class="badge badge-success">Healthy</span>' 
+          : (c.health === 'Degraded' ? '<span class="badge badge-warning">Degraded</span>' : '<span class="badge badge-danger">' + (c.health || 'Unknown') + '</span>');
+        
+        return `
+          <tr>
+            <td><strong>${c.name}</strong></td>
+            <td>${c.namespace}</td>
+            <td><span class="badge badge-info">${c.mode}</span></td>
+            <td>${c.version}</td>
+            <td>${healthBadge}</td>
+            <td>${c.readyNodes} / ${c.desiredNodes} (DN: ${c.dataNodes}, CN: ${c.computeNodes || 0})</td>
+            <td>${c.dfsReplicationFactor}</td>
+            <td>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="inspectCluster('${c.namespace}', '${c.name}', true)">View Topology</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function inspectCluster(namespace, name, scroll) {
+      try {
+        const res = await fetch(`/api/clusters/${namespace}/${name}`);
+        if (!res.ok) return;
+        selectedClusterDetail = await res.json();
+        selectedCluster = { namespace, name };
+
+        document.getElementById('topology-title').textContent = `Topology: ${name} (${namespace}) - Mode: ${selectedClusterDetail.cluster.spec.mode}`;
+        document.getElementById('cluster-topology-card').style.display = 'block';
+
+        const container = document.getElementById('topology-nodes-container');
+        container.innerHTML = selectedClusterDetail.nodes.map(n => {
+          const isReady = n.ready;
+          const readyBadge = isReady ? '<span class="badge badge-success">Ready (1/1)</span>' : '<span class="badge badge-danger">Not Ready</span>';
+          let roleBadge = '<span class="badge badge-info">' + n.role + '</span>';
+          if (n.role === 'controller') roleBadge = '<span class="badge badge-purple">Controller</span>';
+          if (n.role === 'computenode') roleBadge = '<span class="badge badge-warning">ComputeNode</span>';
+          if (n.role === 'datanode') roleBadge = '<span class="badge badge-info">DataNode (' + (n.chunksCount || 0) + ' chunks)</span>';
+          if (n.role === 'single') roleBadge = '<span class="badge badge-purple">Single</span>';
+
+          return `
+            <div class="node-card ${isReady ? 'ready' : 'not-ready'}">
+              <div class="node-name">
+                <span>${n.name}</span>
+                ${roleBadge}
+              </div>
+              <div class="node-meta">
+                <div>Status: ${readyBadge}</div>
+                <div>Pod IP: ${n.podIP || 'Pending'} : ${n.port}</div>
+                <div>Host IP: ${n.hostIP || 'Pending'}</div>
+                <div>Probe: ${isReady ? 'isNodeInitialized = 1 (Ready)' : 'Recovering/Initializing'}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        if (scroll) {
+          document.getElementById('cluster-topology-card').scrollIntoView({ behavior: 'smooth' });
+        }
+      } catch (err) {
+        console.error("Failed to inspect cluster:", err);
+      }
+    }
+
+    function renderOperations(ops) {
+      let activeCount = ops.filter(o => o.status && (o.status.phase === 'Running' || o.status.phase === 'Pending')).length;
+      document.getElementById('stat-ops').textContent = activeCount;
+
+      const tbody = document.getElementById('operations-table-body');
+      if (ops.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No operations recorded.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = ops.map(o => {
+        const phase = o.status ? o.status.phase : 'Pending';
+        let badge = '<span class="badge badge-info">' + phase + '</span>';
+        if (phase === 'Succeeded') badge = '<span class="badge badge-success">Succeeded</span>';
+        if (phase === 'Failed') badge = '<span class="badge badge-danger">Failed</span>';
+        if (phase === 'Running') badge = '<span class="badge badge-warning">Running</span>';
+
+        const step = o.status ? (o.status.currentStep || '-') : '-';
+        const prog = o.status ? (o.status.progress || '0%') : '0%';
+        const msg = o.status ? (o.status.message || '') : '';
+        const age = o.metadata ? new Date(o.metadata.creationTimestamp).toLocaleTimeString() : '-';
+
+        return `
+          <tr>
+            <td><strong>${o.metadata.name}</strong></td>
+            <td>${o.spec.cluster}</td>
+            <td><span class="badge badge-purple">${o.spec.type}</span></td>
+            <td>${badge}</td>
+            <td>${step}</td>
+            <td>
+              <div class="progress-bar-container"><div class="progress-bar" style="width: ${prog};"></div></div>
+              <span>${prog}</span>
+            </td>
+            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
+            <td>${age}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderBackups(backups) {
+      let totalChunks = 0;
+      backups.forEach(b => {
+        if (b.status && b.status.totalChunks) totalChunks += b.status.totalChunks;
+      });
+      document.getElementById('stat-chunks').textContent = totalChunks;
+
+      const tbody = document.getElementById('backups-table-body');
+      if (backups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No backups found.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = backups.map(b => {
+        const phase = b.status ? b.status.phase : 'Pending';
+        let badge = '<span class="badge badge-info">' + phase + '</span>';
+        if (phase === 'Completed') badge = '<span class="badge badge-success">Completed</span>';
+        if (phase === 'Failed') badge = '<span class="badge badge-danger">Failed</span>';
+
+        const chunks = b.status ? (b.status.totalChunks || 0) : 0;
+        const sched = b.spec.schedule || 'One-off';
+        const nextRun = b.status && b.status.nextBackupTime ? new Date(b.status.nextBackupTime).toLocaleString() : '-';
+        const lastRun = b.status && b.status.lastBackupTime ? new Date(b.status.lastBackupTime).toLocaleString() : '-';
+
+        return `
+          <tr>
+            <td><strong>${b.metadata.name}</strong></td>
+            <td>${b.spec.cluster}</td>
+            <td><code>${b.spec.databases.join(', ')}</code></td>
+            <td>${badge}</td>
+            <td>${chunks}</td>
+            <td><code>${sched}</code></td>
+            <td>${nextRun}</td>
+            <td>${lastRun}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderRestores(restores) {
+      const tbody = document.getElementById('restores-table-body');
+      if (restores.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No restores recorded.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = restores.map(r => {
+        const phase = r.status ? r.status.phase : 'Pending';
+        let badge = '<span class="badge badge-info">' + phase + '</span>';
+        if (phase === 'Completed') badge = '<span class="badge badge-success">Completed</span>';
+        if (phase === 'Failed') badge = '<span class="badge badge-danger">Failed</span>';
+
+        const completion = r.status && r.status.completionTime ? new Date(r.status.completionTime).toLocaleTimeString() : '-';
+        const msg = r.status ? (r.status.message || '') : '';
+
+        return `
+          <tr>
+            <td><strong>${r.metadata.name}</strong></td>
+            <td>${r.spec.cluster}</td>
+            <td><code>${r.spec.database}</code></td>
+            <td><code>${r.spec.targetDatabase || r.spec.database}</code></td>
+            <td>${badge}</td>
+            <td>${completion}</td>
+            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openScaleModal() {
+      if (!selectedClusterDetail) return;
+      const c = selectedClusterDetail.cluster;
+      document.getElementById('scale-cluster-name').textContent = c.metadata.name;
+      document.getElementById('scale-datanodes').value = c.spec.dataNodes;
+      document.getElementById('scale-computenodes').value = c.spec.computeNodes || 0;
+      const repl = c.spec.dfsReplicationFactor || 2;
+      document.getElementById('scale-repl-factor').textContent = repl;
+      document.getElementById('scale-alert').style.display = 'none';
+      openModal('modal-scale');
+    }
+
+    async function submitScale() {
+      if (!selectedClusterDetail) return;
+      const c = selectedClusterDetail.cluster;
+      const dn = parseInt(document.getElementById('scale-datanodes').value);
+      const cn = parseInt(document.getElementById('scale-computenodes').value);
+      const repl = c.spec.dfsReplicationFactor || 2;
+
+      if (dn < repl) {
+        const alert = document.getElementById('scale-alert');
+        alert.textContent = `Error: Cannot scale DataNodes to ${dn}: cluster dfsReplicationFactor is ${repl}. Minimum DataNodes is ${repl}.`;
+        alert.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/clusters/${c.metadata.namespace}/${c.metadata.name}/scale`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataNodes: dn, computeNodes: cn })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          alert("Scale failed: " + (data.error || res.statusText));
+          return;
+        }
+        closeModal('modal-scale');
+        fetchDashboardData();
+      } catch (err) {
+        alert("Scale failed: " + err.message);
+      }
+    }
+
+    function openRestartModal() {
+      if (!selectedClusterDetail) return;
+      document.getElementById('restart-cluster-name').textContent = selectedClusterDetail.cluster.metadata.name;
+      openModal('modal-restart');
+    }
+
+    async function submitRollingRestart() {
+      if (!selectedClusterDetail) return;
+      const c = selectedClusterDetail.cluster;
+      const nodeType = document.getElementById('restart-node-type').value;
+
+      try {
+        const res = await fetch(`/api/clusters/${c.metadata.namespace}/${c.metadata.name}/restart`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodeType })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          alert("Restart failed: " + (data.error || res.statusText));
+          return;
+        }
+        closeModal('modal-restart');
+        fetchDashboardData();
+      } catch (err) {
+        alert("Restart failed: " + err.message);
+      }
+    }
+
+    function openBackupModal() {
+      if (selectedClusterDetail) {
+        document.getElementById('backup-cluster').value = selectedClusterDetail.cluster.metadata.name;
+      }
+      openModal('modal-backup');
+    }
+
+    async function submitBackup() {
+      const cluster = document.getElementById('backup-cluster').value.trim();
+      const dbs = document.getElementById('backup-dbs').value.split(',').map(s => s.trim()).filter(Boolean);
+      const schedule = document.getElementById('backup-schedule').value.trim();
+      const path = document.getElementById('backup-path').value.trim();
+
+      if (!cluster || dbs.length === 0) {
+        alert("Cluster and Database are required!");
+        return;
+      }
+
+      const ns = selectedCluster ? selectedCluster.namespace : 'default';
+      try {
+        const res = await fetch('/api/backups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cluster,
+            namespace: ns,
+            databases: dbs,
+            schedule,
+            backupPath: path,
+            force: true
+          })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          alert("Backup failed: " + (data.error || res.statusText));
+          return;
+        }
+        closeModal('modal-backup');
+        fetchDashboardData();
+      } catch (err) {
+        alert("Backup failed: " + err.message);
+      }
+    }
+
+    function openRestoreModal() {
+      if (selectedClusterDetail) {
+        document.getElementById('restore-cluster').value = selectedClusterDetail.cluster.metadata.name;
+      }
+      openModal('modal-restore');
+    }
+
+    async function submitRestore() {
+      const cluster = document.getElementById('restore-cluster').value.trim();
+      const backupName = document.getElementById('restore-backup-name').value.trim();
+      const database = document.getElementById('restore-database').value.trim();
+      const targetDb = document.getElementById('restore-target-db').value.trim();
+
+      if (!cluster || !database) {
+        alert("Cluster and Database are required!");
+        return;
+      }
+
+      const ns = selectedCluster ? selectedCluster.namespace : 'default';
+      try {
+        const res = await fetch('/api/restores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cluster,
+            namespace: ns,
+            backupName,
+            database,
+            targetDatabase: targetDb
+          })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          alert("Restore failed: " + (data.error || res.statusText));
+          return;
+        }
+        closeModal('modal-restore');
+        fetchDashboardData();
+      } catch (err) {
+        alert("Restore failed: " + err.message);
+      }
+    }
+
+    // Initialize & polling
+    fetchDashboardData();
+    setInterval(fetchDashboardData, 5000);
+  </script>
+</body>
+</html>

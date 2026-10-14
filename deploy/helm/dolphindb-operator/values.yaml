@@ -1,0 +1,74 @@
+# Default values for dolphindb-operator.
+
+replicaCount: 1
+
+image:
+  repository: 192.168.100.250/dolphindb/operator
+  tag: v2.0.0
+  pullPolicy: IfNotPresent
+
+agentImage:
+  repository: 192.168.100.250/dolphindb/ddb-agent
+  tag: v2.0.0
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: false
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Operator metrics & health probe settings
+metrics:
+  port: 8989
+  probePort: 8982
+
+# Prometheus ServiceMonitor configuration
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
+
+# Built-in DolphinDB Web Console Dashboard
+dashboard:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: 192.168.100.250/dolphindb/operator
+    tag: v2.0.0
+    pullPolicy: IfNotPresent
+  service:
+    type: NodePort
+    port: 9527
+    nodePort: 30527
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

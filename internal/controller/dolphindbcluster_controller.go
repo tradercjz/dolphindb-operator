@@ -603,7 +603,8 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 
 	clientHttp := &http.Client{
 		Transport: &http.Transport{
-			Proxy: nil,
+			Proxy:             nil,
+			DisableKeepAlives: true,
 		},
 		Timeout: 5 * time.Second,
 	}
@@ -857,5 +858,3 @@ func (r *DolphinDBClusterReconciler) ensureFlowRegistered(cluster *v1alpha1.Dolp
 		r.FlowEngine.RegisterFlow(flow)
 	}
 }
-
-
