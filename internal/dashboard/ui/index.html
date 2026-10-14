@@ -1,820 +1,1982 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DolphinDB Operator Console</title>
+  <title>DolphinDB Cloud Manager | Kubernetes Enterprise Console</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --card-border: #334155;
-      --text: #f8fafc;
+      --bg-base: #070a12;
+      --bg-canvas: #0b0f19;
+      --bg-surface: #111827;
+      --bg-surface-elevated: #162032;
+      --bg-surface-hover: #1c283f;
+      --bg-glass: rgba(17, 24, 39, 0.85);
+
+      --border-subtle: #1e293b;
+      --border-default: #29354d;
+      --border-hover: #3d4f70;
+      --border-focus: #3b82f6;
+
+      --text-main: #f8fafc;
       --text-muted: #94a3b8;
+      --text-dim: #64748b;
+
       --primary: #3b82f6;
       --primary-hover: #2563eb;
+      --primary-glow: rgba(59, 130, 246, 0.3);
+
       --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.3);
+      --success-bg: rgba(16, 185, 129, 0.12);
+      --success-border: rgba(16, 185, 129, 0.28);
+
       --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --warning-border: rgba(245, 158, 11, 0.28);
+
       --danger: #ef4444;
-      --accent: #8b5cf6;
-      --radius: 8px;
+      --danger-hover: #dc2626;
+      --danger-bg: rgba(239, 68, 68, 0.12);
+      --danger-border: rgba(239, 68, 68, 0.28);
+
+      --cyan: #06b6d4;
+      --cyan-bg: rgba(6, 182, 212, 0.12);
+      --cyan-border: rgba(6, 182, 212, 0.3);
+
+      --purple: #8b5cf6;
+      --purple-bg: rgba(139, 92, 246, 0.12);
+      --purple-border: rgba(139, 92, 246, 0.3);
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-full: 9999px;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+      --shadow-glow: 0 0 20px var(--primary-glow);
     }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
+      font-family: var(--font-sans);
+      background-color: var(--bg-base);
+      background-image: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.15), transparent),
+        radial-gradient(circle at 100% 0%, rgba(6, 182, 212, 0.08), transparent 40%);
+      background-attachment: fixed;
+      color: var(--text-main);
       line-height: 1.5;
-      padding: 24px;
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
     }
-    .header {
+
+    /* Layout Framework */
+    .app-container {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 20px 28px 60px 28px;
+    }
+
+    /* Top Navigation Header */
+    .top-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: 14px 20px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(12px);
       margin-bottom: 24px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--card-border);
     }
-    .logo-area {
+
+    .brand-section {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
     }
-    .logo-icon {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #3b82f6, #06b6d4);
-      border-radius: 8px;
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #2563eb, #06b6d4);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: bold;
-      font-size: 20px;
+      box-shadow: 0 0 16px rgba(37, 99, 235, 0.4);
+      flex-shrink: 0;
     }
-    h1 { font-size: 20px; font-weight: 600; }
+
+    .brand-logo svg {
+      width: 24px;
+      height: 24px;
+      color: #ffffff;
+    }
+
+    .brand-text h1 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-text h1 span.tag {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(6, 182, 212, 0.2));
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #60a5fa;
+      letter-spacing: 0.05em;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .k8s-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulseAnim 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseAnim {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
     .header-actions {
       display: flex;
       align-items: center;
       gap: 12px;
     }
+
+    /* Buttons */
     .btn {
-      padding: 8px 14px;
-      font-size: 13px;
-      font-weight: 500;
-      border-radius: var(--radius);
-      border: 1px solid transparent;
-      cursor: pointer;
-      transition: background 0.2s, opacity 0.2s;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      justify-content: center;
+      gap: 7px;
+      padding: 8px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      user-select: none;
+      white-space: nowrap;
+      text-decoration: none;
     }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-secondary { background: var(--card-bg); color: var(--text); border-color: var(--card-border); }
-    .btn-secondary:hover { background: #283548; }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-danger:hover { background: #dc2626; }
-    .btn-warning { background: var(--warning); color: #000; }
-    .btn-warning:hover { background: #d97706; }
-    .btn-sm { padding: 4px 8px; font-size: 11px; }
 
-    .stats-grid {
+    .btn svg {
+      width: 14px;
+      height: 14px;
+      stroke-width: 2.2;
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #60a5fa, #3b82f6);
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-secondary {
+      background: var(--bg-surface-elevated);
+      color: var(--text-main);
+      border-color: var(--border-default);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+      color: #ffffff;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border-color: transparent;
+    }
+
+    .btn-ghost:hover {
+      background: var(--bg-surface-elevated);
+      color: var(--text-main);
+    }
+
+    .btn-danger {
+      background: var(--danger-bg);
+      color: #f87171;
+      border-color: var(--danger-border);
+    }
+
+    .btn-danger:hover {
+      background: var(--danger);
+      color: #ffffff;
+    }
+
+    .btn-warning {
+      background: var(--warning-bg);
+      color: #fbbf24;
+      border-color: var(--warning-border);
+    }
+
+    .btn-warning:hover {
+      background: var(--warning);
+      color: #000;
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 11px;
+      border-radius: var(--radius-sm);
+    }
+
+    .btn-sm svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .btn-icon {
+      padding: 8px;
+      border-radius: var(--radius-sm);
+    }
+
+    /* KPI Summary Bento Grid */
+    .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
       margin-bottom: 24px;
     }
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
+
+    @media (max-width: 1024px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
       padding: 16px 20px;
-    }
-    .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
-    .stat-val { font-size: 26px; font-weight: 700; color: #fff; }
-
-    .nav-tabs {
       display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-      border-bottom: 1px solid var(--card-border);
-      padding-bottom: 8px;
-    }
-    .tab-btn {
-      padding: 8px 16px;
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      border-radius: 6px;
-    }
-    .tab-btn.active {
-      color: #fff;
-      background: #1e293b;
-    }
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 20px;
-      margin-bottom: 24px;
-    }
-    .card-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 16px;
-      display: flex;
-      justify-content: space-between;
       align-items: center;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    th {
-      text-align: left;
-      padding: 10px 12px;
-      color: var(--text-muted);
-      border-bottom: 1px solid var(--card-border);
-      font-weight: 500;
-    }
-    td {
-      padding: 12px;
-      border-bottom: 1px solid #293548;
-      vertical-align: middle;
-    }
-    tr:hover td { background: rgba(255, 255, 255, 0.02); }
-    .badge {
-      padding: 3px 8px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      display: inline-block;
-    }
-    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #059669; }
-    .badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #d97706; }
-    .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #dc2626; }
-    .badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #2563eb; }
-    .badge-purple { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #7c3aed; }
-    
-    .progress-bar-container {
-      width: 100px;
-      background: #334155;
-      border-radius: 4px;
-      height: 8px;
-      overflow: hidden;
-      display: inline-block;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-    .progress-bar {
-      height: 100%;
-      background: var(--primary);
-      transition: width 0.3s;
+      justify-content: space-between;
+      transition: border-color 0.2s, transform 0.2s;
     }
 
-    .modal-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
+    .kpi-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+    }
+
+    .kpi-info h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .kpi-info .kpi-val {
+      font-size: 24px;
+      font-weight: 700;
+      color: #ffffff;
+      font-feature-settings: "tnum";
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-info .kpi-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .kpi-icon-wrap {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-md);
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 1000;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s;
+      flex-shrink: 0;
     }
-    .modal-overlay.open { opacity: 1; pointer-events: auto; }
-    .modal {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      width: 520px;
-      max-width: 90vw;
-      padding: 24px;
-      max-height: 90vh;
-      overflow-y: auto;
-    }
-    .modal-lg { width: 850px; }
-    .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
-    .form-control {
-      width: 100%;
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--card-border);
-      background: #0f172a;
-      color: #fff;
-      font-size: 13px;
-    }
-    .form-control:focus { outline: none; border-color: var(--primary); }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 
-    .node-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-      gap: 12px;
-      margin-top: 12px;
+    .kpi-icon-wrap svg {
+      width: 22px;
+      height: 22px;
     }
-    .node-card {
-      background: #151e2e;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      padding: 14px;
+
+    .icon-blue { background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.25); }
+    .icon-green { background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25); }
+    .icon-purple { background: rgba(139, 92, 246, 0.12); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.25); }
+    .icon-cyan { background: rgba(6, 182, 212, 0.12); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.25); }
+
+    /* Navigation Tabs */
+    .nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .nav-tabs-group {
+      display: flex;
+      gap: 6px;
+      background: var(--bg-surface);
+      padding: 4px;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+    }
+
+    .nav-tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 16px;
       font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .nav-tab-btn svg {
+      width: 14px;
+      height: 14px;
+      stroke-width: 2;
+    }
+
+    .nav-tab-btn:hover {
+      color: var(--text-main);
+      background: var(--bg-surface-elevated);
+    }
+
+    .nav-tab-btn.active {
+      color: #ffffff;
+      background: var(--primary);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+    }
+
+    .nav-tab-btn .badge-count {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    .nav-tab-btn:not(.active) .badge-count {
+      background: var(--bg-surface-hover);
+      color: var(--text-dim);
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .search-box {
+      position: relative;
+      width: 240px;
+    }
+
+    .search-box svg {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 7px 12px 7px 32px;
+      font-size: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-main);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px var(--primary-glow);
+    }
+
+    /* Cards & Containers */
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title svg {
+      width: 16px;
+      height: 16px;
+      color: var(--primary);
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    /* Modern Tables */
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      text-align: left;
+    }
+
+    .table th {
+      padding: 12px 16px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .table td {
+      padding: 14px 16px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      vertical-align: middle;
+      transition: background 0.15s;
+    }
+
+    .table tbody tr:hover td {
+      background: var(--bg-surface-elevated);
+    }
+
+    .table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .badge-success {
+      background: var(--success-bg);
+      color: #34d399;
+      border: 1px solid var(--success-border);
+    }
+
+    .badge-warning {
+      background: var(--warning-bg);
+      color: #fbbf24;
+      border: 1px solid var(--warning-border);
+    }
+
+    .badge-danger {
+      background: var(--danger-bg);
+      color: #f87171;
+      border: 1px solid var(--danger-border);
+    }
+
+    .badge-info {
+      background: rgba(59, 130, 246, 0.12);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.28);
+    }
+
+    .badge-purple {
+      background: var(--purple-bg);
+      color: #c084fc;
+      border: 1px solid var(--purple-border);
+    }
+
+    .badge-cyan {
+      background: var(--cyan-bg);
+      color: #22d3ee;
+      border: 1px solid var(--cyan-border);
+    }
+
+    .badge-neutral {
+      background: var(--bg-surface-elevated);
+      color: var(--text-muted);
+      border: 1px solid var(--border-default);
+    }
+
+    .badge svg {
+      width: 11px;
+      height: 11px;
+    }
+
+    /* Interactive Web Link Pill */
+    .web-access-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: var(--radius-sm);
+      color: #a5b4fc;
+      font-size: 11px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .web-access-pill:hover {
+      background: #6366f1;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+    }
+
+    .web-access-pill svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    /* Cluster Topology Visualizer */
+    .topology-hero {
+      background: linear-gradient(180deg, var(--bg-surface-elevated), var(--bg-surface));
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .topology-hero-info h3 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .topology-hero-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .topology-nodes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .node-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-    }
-    .node-card.ready { border-left: 4px solid var(--success); }
-    .node-card.not-ready { border-left: 4px solid var(--danger); }
-    .node-name { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-    .node-meta { color: var(--text-muted); line-height: 1.6; margin-bottom: 10px; }
-    .node-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
-
-    .alert-banner {
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid var(--danger);
-      color: #fca5a5;
-      padding: 10px 14px;
-      border-radius: 6px;
-      font-size: 12px;
-      margin-bottom: 12px;
-      display: none;
+      gap: 14px;
+      position: relative;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
     }
 
-    /* Terminal logs viewer styling */
-    .terminal-container {
-      background: #090d16;
-      border: 1px solid #1e293b;
-      border-radius: 6px;
-      padding: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    .node-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .node-card.ready {
+      border-top: 3px solid var(--success);
+    }
+
+    .node-card.leader {
+      border-top: 3px solid var(--cyan);
+      background: linear-gradient(180deg, rgba(6, 182, 212, 0.05), var(--bg-surface));
+    }
+
+    .node-card.not-ready {
+      border-top: 3px solid var(--danger);
+    }
+
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .node-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .node-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .node-role-pill {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+      width: fit-content;
+    }
+
+    .role-controller { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .role-datanode { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .role-computenode { background: rgba(139, 92, 246, 0.15); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3); }
+    .role-single { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    .node-kv-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+    }
+
+    .node-kv-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .node-kv-label {
+      color: var(--text-dim);
+    }
+
+    .node-kv-val {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .node-actions-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* Forms & Wizard Styling */
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
       font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 9px 12px;
+      font-size: 13px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      color: var(--text-main);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .form-control:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px var(--primary-glow);
+    }
+
+    /* Mode Selection Radio Cards */
+    .mode-select-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .mode-card {
+      background: var(--bg-surface-elevated);
+      border: 2px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px 18px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .mode-card:hover {
+      border-color: var(--border-hover);
+    }
+
+    .mode-card.selected {
+      border-color: var(--primary);
+      background: rgba(59, 130, 246, 0.08);
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+
+    .mode-card h4 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .mode-card p {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* Toggle Switch */
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 38px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--border-default);
+      transition: .25s;
+      border-radius: 20px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .25s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--primary);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(18px);
+    }
+
+    /* Code & Terminal Windows */
+    .code-view {
+      font-family: var(--font-mono);
+      background: #060911;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
       color: #38bdf8;
-      height: 420px;
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 16px;
+      overflow: auto;
+      max-height: 480px;
+      white-space: pre;
+    }
+
+    .terminal-window {
+      background: #050810;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .terminal-header {
+      background: #0d131f;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot.red { background: #ff5f56; }
+    .dot.yellow { background: #ffbd2e; }
+    .dot.green { background: #27c93f; }
+
+    .terminal-body {
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #cbd5e1;
+      line-height: 1.6;
+      max-height: 520px;
       overflow-y: auto;
+      background: #050810;
       white-space: pre-wrap;
       word-break: break-all;
     }
 
-    /* Dual pane wizard styling */
-    .wizard-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
+    /* Modal Overlay & Dialog */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(3, 7, 18, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
     }
-    @media (max-width: 900px) {
-      .wizard-grid { grid-template-columns: 1fr; }
-    }
-    .yaml-preview {
-      background: #090d16;
-      border: 1px solid #1e293b;
-      border-radius: 6px;
-      padding: 16px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12px;
-      color: #a5f3fc;
-      height: 520px;
-      overflow-y: auto;
-      white-space: pre;
-    }
-    .form-row {
+
+    .modal-overlay.open {
       display: flex;
-      gap: 12px;
+      animation: fadeIn 0.15s ease-out;
     }
-    .form-row .form-group {
-      flex: 1;
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.97); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .modal-dialog {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 600px;
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+    }
+
+    .modal-dialog.modal-lg {
+      max-width: 900px;
+    }
+
+    .modal-header {
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-body {
+      padding: 22px;
+      max-height: calc(85vh - 130px);
+      overflow-y: auto;
+    }
+
+    .modal-footer {
+      padding: 14px 22px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Progress Bar */
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background: var(--bg-canvas);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #06b6d4);
+      border-radius: var(--radius-full);
+      transition: width 0.3s;
+    }
+
+    /* Toast Notification Container */
+    #toast-container {
+      position: fixed;
+      top: 24px;
+      right: 28px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .toast {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 18px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-lg);
+      font-size: 12px;
+      font-weight: 500;
+      color: #ffffff;
+      min-width: 280px;
+      max-width: 420px;
+      animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.2s;
+    }
+
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast-success { border-left: 4px solid var(--success); }
+    .toast-error { border-left: 4px solid var(--danger); }
+    .toast-info { border-left: 4px solid var(--primary); }
+
+    .toast svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
     }
   </style>
 </head>
 <body>
 
-  <header class="header">
-    <div class="logo-area">
-      <div class="logo-icon">D</div>
-      <div>
-        <h1>DolphinDB Operator Console</h1>
-        <div style="font-size: 12px; color: var(--text-muted);">Enterprise Distributed TSDB Orchestration Platform on Kubernetes</div>
-      </div>
-    </div>
-    <div class="header-actions">
-      <button class="btn btn-primary" onclick="switchTab('wizard')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        + Create Cluster
-      </button>
-      <span id="auto-refresh-badge" class="badge badge-success" style="cursor: pointer;" onclick="toggleAutoRefresh()">Auto-Refresh 5s</span>
-      <button class="btn btn-secondary" onclick="fetchDashboardData()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Refresh
-      </button>
-    </div>
-  </header>
+  <!-- Floating Toast Notifications -->
+  <div id="toast-container"></div>
 
-  <!-- Metrics Row -->
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">Active Clusters</div>
-      <div class="stat-val" id="stat-clusters">0</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Ready Nodes</div>
-      <div class="stat-val" id="stat-nodes">0 / 0</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Active Operations</div>
-      <div class="stat-val" id="stat-ops">0</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Backed Chunks</div>
-      <div class="stat-val" id="stat-chunks">0</div>
-    </div>
-  </div>
-
-  <!-- Navigation Tabs -->
-  <div class="nav-tabs">
-    <button id="nav-clusters" class="tab-btn active" onclick="switchTab('clusters')">Clusters & Topology</button>
-    <button id="nav-wizard" class="tab-btn" onclick="switchTab('wizard')">Create Cluster (向导)</button>
-    <button id="nav-operations" class="tab-btn" onclick="switchTab('operations')">Day-2 Operations (DAG)</button>
-    <button id="nav-backups" class="tab-btn" onclick="switchTab('backups')">Backups & Restores</button>
-    <button id="nav-storage" class="tab-btn" onclick="switchTab('storage')">Storage & Namespaces</button>
-  </div>
-
-  <!-- TAB 1: Clusters & Topology -->
-  <div id="tab-clusters" class="tab-pane">
-    <div class="card">
-      <div class="card-title">
-        <span>Clusters Overview</span>
-        <button class="btn btn-secondary btn-sm" onclick="fetchDashboardData()">Reload</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Namespace</th>
-            <th>Mode</th>
-            <th>Version</th>
-            <th>Health</th>
-            <th>Nodes (Ready/Desired)</th>
-            <th>Replication</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="clusters-table-body">
-          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading clusters...</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Cluster Detail & Topology Section -->
-    <div id="cluster-topology-card" class="card" style="display: none;">
-      <div class="card-title">
-        <span id="topology-title">Cluster Topology & Nodes</span>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="btn btn-secondary btn-sm" onclick="openScaleModal()">Scale</button>
-          <button class="btn btn-secondary btn-sm" onclick="openRestartModal()">Rolling Restart</button>
-          <button class="btn btn-secondary btn-sm" onclick="triggerRebalanceAction()">Rebalance Chunks</button>
-          <button class="btn btn-secondary btn-sm" onclick="triggerReloadLicenseAction()">Reload License</button>
-          <button class="btn btn-primary btn-sm" onclick="openBackupModal()">Backup</button>
-          <button class="btn btn-danger btn-sm" onclick="openDeleteClusterModal()">Delete Cluster</button>
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="brand-section">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
         </div>
-      </div>
-      <div id="topology-nodes-container" class="node-grid"></div>
-    </div>
-  </div>
-
-  <!-- TAB 2: Create Cluster Wizard -->
-  <div id="tab-wizard" class="tab-pane" style="display: none;">
-    <div class="wizard-grid">
-      <!-- Left Column: Form -->
-      <div class="card">
-        <div class="card-title">
-          <span>Cluster Creation Wizard</span>
-          <span style="font-size: 12px; color: var(--text-muted);">Visual Configuration</span>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label>Cluster Name *</label>
-            <input type="text" id="wiz-name" class="form-control" value="ddb-prod" oninput="updateWizardYAML()">
-          </div>
-          <div class="form-group">
-            <label>Namespace *</label>
-            <select id="wiz-namespace" class="form-control" onchange="updateWizardYAML()"></select>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label>Deployment Mode</label>
-            <select id="wiz-mode" class="form-control" onchange="onModeChange()">
-              <option value="cluster">Cluster (Multi-Node Distributed)</option>
-              <option value="standalone">Standalone (Single Node)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Version</label>
-            <select id="wiz-version" class="form-control" onchange="onVersionChange()">
-              <option value="3.00.6">v3.00.6 (Latest)</option>
-              <option value="3.00.5">v3.00.5</option>
-              <option value="3.00.3">v3.00.3</option>
-              <option value="2.00.11">v2.00.11</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Container Image</label>
-          <input type="text" id="wiz-image" class="form-control" value="192.168.100.250/dolphindb/dolphindb:v3.00.6" oninput="updateWizardYAML()">
-        </div>
-
-        <div class="form-group">
-          <label>StorageClass</label>
-          <select id="wiz-storageclass" class="form-control" onchange="updateWizardYAML()"></select>
-        </div>
-
-        <div class="form-group" style="margin: 10px 0;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
-            <input type="checkbox" id="wiz-enable-nodeport" checked onchange="updateWizardYAML()">
-            <span style="font-size: 13px; font-weight: 500;">
-              🌐 开启外部网络访问 (NodePort) - 自动映射物理机端口，创建后可直接从外部浏览器访问 Web 终端
+        <div class="brand-text">
+          <h1>
+            DolphinDB Cloud Manager
+            <span class="tag">Operator v3.00.6</span>
+          </h1>
+          <div class="brand-sub">
+            <span class="k8s-indicator">
+              <span class="pulse-dot"></span>
+              Kubernetes 集群已连接
             </span>
+            <span style="color: var(--text-dim);">•</span>
+            <span id="current-time-display" style="font-family: var(--font-mono);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Auto Refresh Toggle -->
+        <div class="toggle-wrap" onclick="toggleAutoRefresh()" title="自动轮询实时集群状态">
+          <label class="toggle-switch">
+            <input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh()">
+            <span class="slider"></span>
           </label>
+          <span style="font-size: 11px; font-weight: 600; color: var(--text-muted);" id="auto-refresh-label">
+            自动同步 (5s)
+          </span>
         </div>
 
-        <!-- Clustered Specs -->
-        <div id="wiz-cluster-specs">
-          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--primary);">Controller Configuration</div>
+        <!-- Manual Refresh Button -->
+        <button class="btn btn-secondary btn-icon" onclick="fetchDashboardData()" title="立即手动刷新">
+          <svg id="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+        </button>
+
+        <!-- Create Cluster CTA -->
+        <button class="btn btn-primary" onclick="switchTab('wizard')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          创建 DolphinDB 集群
+        </button>
+      </div>
+    </header>
+
+    <!-- KPI Summary Grid -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-info">
+          <h4>托管集群总量</h4>
+          <div class="kpi-val" id="stat-clusters">0</div>
+          <div class="kpi-sub" id="stat-clusters-sub">高可用分布式 & 单节点</div>
+        </div>
+        <div class="kpi-icon-wrap icon-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-info">
+          <h4>节点 Pod 健康率</h4>
+          <div class="kpi-val" id="stat-nodes">0 / 0</div>
+          <div class="kpi-sub">在线 Ready Pod / 预期目标</div>
+        </div>
+        <div class="kpi-icon-wrap icon-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-info">
+          <h4>运行中运维任务</h4>
+          <div class="kpi-val" id="stat-ops">0</div>
+          <div class="kpi-sub">滚动更新 / 数据重平衡</div>
+        </div>
+        <div class="kpi-icon-wrap icon-purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="16 18 22 12 16 6"/>
+            <polyline points="8 6 2 12 8 18"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-info">
+          <h4>备份快照总量</h4>
+          <div class="kpi-val" id="stat-chunks">0</div>
+          <div class="kpi-sub">已快照 Chunks 分区总数</div>
+        </div>
+        <div class="kpi-icon-wrap icon-cyan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- Navigation Tab Bar -->
+    <nav class="nav-bar">
+      <div class="nav-tabs-group">
+        <button id="nav-clusters" class="nav-tab-btn active" onclick="switchTab('clusters')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+          </svg>
+          集群列表与拓扑
+          <span class="badge-count" id="badge-clusters-count">0</span>
+        </button>
+
+        <button id="nav-operations" class="nav-tab-btn" onclick="switchTab('operations')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Day-2 运维任务
+        </button>
+
+        <button id="nav-backups" class="nav-tab-btn" onclick="switchTab('backups')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          备份与容灾恢复
+        </button>
+
+        <button id="nav-storage" class="nav-tab-btn" onclick="switchTab('storage')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          存储与 PVC 概览
+        </button>
+
+        <button id="nav-wizard" class="nav-tab-btn" onclick="switchTab('wizard')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          创建集群向导
+        </button>
+      </div>
+
+      <!-- Quick Filter -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="cluster-search-input" class="search-input" placeholder="快速过滤集群或节点..." oninput="filterClustersTable()">
+        </div>
+      </div>
+    </nav>
+
+    <!-- TAB 1: Clusters & Topology -->
+    <div id="tab-clusters" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            </svg>
+            DolphinDB 集群实例列表
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted);">
+            支持一键直达 DolphinDB Web 管理终端、动态扩缩容与滚动更新
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>集群名称</th>
+                <th>命名空间</th>
+                <th>架构模式</th>
+                <th>版本</th>
+                <th>健康状态</th>
+                <th>Ready Pods</th>
+                <th>外部访问 (Web 终端)</th>
+                <th>Raft Master</th>
+                <th style="text-align: right;">集群操作</th>
+              </tr>
+            </thead>
+            <tbody id="clusters-table-body">
+              <tr>
+                <td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                  正在加载 DolphinDB 集群状态...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Cluster Detail & Visual Topology Card (Appears on click) -->
+      <div id="cluster-topology-card" class="card" style="display: none;">
+        <div class="card-header" style="background: var(--bg-surface-elevated);">
+          <div class="card-title" id="topology-title">
+            <!-- Populated dynamically -->
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" onclick="openScaleModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1zM2 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1zM7 21h10M12 3v18"/></svg>
+              扩缩容
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="openRestartModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              滚动重启
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="openDeleteClusterModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              删除集群
+            </button>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <!-- Hero Access Link -->
+          <div id="topology-access-banner"></div>
+
+          <!-- Section: Nodes Topology Visual Grid -->
+          <div style="margin-bottom: 12px; font-size: 13px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+            <svg style="width: 16px; height: 16px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            </svg>
+            节点 Pod 拓扑与运行状态
+          </div>
+
+          <div class="topology-nodes-grid" id="topology-nodes-container">
+            <!-- Node cards rendered here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Day-2 Operations -->
+    <div id="tab-operations" class="tab-pane" style="display: none;">
+      <!-- Quick Action Cards -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+        <div class="kpi-card" style="cursor: pointer;" onclick="triggerRollingRestartActionPrompt()">
+          <div class="kpi-info">
+            <h4 style="color: var(--primary);">滚动重启 DAG</h4>
+            <div style="font-size: 13px; font-weight: 600; color: #fff; margin-top: 4px;">按组有序平滑重启</div>
+            <div class="kpi-sub">自动隔离/排空节点并等待探针 Ready</div>
+          </div>
+          <div class="kpi-icon-wrap icon-blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </div>
+        </div>
+
+        <div class="kpi-card" style="cursor: pointer;" onclick="triggerRebalanceActionPrompt()">
+          <div class="kpi-info">
+            <h4 style="color: var(--warning);">DFS 数据重平衡</h4>
+            <div style="font-size: 13px; font-weight: 600; color: #fff; margin-top: 4px;">触发集群分区分片平衡</div>
+            <div class="kpi-sub">基于 DataNode 存储水位自动迁移</div>
+          </div>
+          <div class="kpi-icon-wrap icon-purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+          </div>
+        </div>
+
+        <div class="kpi-card" style="cursor: pointer;" onclick="triggerReloadLicenseActionPrompt()">
+          <div class="kpi-info">
+            <h4 style="color: var(--success);">热加载 License</h4>
+            <div style="font-size: 13px; font-weight: 600; color: #fff; margin-top: 4px;">免重启热刷授权</div>
+            <div class="kpi-sub">向 Controller 与 DataNode 发送热重载</div>
+          </div>
+          <div class="kpi-icon-wrap icon-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            运维任务执行历史 (DDBOperation)
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>任务 ID</th>
+                <th>目标集群</th>
+                <th>操作类型</th>
+                <th>状态</th>
+                <th>当前执行步骤</th>
+                <th style="width: 140px;">进度</th>
+                <th>执行信息</th>
+                <th>触发时间</th>
+                <th style="text-align: right;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="operations-table-body">
+              <tr>
+                <td colspan="9" style="text-align: center; color: var(--text-muted);">暂无运维任务记录</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Backup & Disaster Recovery -->
+    <div id="tab-backups" class="tab-pane" style="display: none;">
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            集群数据备份策略 (DDBBackup)
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openBackupModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+            创建备份任务
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>备份任务名</th>
+                <th>集群</th>
+                <th>备份数据库</th>
+                <th>状态</th>
+                <th>总 Chunks</th>
+                <th>定时周期</th>
+                <th>下次备份</th>
+                <th>上次完成</th>
+                <th style="text-align: right;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="backups-table-body">
+              <tr>
+                <td colspan="9" style="text-align: center; color: var(--text-muted);">暂无备份任务</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4M17 9l-5 5-5-5M12 12.8V2.5"/></svg>
+            恢复审计记录 (DDBRestore)
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>恢复任务</th>
+                <th>目标集群</th>
+                <th>原数据库</th>
+                <th>恢复至目标库</th>
+                <th>状态</th>
+                <th>完成耗时</th>
+                <th>详情信息</th>
+                <th style="text-align: right;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="restores-table-body">
+              <tr>
+                <td colspan="8" style="text-align: center; color: var(--text-muted);">暂无数据恢复记录</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Storage & StorageClasses -->
+    <div id="tab-storage" class="tab-pane" style="display: none;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            Kubernetes StorageClass 存储类
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>存储类名称</th>
+                <th>CSI Provisioner 插件</th>
+                <th>默认存储类</th>
+              </tr>
+            </thead>
+            <tbody id="storageclasses-table-body">
+              <tr>
+                <td colspan="3" style="text-align: center; color: var(--text-muted);">正在加载存储类列表...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            可用命名空间 (Namespaces)
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="namespaces-list-container" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: Create Cluster Wizard -->
+    <div id="tab-wizard" class="tab-pane" style="display: none;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+            创建 DolphinDB 集群向导 (Cluster Creation Wizard)
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('clusters')">
+            返回集群列表
+          </button>
+        </div>
+
+        <div class="card-body">
+          <!-- Step 1: Mode Selection Cards -->
+          <div style="margin-bottom: 8px; font-weight: 700; font-size: 13px; color: var(--text-main);">
+            1. 选择部署架构类型
+          </div>
+          <div class="mode-select-grid">
+            <div id="mode-card-cluster" class="mode-card selected" onclick="selectDeploymentMode('cluster')">
+              <h4>
+                <svg style="width: 18px; height: 18px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                </svg>
+                高可用分布式集群 (Cluster)
+              </h4>
+              <p>采用 3 节点 Raft Controller 仲裁选举高可用架构，支持多 DataNode 数据节点与 ComputeNode 计算节点，支持大规模并行分布式分析与故障自愈。</p>
+            </div>
+
+            <div id="mode-card-standalone" class="mode-card" onclick="selectDeploymentMode('standalone')">
+              <h4>
+                <svg style="width: 18px; height: 18px; color: var(--warning);" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2" ry="2"/>
+                </svg>
+                单机单节点模式 (Standalone)
+              </h4>
+              <p>单机统一 DolphinDB 实例，轻量开销，默认端口 8848，适合开发测试、本地边缘分析或单机高吞吐时序数据库场景。</p>
+            </div>
+          </div>
+          <input type="hidden" id="wiz-mode" value="cluster">
+
+          <!-- Step 2: Base Metadata -->
+          <div style="margin-bottom: 8px; font-weight: 700; font-size: 13px; color: var(--text-main); margin-top: 20px;">
+            2. 集群基础标识与版本镜像
+          </div>
+
           <div class="form-row">
             <div class="form-group">
-              <label>Replicas</label>
-              <select id="wiz-ctl-replicas" class="form-control" onchange="updateWizardYAML()">
-                <option value="1">1 (Standard)</option>
-                <option value="3">3 (Raft HA)</option>
+              <label>集群名称 (Metadata Name)</label>
+              <input type="text" id="wiz-name" class="form-control" value="ddb-prod-new" oninput="updateWizardYAML()" placeholder="例如 ddb-prod">
+            </div>
+            <div class="form-group">
+              <label>Kubernetes 命名空间</label>
+              <select id="wiz-namespace" class="form-control" onchange="updateWizardYAML()"></select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>DolphinDB Server 版本</label>
+              <select id="wiz-version" class="form-control" onchange="onVersionChange()">
+                <option value="3.00.6" selected>v3.00.6 (Latest - 最新发布版本)</option>
+                <option value="3.00.5">v3.00.5</option>
+                <option value="3.00.3">v3.00.3</option>
+                <option value="2.00.11">v2.00.11</option>
               </select>
             </div>
             <div class="form-group">
-              <label>CPU Request / Limit</label>
-              <input type="text" id="wiz-ctl-cpu" class="form-control" value="1000m / 2000m" oninput="updateWizardYAML()">
-            </div>
-            <div class="form-group">
-              <label>Memory Request / Limit</label>
-              <input type="text" id="wiz-ctl-mem" class="form-control" value="2Gi / 4Gi" oninput="updateWizardYAML()">
-            </div>
-            <div class="form-group">
-              <label>Metadata Disk Size</label>
-              <input type="text" id="wiz-ctl-disk" class="form-control" value="10Gi" oninput="updateWizardYAML()">
+              <label>容器镜像 (Container Image)</label>
+              <input type="text" id="wiz-image" class="form-control" value="192.168.100.250/dolphindb/dolphindb:v3.00.6" oninput="updateWizardYAML()">
             </div>
           </div>
 
-          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--success);">DataNode Configuration (DFS Storage)</div>
           <div class="form-row">
             <div class="form-group">
-              <label>Replicas</label>
-              <input type="number" id="wiz-dn-replicas" class="form-control" value="2" min="1" max="64" oninput="updateWizardYAML()">
+              <label>持久化存储类 (StorageClass)</label>
+              <select id="wiz-storageclass" class="form-control" onchange="updateWizardYAML()"></select>
             </div>
-            <div class="form-group">
-              <label>CPU Request / Limit</label>
-              <input type="text" id="wiz-dn-cpu" class="form-control" value="2000m / 4000m" oninput="updateWizardYAML()">
+            <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
+              <label>网络暴露方式 (Networking Exposure)</label>
+              <div class="toggle-wrap" style="margin-top: 4px;">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="wiz-enable-nodeport" checked onchange="updateWizardYAML()">
+                  <span class="slider"></span>
+                </label>
+                <span style="font-size: 12px; font-weight: 600; color: #60a5fa;">
+                  开启物理机 NodePort 外部网络直连 (创建后可直接在外部浏览器打开 Web 终端)
+                </span>
+              </div>
             </div>
-            <div class="form-group">
-              <label>Memory Request / Limit</label>
-              <input type="text" id="wiz-dn-mem" class="form-control" value="4Gi / 8Gi" oninput="updateWizardYAML()">
+          </div>
+
+          <!-- Step 3: Specs Configuration -->
+          <div style="margin-bottom: 8px; font-weight: 700; font-size: 13px; color: var(--text-main); margin-top: 20px;">
+            3. 节点规格与拓扑资源配额
+          </div>
+
+          <!-- Cluster specs panel -->
+          <div id="wiz-cluster-specs">
+            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 12px; color: #60a5fa; margin-bottom: 10px;">
+                Controller 组规格 (Raft 控制器)
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px;">
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">副本数量 (推荐 3 节点)</label>
+                  <select id="wiz-ctl-replicas" class="form-control" onchange="updateWizardYAML()">
+                    <option value="3" selected>3 节点 (Raft 高可用推荐)</option>
+                    <option value="1">1 节点 (单控制器)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <input type="text" id="wiz-ctl-cpu" class="form-control" value="1000m/2000m" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <input type="text" id="wiz-ctl-mem" class="form-control" value="2Gi/4Gi" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">磁盘卷容量</label>
+                  <input type="text" id="wiz-ctl-disk" class="form-control" value="10Gi" oninput="updateWizardYAML()">
+                </div>
+              </div>
             </div>
-            <div class="form-group">
-              <label>DFS Data Disk Size</label>
-              <input type="text" id="wiz-dn-disk" class="form-control" value="50Gi" oninput="updateWizardYAML()">
+
+            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 12px; color: #34d399; margin-bottom: 10px;">
+                DataNode 组规格 (分布式数据存储与计算节点)
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px;">
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">数据节点副本数</label>
+                  <input type="number" id="wiz-dn-replicas" class="form-control" value="2" min="1" max="64" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <input type="text" id="wiz-dn-cpu" class="form-control" value="2000m/4000m" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <input type="text" id="wiz-dn-mem" class="form-control" value="4Gi/8Gi" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">数据卷容量</label>
+                  <input type="text" id="wiz-dn-disk" class="form-control" value="50Gi" oninput="updateWizardYAML()">
+                </div>
+              </div>
+            </div>
+
+            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 12px; color: #c084fc; margin-bottom: 10px;">
+                ComputeNode 组规格 (无状态纯计算节点 - 可选)
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">计算节点副本数 (填 0 为不启用)</label>
+                  <input type="number" id="wiz-cn-replicas" class="form-control" value="1" min="0" max="32" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <input type="text" id="wiz-cn-cpu" class="form-control" value="1000m/2000m" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <input type="text" id="wiz-cn-mem" class="form-control" value="2Gi/4Gi" oninput="updateWizardYAML()">
+                </div>
+              </div>
             </div>
           </div>
 
-          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--accent);">ComputeNode Configuration (Stateless)</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Replicas</label>
-              <input type="number" id="wiz-cn-replicas" class="form-control" value="1" min="0" max="64" oninput="updateWizardYAML()">
-            </div>
-            <div class="form-group">
-              <label>CPU Request / Limit</label>
-              <input type="text" id="wiz-cn-cpu" class="form-control" value="1000m / 2000m" oninput="updateWizardYAML()">
-            </div>
-            <div class="form-group">
-              <label>Memory Request / Limit</label>
-              <input type="text" id="wiz-cn-mem" class="form-control" value="2Gi / 4Gi" oninput="updateWizardYAML()">
-            </div>
-          </div>
-        </div>
-
-        <!-- Standalone Specs -->
-        <div id="wiz-standalone-specs" style="display: none;">
-          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--primary);">Standalone Specifications</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>CPU Request / Limit</label>
-              <input type="text" id="wiz-single-cpu" class="form-control" value="1000m / 2000m" oninput="updateWizardYAML()">
-            </div>
-            <div class="form-group">
-              <label>Memory Request / Limit</label>
-              <input type="text" id="wiz-single-mem" class="form-control" value="2Gi / 4Gi" oninput="updateWizardYAML()">
-            </div>
-            <div class="form-group">
-              <label>Storage Size</label>
-              <input type="text" id="wiz-single-disk" class="form-control" value="20Gi" oninput="updateWizardYAML()">
+          <!-- Standalone specs panel -->
+          <div id="wiz-standalone-specs" style="display: none;">
+            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px;">
+              <div style="font-weight: 700; font-size: 12px; color: #fbbf24; margin-bottom: 10px;">
+                Standalone 单实例规格 (单机全功能节点)
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">CPU 申请/上限</label>
+                  <input type="text" id="wiz-single-cpu" class="form-control" value="1000m/2000m" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">内存申请/上限</label>
+                  <input type="text" id="wiz-single-mem" class="form-control" value="2Gi/4Gi" oninput="updateWizardYAML()">
+                </div>
+                <div>
+                  <label style="font-size: 11px; color: var(--text-dim);">数据卷容量</label>
+                  <input type="text" id="wiz-single-disk" class="form-control" value="20Gi" oninput="updateWizardYAML()">
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-      </div>
+          <!-- Step 4: Live YAML Preview & Editor -->
+          <div style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-weight: 700; font-size: 13px; color: var(--text-main);">
+                4. 实时生成的 Kubernetes Custom Resource YAML
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer;">
+                  <input type="checkbox" id="wiz-edit-yaml" onchange="toggleDirectYamlEdit()">
+                  启用手动直接编辑 YAML
+                </label>
+                <button class="btn btn-secondary btn-sm" onclick="copyWizardYAML()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  复制 YAML
+                </button>
+              </div>
+            </div>
 
-      <!-- Right Column: YAML Preview & Submit -->
-      <div class="card">
-        <div class="card-title">
-          <span>Kubernetes Manifest Preview</span>
-          <div>
-            <label style="font-size: 12px; cursor: pointer; color: var(--text-muted);">
-              <input type="checkbox" id="wiz-edit-yaml" onchange="toggleDirectYamlEdit()"> Direct YAML Edit
-            </label>
+            <textarea id="wiz-yaml-editor" class="code-view" style="width: 100%; height: 260px; resize: vertical; outline: none;"></textarea>
+          </div>
+
+          <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px;">
+            <button class="btn btn-secondary" onclick="switchTab('clusters')">取消</button>
+            <button class="btn btn-primary" onclick="submitCreateCluster()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+              立即提交并部署集群
+            </button>
           </div>
         </div>
-        <textarea id="wiz-yaml-editor" class="yaml-preview" spellcheck="false"></textarea>
-        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-          <button class="btn btn-secondary" onclick="copyWizardYAML()">Copy YAML</button>
-          <button class="btn btn-primary" onclick="submitCreateCluster()">🚀 Deploy Cluster</button>
-        </div>
       </div>
     </div>
+
   </div>
 
-  <!-- TAB 3: Operations -->
-  <div id="tab-operations" class="tab-pane" style="display: none;">
-    <div class="card">
-      <div class="card-title">
-        <span>Day-2 Operations Flow Execution</span>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-secondary btn-sm" onclick="triggerRollingRestartActionPrompt()">Rolling Restart</button>
-          <button class="btn btn-secondary btn-sm" onclick="triggerRebalanceActionPrompt()">Rebalance Chunks</button>
-          <button class="btn btn-secondary btn-sm" onclick="triggerReloadLicenseActionPrompt()">Reload License</button>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Cluster</th>
-            <th>Type</th>
-            <th>Phase</th>
-            <th>Active Step</th>
-            <th>Progress</th>
-            <th>Message</th>
-            <th>Age</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="operations-table-body">
-          <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading operations...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- TAB 4: Backups & Restores -->
-  <div id="tab-backups" class="tab-pane" style="display: none;">
-    <div class="card">
-      <div class="card-title">
-        <span>DFS Database Backups</span>
-        <button class="btn btn-primary btn-sm" onclick="openBackupModal()">+ New Backup</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Cluster</th>
-            <th>Databases</th>
-            <th>Phase</th>
-            <th>Chunks</th>
-            <th>Schedule (Cron)</th>
-            <th>Next Run</th>
-            <th>Last Backup</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="backups-table-body">
-          <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading backups...</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div class="card-title">
-        <span>Restore Executions</span>
-        <button class="btn btn-secondary btn-sm" onclick="openRestoreModal()">+ Trigger Restore</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Cluster</th>
-            <th>Database</th>
-            <th>Target DB</th>
-            <th>Phase</th>
-            <th>Completion</th>
-            <th>Message</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="restores-table-body">
-          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading restores...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- TAB 5: Storage & Namespaces -->
-  <div id="tab-storage" class="tab-pane" style="display: none;">
-    <div class="card">
-      <div class="card-title">
-        <span>Kubernetes StorageClasses</span>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Provisioner</th>
-            <th>Default StorageClass</th>
-          </tr>
-        </thead>
-        <tbody id="storageclasses-table-body">
-          <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Loading storage classes...</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div class="card-title">
-        <span>Kubernetes Namespaces</span>
-      </div>
-      <div id="namespaces-list-container" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
-    </div>
-  </div>
-
-  <!-- Modal: Pod Logs Viewer -->
-  <div id="modal-logs" class="modal-overlay">
-    <div class="modal modal-lg">
-      <div class="modal-title" style="display: flex; justify-content: space-between; align-items: center;">
-        <span>Container Logs: <span id="log-node-title" style="color: var(--primary);"></span></span>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <select id="log-taillines" class="form-control" style="width: auto; padding: 4px 8px; font-size: 11px;" onchange="fetchNodeLogs()">
-            <option value="100">Tail 100 lines</option>
-            <option value="200">Tail 200 lines</option>
-            <option value="500">Tail 500 lines</option>
-            <option value="1000">Tail 1000 lines</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" onclick="fetchNodeLogs()">Refresh</button>
-          <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy</button>
-          <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-logs')">✕</button>
-        </div>
-      </div>
-      <div id="terminal-logs-content" class="terminal-container">Loading logs...</div>
-    </div>
-  </div>
-
-  <!-- Modal: Delete Cluster Confirmation -->
-  <div id="modal-delete-cluster" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-title" style="color: var(--danger);">Confirm Delete Cluster</div>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-        Warning: Deleting cluster <strong id="delete-cluster-name-display" style="color: #fff;"></strong> will remove the DolphinDB cluster CR and terminate all its managed pods.
-      </p>
-      <div class="form-group">
-        <label>Please type the cluster name to confirm:</label>
-        <input type="text" id="delete-confirm-input" class="form-control" placeholder="">
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeModal('modal-delete-cluster')">Cancel</button>
-        <button id="btn-confirm-delete" class="btn btn-danger" onclick="submitDeleteCluster()">Delete Cluster</button>
-      </div>
-    </div>
-  </div>
+  <!-- MODALS -->
 
   <!-- Modal: Scale Cluster -->
   <div id="modal-scale" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-title">Scale Cluster: <span id="scale-cluster-name"></span></div>
-      <div id="scale-alert" class="alert-banner"></div>
-      <div class="form-group">
-        <label>DataNodes (DFS Storage)</label>
-        <input type="number" id="scale-datanodes" class="form-control" min="1" max="128">
-        <small style="color: var(--text-muted); font-size: 11px;">Must be &gt;= cluster dfsReplicationFactor (<span id="scale-repl-factor">2</span>)</small>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>
+          <svg style="width: 18px; height: 18px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1zM2 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1zM7 21h10M12 3v18"/></svg>
+          集群动态扩缩容 (Scale Replicas)
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-scale')">✕</button>
       </div>
-      <div class="form-group">
-        <label>ComputeNodes (Stateless Compute)</label>
-        <input type="number" id="scale-computenodes" class="form-control" min="0" max="128">
+      <div class="modal-body">
+        <p style="margin-bottom: 14px; color: var(--text-muted);">
+          正在对集群 <strong id="scale-cluster-name" style="color: #ffffff;"></strong> 执行节点副本数调整：
+        </p>
+        <div class="form-group">
+          <label>DataNode 存储节点副本数 (至少 ≥ 副本因子 <span id="scale-repl-factor">2</span>)</label>
+          <input type="number" id="scale-datanodes" class="form-control" min="1" max="64">
+        </div>
+        <div class="form-group">
+          <label>ComputeNode 计算节点副本数</label>
+          <input type="number" id="scale-computenodes" class="form-control" min="0" max="64">
+        </div>
+        <div id="scale-alert" class="badge badge-danger" style="display: none; padding: 8px 12px; width: 100%; border-radius: var(--radius-sm);"></div>
       </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeModal('modal-scale')">Cancel</button>
-        <button class="btn btn-primary" onclick="submitScale()">Apply Scaling</button>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-scale')">取消</button>
+        <button class="btn btn-primary" onclick="submitScale()">应用扩缩容</button>
       </div>
     </div>
   </div>
 
   <!-- Modal: Rolling Restart -->
   <div id="modal-restart" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-title">Rolling Restart: <span id="restart-cluster-name"></span></div>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-        Gracefully executes <code>kill -15</code> shutdown and chunk rebalance DAG per node, ensuring zero write/read downtime.
-      </p>
-      <div class="form-group">
-        <label>Target Node Type</label>
-        <select id="restart-node-type" class="form-control">
-          <option value="all">All Nodes (DataNode + Controller)</option>
-          <option value="datanode">DataNodes Only</option>
-          <option value="controller">Controller Only</option>
-        </select>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>
+          <svg style="width: 18px; height: 18px; color: var(--warning);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          平滑滚动重启 (Rolling Restart)
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-restart')">✕</button>
       </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeModal('modal-restart')">Cancel</button>
-        <button class="btn btn-danger" onclick="submitRollingRestart()">Confirm Rolling Restart</button>
+      <div class="modal-body">
+        <p style="margin-bottom: 14px; color: var(--text-muted);">
+          集群: <strong id="restart-cluster-name" style="color: #ffffff;"></strong>
+        </p>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+          Operator 将生成平滑重启 DAG 有序编排流水线：自动隔离待重启节点、优雅发送 kill -15 信号、等待节点健康就绪探针通过后，再推进至下一个批次，业务零中断。
+        </p>
+        <div class="form-group">
+          <label>选择重启目标节点组</label>
+          <select id="restart-node-type" class="form-control">
+            <option value="all">所有节点组 (Controllers, DataNodes, ComputeNodes)</option>
+            <option value="datanode">仅 DataNode 数据节点组</option>
+            <option value="computenode">仅 ComputeNode 计算节点组</option>
+            <option value="controller">仅 Controller 控制器组 (自动保持 Raft 多数派)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-restart')">取消</button>
+        <button class="btn btn-warning" onclick="submitRollingRestart()">确认执行滚动重启</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Delete Cluster -->
+  <div id="modal-delete-cluster" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 style="color: #f87171;">
+          <svg style="width: 18px; height: 18px; color: var(--danger);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          确认删除集群 (Delete Confirmation)
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-delete-cluster')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-muted); margin-bottom: 12px;">
+          您正在删除集群 <strong id="delete-cluster-name-display" style="color: #ffffff;"></strong>。
+          此操作将释放关联的所有 Pod 与调度资源。
+        </p>
+        <div class="form-group">
+          <label>请输入集群名称以二次确认：</label>
+          <input type="text" id="delete-confirm-input" class="form-control" placeholder="输入准确集群名称">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-delete-cluster')">取消</button>
+        <button class="btn btn-danger" onclick="submitDeleteCluster()">永久删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Node Logs Terminal -->
+  <div id="modal-logs" class="modal-overlay">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3>
+          <svg style="width: 18px; height: 18px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          节点容器实时运行日志: <span id="log-node-title" style="font-family: var(--font-mono); font-size: 13px; color: #38bdf8; margin-left: 6px;"></span>
+        </h3>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <select id="log-taillines" class="form-control" style="width: 110px; padding: 4px 8px; font-size: 11px;" onchange="fetchNodeLogs()">
+            <option value="100">100 行</option>
+            <option value="200" selected>200 行</option>
+            <option value="500">500 行</option>
+            <option value="1000">1000 行</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="fetchNodeLogs()">刷新</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyLogs()">复制全部</button>
+          <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-logs')">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" style="padding: 0;">
+        <div class="terminal-window" style="border: none; border-radius: 0;">
+          <div class="terminal-body" id="terminal-logs-content">
+            正在拉取容器日志流...
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- Modal: Create Backup -->
   <div id="modal-backup" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-title">New DFS Backup</div>
-      <div class="form-group">
-        <label>Target Cluster</label>
-        <select id="backup-cluster-select" class="form-control"></select>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>
+          <svg style="width: 18px; height: 18px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          创建 DolphinDB 数据库快照备份
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-backup')">✕</button>
       </div>
-      <div class="form-group">
-        <label>Databases (comma separated)</label>
-        <input type="text" id="backup-dbs" class="form-control" placeholder="e.g. dfs://prodDB2026">
+      <div class="modal-body">
+        <div class="form-group">
+          <label>目标 DolphinDB 集群</label>
+          <select id="backup-cluster-select" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label>备份数据库列表 (逗号分隔，例如 dfs://stockDB, dfs://tradeDB)</label>
+          <input type="text" id="backup-dbs" class="form-control" value="dfs://demodb">
+        </div>
+        <div class="form-group">
+          <label>备份表名 (可选，逗号分隔，留空为备份全库所有表)</label>
+          <input type="text" id="backup-tables" class="form-control" placeholder="留空默认全表备份">
+        </div>
+        <div class="form-group">
+          <label>备份存储路径 (存储卷内路径)</label>
+          <input type="text" id="backup-path" class="form-control" value="/dolphindb/backups">
+        </div>
+        <div class="form-group">
+          <label>Cron 定时表达式 (留空为立即触发一次性快照备份)</label>
+          <input type="text" id="backup-schedule" class="form-control" placeholder="例如 0 2 * * * (每天凌晨2点)">
+        </div>
+        <div style="display: flex; gap: 20px; margin-top: 14px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer;">
+            <input type="checkbox" id="backup-parallel" checked> 开启多节点并行导出
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer;">
+            <input type="checkbox" id="backup-snapshot" checked> 底层快照一致性
+          </label>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Tables (Optional, comma separated)</label>
-        <input type="text" id="backup-tables" class="form-control" placeholder="Leave empty for all tables">
-      </div>
-      <div class="form-group">
-        <label>Schedule (Optional Cron, e.g. 0 2 * * * for 2 AM daily)</label>
-        <input type="text" id="backup-schedule" class="form-control" placeholder="Leave empty for one-off backup">
-      </div>
-      <div class="form-group">
-        <label>Destination Path (Optional)</label>
-        <input type="text" id="backup-path" class="form-control" placeholder="Defaults to /tmp/backup/<cluster>/<name>">
-      </div>
-      <div class="form-row">
-        <label style="font-size: 12px; color: var(--text-muted); cursor: pointer;">
-          <input type="checkbox" id="backup-parallel" checked> Parallel Export
-        </label>
-        <label style="font-size: 12px; color: var(--text-muted); cursor: pointer; margin-left: 16px;">
-          <input type="checkbox" id="backup-snapshot" checked> Snapshot Isolation
-        </label>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeModal('modal-backup')">Cancel</button>
-        <button class="btn btn-primary" onclick="submitBackup()">Create Backup</button>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-backup')">取消</button>
+        <button class="btn btn-primary" onclick="submitBackup()">发起备份</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Create Restore -->
+  <!-- Modal: Restore -->
   <div id="modal-restore" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-title">Trigger DFS Restore</div>
-      <div class="form-group">
-        <label>Target Cluster</label>
-        <select id="restore-cluster-select" class="form-control"></select>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>
+          <svg style="width: 18px; height: 18px; color: var(--success);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4M17 9l-5 5-5-5M12 12.8V2.5"/></svg>
+          执行数据库恢复 (Restore Snapshot)
+        </h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-restore')">✕</button>
       </div>
-      <div class="form-group">
-        <label>Source Backup Name (Optional if path specified)</label>
-        <input type="text" id="restore-backup-name" class="form-control" placeholder="e.g. prod-backup-db2026">
+      <div class="modal-body">
+        <div class="form-group">
+          <label>目标恢复集群</label>
+          <select id="restore-cluster-select" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label>源备份名称 (留空则从指定存储路径恢复)</label>
+          <input type="text" id="restore-backup-name" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>备份数据路径</label>
+          <input type="text" id="restore-backup-path" class="form-control" value="/dolphindb/backups">
+        </div>
+        <div class="form-group">
+          <label>恢复的源数据库 (dfs://...)</label>
+          <input type="text" id="restore-database" class="form-control" value="dfs://demodb">
+        </div>
+        <div class="form-group">
+          <label>目标重命名库 (可选，留空为覆盖恢复原库)</label>
+          <input type="text" id="restore-target-db" class="form-control" placeholder="留空为恢复至原库">
+        </div>
       </div>
-      <div class="form-group">
-        <label>Backup Path (Optional if backup name specified)</label>
-        <input type="text" id="restore-backup-path" class="form-control" placeholder="e.g. /tmp/backup/ddb-cluster/prod-backup-db2026">
-      </div>
-      <div class="form-group">
-        <label>Source Database URL *</label>
-        <input type="text" id="restore-database" class="form-control" placeholder="e.g. dfs://prodDB2026">
-      </div>
-      <div class="form-group">
-        <label>Target Database URL (Optional override)</label>
-        <input type="text" id="restore-target-db" class="form-control" placeholder="e.g. dfs://prodDB2026_restored">
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeModal('modal-restore')">Cancel</button>
-        <button class="btn btn-primary" onclick="submitRestore()">Trigger Restore</button>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-restore')">取消</button>
+        <button class="btn btn-primary" onclick="submitRestore()">启动数据恢复</button>
       </div>
     </div>
   </div>
 
   <script>
+    // State
     let currentClusters = [];
     let selectedCluster = null;
     let selectedClusterDetail = null;
@@ -825,8 +1987,34 @@
     let availableNamespaces = [];
     let availableStorageClasses = [];
 
+    // Toast Notification System (Replaces crude browser alerts)
+    function showToast(message, type = 'info', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+
+      let icon = '';
+      if (type === 'success') {
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#34d399"><polyline points="20 6 9 17 4 12"/></svg>';
+      } else if (type === 'error') {
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#f87171"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+      } else {
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+      }
+
+      toast.innerHTML = `${icon}<span>${message}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100%)';
+        setTimeout(() => toast.remove(), 250);
+      }, duration);
+    }
+
+    // Tab Navigation
     function switchTab(tabId) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.nav-tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
 
       const btn = document.getElementById('nav-' + tabId);
@@ -839,16 +2027,18 @@
       }
     }
 
+    // Auto Refresh
     function toggleAutoRefresh() {
-      isAutoRefresh = !isAutoRefresh;
-      const badge = document.getElementById('auto-refresh-badge');
+      const chk = document.getElementById('auto-refresh-toggle');
+      isAutoRefresh = chk.checked;
+      const lbl = document.getElementById('auto-refresh-label');
       if (isAutoRefresh) {
-        badge.className = 'badge badge-success';
-        badge.textContent = 'Auto-Refresh 5s';
+        lbl.textContent = '自动同步 (5s)';
+        lbl.style.color = 'var(--text-muted)';
         startAutoRefresh();
       } else {
-        badge.className = 'badge badge-warning';
-        badge.textContent = 'Paused';
+        lbl.textContent = '已暂停自动同步';
+        lbl.style.color = 'var(--warning)';
         clearInterval(autoRefreshTimer);
       }
     }
@@ -862,6 +2052,18 @@
       }, 5000);
     }
 
+    // Clock
+    function updateClock() {
+      const now = new Date();
+      const el = document.getElementById('current-time-display');
+      if (el) {
+        el.textContent = now.toLocaleTimeString('zh-CN', { hour12: false });
+      }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Fetch Metadata
     async function fetchMetadata() {
       try {
         const [nsRes, scRes] = await Promise.all([
@@ -895,18 +2097,18 @@
       const container = document.getElementById('namespaces-list-container');
       if (container) {
         container.innerHTML = availableNamespaces.map(ns =>
-          `<span class="badge badge-info" style="font-size: 13px; padding: 4px 10px;">${ns}</span>`
+          `<span class="badge badge-info" style="font-size: 12px; padding: 5px 12px;">${ns}</span>`
         ).join('');
       }
     }
 
     function renderStorageClasses() {
       const select = document.getElementById('wiz-storageclass');
-      select.innerHTML = '<option value="">(Cluster Default)</option>';
+      select.innerHTML = '<option value="">(Cluster Default / 集群默认)</option>';
       availableStorageClasses.forEach(sc => {
         const opt = document.createElement('option');
         opt.value = sc.name;
-        opt.textContent = `${sc.name} ${sc.isDefault ? '(default)' : ''}`;
+        opt.textContent = `${sc.name} ${sc.isDefault ? '(默认 Default)' : ''}`;
         if (sc.isDefault || sc.name === 'longhorn') opt.selected = true;
         select.appendChild(opt);
       });
@@ -914,20 +2116,27 @@
       const tbody = document.getElementById('storageclasses-table-body');
       if (tbody) {
         if (availableStorageClasses.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No StorageClasses detected</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">未检测到 Kubernetes StorageClass</td></tr>';
         } else {
           tbody.innerHTML = availableStorageClasses.map(sc => `
             <tr>
-              <td><strong>${sc.name}</strong></td>
-              <td style="color: var(--text-muted);">${sc.provisioner}</td>
-              <td>${sc.isDefault ? '<span class="badge badge-success">DEFAULT</span>' : '<span style="color: var(--text-muted);">-</span>'}</td>
+              <td><strong style="color: #60a5fa;">${sc.name}</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">${sc.provisioner}</td>
+              <td>${sc.isDefault ? '<span class="badge badge-success">DEFAULT</span>' : '<span style="color: var(--text-dim);">-</span>'}</td>
             </tr>
           `).join('');
         }
       }
     }
 
+    // Fetch Dashboard Data
     async function fetchDashboardData(isBackground = false) {
+      const refreshIcon = document.getElementById('refresh-icon');
+      if (!isBackground && refreshIcon) {
+        refreshIcon.style.animation = 'spin 0.6s linear';
+        setTimeout(() => refreshIcon.style.animation = '', 600);
+      }
+
       try {
         const [clustersRes, opsRes, backupsRes, restoresRes] = await Promise.all([
           fetch('/api/clusters'),
@@ -980,6 +2189,7 @@
 
     function updateStats() {
       document.getElementById('stat-clusters').textContent = currentClusters.length;
+      document.getElementById('badge-clusters-count').textContent = currentClusters.length;
       let ready = 0, desired = 0;
       currentClusters.forEach(c => {
         ready += (c.readyNodes || 0);
@@ -988,47 +2198,101 @@
       document.getElementById('stat-nodes').textContent = `${ready} / ${desired}`;
     }
 
+    // Filter clusters
+    function filterClustersTable() {
+      const q = document.getElementById('cluster-search-input').value.trim().toLowerCase();
+      if (!q) {
+        renderClustersTable(currentClusters);
+        return;
+      }
+      const filtered = currentClusters.filter(c => 
+        c.name.toLowerCase().includes(q) ||
+        c.namespace.toLowerCase().includes(q) ||
+        (c.mode && c.mode.toLowerCase().includes(q)) ||
+        (c.version && c.version.toLowerCase().includes(q)) ||
+        (c.master && c.master.toLowerCase().includes(q))
+      );
+      renderClustersTable(filtered);
+    }
+
+    // Render Clusters Table
     function renderClustersTable(clusters) {
       const tbody = document.getElementById('clusters-table-body');
       if (clusters.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No DolphinDB clusters found. Click "+ Create Cluster" to deploy.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">暂无匹配的 DolphinDB 集群，点击右上角 “+ 创建 DolphinDB 集群” 部署新实例。</td></tr>';
         return;
       }
 
       tbody.innerHTML = clusters.map(c => {
-        const healthBadge = c.health === 'Ready'
-          ? '<span class="badge badge-success">Ready</span>'
-          : '<span class="badge badge-warning">' + c.health + '</span>';
+        const isReady = c.health === 'Ready';
+        const healthBadge = isReady
+          ? `<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Ready</span>`
+          : `<span class="badge badge-warning">${c.health || 'Pending'}</span>`;
+        
         const modeBadge = c.mode === 'cluster'
-          ? '<span class="badge badge-info">Cluster</span>'
-          : '<span class="badge badge-purple">Standalone</span>';
+          ? `<span class="badge badge-info">Cluster 分布式</span>`
+          : `<span class="badge badge-purple">Standalone 单节点</span>`;
+
+        let webPill = '';
+        if (c.accessURL) {
+          webPill = `
+            <a href="${c.accessURL}" target="_blank" class="web-access-pill" title="直接在外部浏览器打开 Web 管理终端 (${c.accessURL})">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              打开 Web 终端 ↗
+            </a>
+          `;
+        } else {
+          webPill = `<span style="font-size: 11px; color: var(--text-dim);">仅限集群内 (ClusterIP)</span>`;
+        }
+
+        const masterText = c.master 
+          ? `<span class="badge badge-cyan" title="当前 Raft 选举 Master 领导节点"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>${c.master}</span>`
+          : `<span style="color: var(--text-dim);">-</span>`;
 
         return `
           <tr>
-            <td><strong>${c.name}</strong></td>
-            <td>${c.namespace}</td>
-            <td>${modeBadge}</td>
-            <td>${c.version}</td>
-            <td>${healthBadge}</td>
-            <td>${c.readyNodes} / ${c.desiredNodes}</td>
-            <td>${c.dfsReplicationFactor}</td>
             <td>
-              <button class="btn btn-secondary btn-sm" onclick="selectCluster('${c.namespace}', '${c.name}')">Topology</button>
-              ${c.accessURL ? `<a href="${c.accessURL}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none; padding: 4px 8px;" title="打开 Web 终端 (${c.accessURL})">🌐 Web ↗</a>` : ''}
-              <button class="btn btn-secondary btn-sm" onclick="promptScale('${c.namespace}', '${c.name}', ${c.dataNodes}, ${c.computeNodes}, ${c.dfsReplicationFactor})">Scale</button>
-              <button class="btn btn-secondary btn-sm" onclick="promptRestart('${c.namespace}', '${c.name}')">Restart</button>
-              <button class="btn btn-danger btn-sm" onclick="promptDeleteCluster('${c.namespace}', '${c.name}')">Delete</button>
+              <div style="font-weight: 700; color: #ffffff; cursor: pointer; display: flex; align-items: center; gap: 6px;" onclick="selectCluster('${c.namespace}', '${c.name}')">
+                <span style="color: #60a5fa;">●</span>
+                <span>${c.name}</span>
+              </div>
+            </td>
+            <td><code style="color: var(--text-muted); font-size: 11px;">${c.namespace}</code></td>
+            <td>${modeBadge}</td>
+            <td><span class="badge badge-neutral" style="font-family: var(--font-mono);">${c.version || '3.00.6'}</span></td>
+            <td>${healthBadge}</td>
+            <td><strong style="color: #ffffff;">${c.readyNodes}</strong> / ${c.desiredNodes}</td>
+            <td>${webPill}</td>
+            <td>${masterText}</td>
+            <td style="text-align: right;">
+              <div style="display: inline-flex; gap: 6px;">
+                <button class="btn btn-secondary btn-sm" onclick="selectCluster('${c.namespace}', '${c.name}')" title="查看拓扑详情">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  拓扑
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="promptScale('${c.namespace}', '${c.name}', ${c.dataNodes}, ${c.computeNodes}, ${c.dfsReplicationFactor})" title="调整 DataNode / ComputeNode 副本">
+                  扩缩容
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="promptRestart('${c.namespace}', '${c.name}')" title="触发平滑滚动更新">
+                  重启
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="promptDeleteCluster('${c.namespace}', '${c.name}')" title="删除集群">
+                  删除
+                </button>
+              </div>
             </td>
           </tr>
         `;
       }).join('');
     }
 
+    // Select Cluster & Render Topology
     async function selectCluster(namespace, name) {
       selectedCluster = { namespace, name };
       await fetchClusterDetail(namespace, name);
-      document.getElementById('cluster-topology-card').style.display = 'block';
-      document.getElementById('cluster-topology-card').scrollIntoView({ behavior: 'smooth' });
+      const card = document.getElementById('cluster-topology-card');
+      card.style.display = 'block';
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     async function fetchClusterDetail(namespace, name, silent = false) {
@@ -1044,107 +2308,174 @@
 
     function renderClusterTopology(detail) {
       const c = detail.cluster;
-      let accessPill = '';
+
+      // Access Banner
+      const accessBanner = document.getElementById('topology-access-banner');
       if (detail.accessURL) {
-        accessPill = `
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 12px; color: var(--success); font-weight: 500;">
-              🌐 集群外部访问: <code>${detail.accessURL}</code>
-            </span>
-            <a href="${detail.accessURL}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none; padding: 4px 10px;">
-              打开 Web 终端 ↗
-            </a>
+        accessBanner.innerHTML = `
+          <div class="topology-hero">
+            <div class="topology-hero-info">
+              <h3>
+                <span class="badge badge-success" style="padding: 4px 10px; font-size: 12px;">NodePort 外部访问已就绪</span>
+                DolphinDB Web 交互式管理终端
+              </h3>
+              <div class="topology-hero-meta">
+                <span>外部直连地址: <code style="font-size: 13px; color: #38bdf8; font-weight: 700;">${detail.accessURL}</code></span>
+                <span>•</span>
+                <span>协议: HTTP REST / WebSocket</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <a href="${detail.accessURL}" target="_blank" class="btn btn-primary" style="padding: 10px 20px; font-size: 13px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                在新窗口打开 Web 终端 ↗
+              </a>
+              <button class="btn btn-secondary" onclick="toggleClusterExposure('${c.metadata.namespace}', '${c.metadata.name}')">
+                切换为 ClusterIP 内部访问
+              </button>
+            </div>
           </div>
         `;
       } else {
-        accessPill = `
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 12px; color: var(--text-muted);">外部网络未开启 (ClusterIP)</span>
-            <button class="btn btn-secondary btn-sm" onclick="toggleClusterExposure('${c.metadata.namespace}', '${c.metadata.name}')">
-              + 切换为 NodePort 外部访问
+        accessBanner.innerHTML = `
+          <div class="topology-hero" style="border-style: dashed;">
+            <div class="topology-hero-info">
+              <h3>
+                <span class="badge badge-neutral">ClusterIP (仅集群内私有)</span>
+                当前集群尚未开启物理机 NodePort 映射
+              </h3>
+              <div class="topology-hero-meta">
+                <span>从集群外部浏览器无法直接访问 Web 终端</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="toggleClusterExposure('${c.metadata.namespace}', '${c.metadata.name}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              一键开启 NodePort 外部网络直连
             </button>
           </div>
         `;
       }
 
+      // Title
       document.getElementById('topology-title').innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-          <span>${c.metadata.name} (${c.metadata.namespace}) - ${c.spec.mode.toUpperCase()}</span>
-          ${accessPill}
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/></svg>
+          <span>${c.metadata.name}</span>
+          <span class="badge badge-info" style="font-size: 11px;">${c.metadata.namespace}</span>
+          <span class="badge badge-neutral" style="font-size: 11px;">v${c.spec.version || '3.00.6'}</span>
         </div>
       `;
 
+      // Nodes
       const container = document.getElementById('topology-nodes-container');
       if (!detail.nodes || detail.nodes.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-muted); padding: 12px;">No active node pods reported.</div>';
+        container.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">当前集群未上报活跃 Node Pod。</div>';
         return;
       }
 
       container.innerHTML = detail.nodes.map(n => {
-        const readyClass = n.ready ? 'ready' : 'not-ready';
-        const readyBadge = n.ready
-          ? '<span class="badge badge-success">Ready</span>'
-          : '<span class="badge badge-danger">Not Ready</span>';
-        const roleBadge = '<span class="badge badge-info">' + n.role.toUpperCase() + '</span>';
+        const isReady = n.ready;
+        const readyClass = isReady ? 'ready' : 'not-ready';
+        const readyBadge = isReady
+          ? `<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Ready</span>`
+          : `<span class="badge badge-danger">Not Ready</span>`;
 
-        let exposeSection = '';
+        let roleClass = 'role-controller';
+        if (n.role === 'datanode') roleClass = 'role-datanode';
+        if (n.role === 'computenode') roleClass = 'role-computenode';
+        if (n.role === 'single') roleClass = 'role-single';
+
+        const roleBadge = `<span class="node-role-pill ${roleClass}">${n.role.toUpperCase()}</span>`;
+
+        // Check if Master
+        const isMaster = (selectedClusterDetail.cluster && selectedClusterDetail.cluster.status && selectedClusterDetail.cluster.status.masterNode === n.name);
+        const leaderBadge = isMaster 
+          ? `<span class="badge badge-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>RAFT LEADER</span>`
+          : '';
+
+        let exposeBanner = '';
         if (n.externalURL) {
-          exposeSection = `
-            <div style="margin-top: 8px; padding: 6px 10px; background: rgba(56, 161, 105, 0.12); border: 1px solid rgba(56, 161, 105, 0.3); border-radius: 6px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 11px; font-weight: 600; color: var(--success);">
-                  🌐 外部访问已开启 (NodePort: ${n.nodePort})
-                </span>
-                <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 11px; text-decoration: none;">
-                  打开 Web ↗
-                </a>
+          exposeBanner = `
+            <div style="margin-top: 6px; padding: 6px 10px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-size: 11px; font-weight: 600; color: #34d399;">NodePort: ${n.nodePort}</div>
+                <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);">${n.externalURL}</div>
               </div>
-              <div style="margin-top: 3px; font-family: monospace; font-size: 11px;">
-                <a href="${n.externalURL}" target="_blank" style="color: var(--primary);">${n.externalURL}</a>
-              </div>
-            </div>
-          `;
-        } else {
-          exposeSection = `
-            <div style="margin-top: 8px; padding: 6px 10px; background: rgba(255, 255, 255, 0.04); border: 1px dashed var(--border); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-size: 11px; color: var(--text-muted);">外部网络未映射 (NodePort)</span>
-              <button class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', true)">
-                + 开启外部访问
-              </button>
+              <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 10px;">打开 Web ↗</a>
             </div>
           `;
         }
 
         return `
-          <div class="node-card ${readyClass}">
+          <div class="node-card ${readyClass} ${isMaster ? 'leader' : ''}">
             <div>
-              <div class="node-name">
-                <span>${n.name}</span>
+              <div class="node-header">
+                <div class="node-title-group">
+                  <div class="node-name">
+                    <span>${n.name}</span>
+                    ${leaderBadge}
+                  </div>
+                  <div>${roleBadge}</div>
+                </div>
                 ${readyBadge}
               </div>
-              <div class="node-meta">
-                Role: ${roleBadge}<br>
-                Pod IP: <code>${n.podIP || '-'}</code><br>
-                Host IP: <code>${n.hostIP || '-'}</code> (Port ${n.port})<br>
-                DDB State: <strong>${n.ddbState === 1 ? '1 (Alive)' : '0 (Offline)'}</strong><br>
-                DFS Chunks: <strong>${n.chunksCount}</strong>
+
+              <div class="node-kv-list" style="margin-top: 10px;">
+                <div class="node-kv-row">
+                  <span class="node-kv-label">Pod 容器 IP</span>
+                  <span class="node-kv-val">${n.podIP || '-'}</span>
+                </div>
+                <div class="node-kv-row">
+                  <span class="node-kv-label">宿主机 Worker</span>
+                  <span class="node-kv-val">${n.hostIP || '-'} (端口 ${n.port})</span>
+                </div>
+                <div class="node-kv-row">
+                  <span class="node-kv-label">DDB 探针状态</span>
+                  <span class="node-kv-val" style="color: ${n.ddbState === 1 ? '#34d399' : '#f87171'};">
+                    ${n.ddbState === 1 ? '1 (Online 运行就绪)' : '0 (Offline 初始化中)'}
+                  </span>
+                </div>
+                <div class="node-kv-row">
+                  <span class="node-kv-label">DFS Chunks 分区</span>
+                  <span class="node-kv-val">${n.chunksCount}</span>
+                </div>
               </div>
-              ${exposeSection}
+
+              ${exposeBanner}
             </div>
-            <div class="node-actions">
-              <button class="btn btn-secondary btn-sm" onclick="openNodeLogs('${selectedCluster.namespace}', '${n.name}')">Logs</button>
-              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'restart')">Restart</button>
-              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'stop')">Stop</button>
-              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'start')">Start</button>
-              ${n.externalURL ? `<button class="btn btn-secondary btn-sm" style="font-size: 11px; color: var(--danger);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)">关闭外部映射</button>` : ''}
+
+            <div class="node-actions-bar">
+              <button class="btn btn-secondary btn-sm" onclick="openNodeLogs('${selectedCluster.namespace}', '${n.name}')" title="查看容器日志">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                日志
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'restart')" title="重启此节点">
+                重启
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'stop')" title="优雅停止节点 (kill -15)">
+                停止
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'start')" title="拉起节点">
+                启动
+              </button>
+              ${n.externalURL ? `
+                <button class="btn btn-secondary btn-sm" style="color: var(--danger);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)" title="关闭 NodePort 映射">
+                  关闭外网
+                </button>
+              ` : `
+                <button class="btn btn-secondary btn-sm" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', true)" title="为单个节点暴露独立端口">
+                  + 暴露端口
+                </button>
+              `}
             </div>
           </div>
         `;
       }).join('');
     }
 
+    // Node Actions
     async function executeNodeAction(namespace, nodeName, action) {
-      if (!confirm(`Confirm to ${action.toUpperCase()} node ${nodeName}?`)) return;
+      if (!confirm(`确认对节点 ${nodeName} 执行 ${action.toUpperCase()} 操作？`)) return;
       try {
         const res = await fetch(`/api/nodes/${namespace}/${nodeName}/action`, {
           method: 'POST',
@@ -1152,51 +2483,53 @@
           body: JSON.stringify({ action })
         });
         if (res.ok) {
+          showToast(`节点 ${nodeName} ${action} 指令已下发`, 'success');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Action failed: ' + (err.error || res.statusText));
+          showToast('操作失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('网络请求失败: ' + e, 'error');
       }
     }
 
     async function toggleNodeExpose(namespace, nodeName, enable) {
       const verb = enable ? '开启' : '关闭';
-      if (!confirm(`确认${verb}节点 ${nodeName} 的外部网络访问 (NodePort)?`)) return;
       try {
         const url = `/api/nodes/${namespace}/${nodeName}/expose`;
         const method = enable ? 'POST' : 'DELETE';
         const res = await fetch(url, { method });
         if (res.ok) {
+          showToast(`已${verb}节点 ${nodeName} 的 NodePort 映射`, 'success');
           await fetchClusterDetail(namespace, selectedCluster.name);
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert(`${verb}外部访问失败: ` + (err.error || res.statusText));
+          showToast(`${verb}外部访问失败: ` + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('请求失败: ' + e);
+        showToast('请求失败: ' + e, 'error');
       }
     }
 
     async function toggleClusterExposure(namespace, clusterName) {
-      if (!confirm(`确认切换集群 ${clusterName} 的外部网络访问模式 (NodePort)?`)) return;
       try {
         const res = await fetch(`/api/clusters/${namespace}/${clusterName}/expose`, { method: 'POST' });
         if (res.ok) {
+          showToast(`已切换集群 ${clusterName} 的网络暴露模式`, 'success');
           await fetchClusterDetail(namespace, clusterName);
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('操作失败: ' + (err.error || res.statusText));
+          showToast('切换网络模式失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('请求失败: ' + e);
+        showToast('请求失败: ' + e, 'error');
       }
     }
 
+    // Logs
     function openNodeLogs(namespace, nodeName) {
       currentLogNode = { namespace, nodeName };
       document.getElementById('log-node-title').textContent = `${nodeName} (${namespace})`;
@@ -1212,27 +2545,29 @@
         const res = await fetch(`/api/nodes/${currentLogNode.namespace}/${currentLogNode.nodeName}/logs?tailLines=${tailLines}`);
         if (res.ok) {
           const data = await res.json();
-          content.textContent = data.logs || "(No logs returned)";
+          content.textContent = data.logs || "(容器暂未产生标准输出日志)";
           content.scrollTop = content.scrollHeight;
         } else {
           const err = await res.json();
-          content.textContent = 'Error fetching logs: ' + (err.error || res.statusText);
+          content.textContent = '获取日志失败: ' + (err.error || res.statusText);
         }
       } catch (e) {
-        content.textContent = 'Connection error: ' + e;
+        content.textContent = '日志连接异常: ' + e;
       }
     }
 
     function copyLogs() {
       const text = document.getElementById('terminal-logs-content').textContent;
-      navigator.clipboard.writeText(text).then(() => alert('Logs copied to clipboard'));
+      navigator.clipboard.writeText(text).then(() => showToast('日志已复制到剪贴板', 'success'));
     }
 
+    // Delete Cluster
     function promptDeleteCluster(namespace, name) {
       document.getElementById('delete-cluster-name-display').textContent = `${name} (${namespace})`;
-      document.getElementById('delete-confirm-input').value = '';
-      document.getElementById('delete-confirm-input').dataset.targetNamespace = namespace;
-      document.getElementById('delete-confirm-input').dataset.targetName = name;
+      const input = document.getElementById('delete-confirm-input');
+      input.value = '';
+      input.dataset.targetNamespace = namespace;
+      input.dataset.targetName = name;
       document.getElementById('modal-delete-cluster').classList.add('open');
     }
 
@@ -1246,28 +2581,32 @@
       const namespace = input.dataset.targetNamespace;
       const name = input.dataset.targetName;
       if (input.value.trim() !== name) {
-        alert('Please enter the exact cluster name to confirm deletion.');
+        showToast('请输入完全匹配的集群名称以确认删除', 'error');
         return;
       }
       try {
         const res = await fetch(`/api/clusters/${namespace}/${name}`, { method: 'DELETE' });
         if (res.ok) {
           closeModal('modal-delete-cluster');
+          showToast(`集群 ${name} 已申请删除`, 'success');
           selectedCluster = null;
           document.getElementById('cluster-topology-card').style.display = 'none';
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Delete failed: ' + (err.error || res.statusText));
+          showToast('删除失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('请求失败: ' + e, 'error');
       }
     }
 
-    // Wizard logic
-    function onModeChange() {
-      const mode = document.getElementById('wiz-mode').value;
+    // Wizard Architecture Selector
+    function selectDeploymentMode(mode) {
+      document.getElementById('wiz-mode').value = mode;
+      document.getElementById('mode-card-cluster').classList.toggle('selected', mode === 'cluster');
+      document.getElementById('mode-card-standalone').classList.toggle('selected', mode === 'standalone');
+
       if (mode === 'standalone') {
         document.getElementById('wiz-cluster-specs').style.display = 'none';
         document.getElementById('wiz-standalone-specs').style.display = 'block';
@@ -1397,7 +2736,7 @@ spec:
       nodeName: "aftersale2"
       hostname: "aftersale2"\n`;
 
-      const enableNodePort = document.getElementById('wiz-enable-nodeport') ? document.getElementById('wiz-enable-nodeport').checked : true;
+      const enableNodePort = document.getElementById('wiz-enable-nodeport').checked;
       if (enableNodePort) {
         yamlText += `  networking:
     serviceType: "NodePort"
@@ -1416,15 +2755,16 @@ spec:
       const editor = document.getElementById('wiz-yaml-editor');
       if (isCustom) {
         editor.style.borderColor = 'var(--primary)';
+        showToast('已进入直接编辑模式，表单变动将不再覆盖下方 YAML', 'info');
       } else {
-        editor.style.borderColor = 'var(--card-border)';
+        editor.style.borderColor = 'var(--border-subtle)';
         updateWizardYAML();
       }
     }
 
     function copyWizardYAML() {
       const yaml = document.getElementById('wiz-yaml-editor').value;
-      navigator.clipboard.writeText(yaml).then(() => alert('YAML copied to clipboard'));
+      navigator.clipboard.writeText(yaml).then(() => showToast('CR YAML 已复制到剪贴板', 'success'));
     }
 
     async function submitCreateCluster() {
@@ -1437,20 +2777,20 @@ spec:
         });
         if (res.ok) {
           const c = await res.json();
-          alert(`Cluster ${c.metadata.name} created successfully!`);
+          showToast(`集群 ${c.metadata.name} 提交部署成功！`, 'success');
           switchTab('clusters');
           fetchDashboardData();
           selectCluster(c.metadata.namespace, c.metadata.name);
         } else {
           const err = await res.json();
-          alert('Failed to deploy cluster: ' + (err.error || res.statusText));
+          showToast('部署失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Network request failed: ' + e);
+        showToast('网络请求异常: ' + e, 'error');
       }
     }
 
-    // Modal triggers & handlers
+    // Scale
     function promptScale(namespace, name, dataNodes, computeNodes, repl) {
       document.getElementById('scale-cluster-name').textContent = `${name} (${namespace})`;
       document.getElementById('scale-datanodes').value = dataNodes;
@@ -1477,7 +2817,7 @@ spec:
       const alertBox = document.getElementById('scale-alert');
 
       if (dn < selectedCluster.repl) {
-        alertBox.textContent = `Error: DataNodes cannot be less than replication factor (${selectedCluster.repl}).`;
+        alertBox.textContent = `校验失败: DataNode 数据节点数不可小于多副本因子 (${selectedCluster.repl})。`;
         alertBox.style.display = 'block';
         return;
       }
@@ -1491,10 +2831,11 @@ spec:
 
         if (res.ok) {
           closeModal('modal-scale');
+          showToast('扩缩容指令已应用', 'success');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alertBox.textContent = err.error || 'Failed to scale';
+          alertBox.textContent = err.error || '扩缩容失败';
           alertBox.style.display = 'block';
         }
       } catch (e) {
@@ -1503,6 +2844,7 @@ spec:
       }
     }
 
+    // Restart
     function promptRestart(namespace, name) {
       document.getElementById('restart-cluster-name').textContent = `${name} (${namespace})`;
       selectedCluster = { namespace, name };
@@ -1524,72 +2866,83 @@ spec:
         });
         if (res.ok) {
           closeModal('modal-restart');
-          alert('Rolling restart DAG initiated!');
+          showToast('平滑滚动更新流水线已启动！', 'success');
           switchTab('operations');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Failed to initiate restart: ' + (err.error || res.statusText));
+          showToast('滚动更新失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('请求失败: ' + e, 'error');
       }
     }
 
+    // Rebalance & License
     async function triggerRebalanceAction() {
       if (!selectedCluster) return;
-      if (!confirm(`Trigger chunk rebalance DAG for ${selectedCluster.name}?`)) return;
+      if (!confirm(`确认对集群 ${selectedCluster.name} 执行数据分片平衡迁移 (Rebalance)？`)) return;
       try {
         const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/rebalance`, { method: 'POST' });
         if (res.ok) {
-          alert('Chunk rebalance DAG initiated!');
+          showToast('数据重平衡任务已下发！', 'success');
           switchTab('operations');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Rebalance failed: ' + (err.error || res.statusText));
+          showToast('重平衡失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('请求异常: ' + e, 'error');
       }
     }
 
     async function triggerReloadLicenseAction() {
       if (!selectedCluster) return;
-      if (!confirm(`Reload license across all nodes for ${selectedCluster.name}?`)) return;
+      if (!confirm(`确认对集群 ${selectedCluster.name} 进行 License 免重启热加载？`)) return;
       try {
         const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/reload-license`, { method: 'POST' });
         if (res.ok) {
-          alert('License reload initiated!');
+          showToast('License 热加载已完成！', 'success');
           switchTab('operations');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Reload license failed: ' + (err.error || res.statusText));
+          showToast('License 加载失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('请求异常: ' + e, 'error');
       }
     }
 
     function triggerRollingRestartActionPrompt() {
-      if (currentClusters.length === 0) return;
+      if (currentClusters.length === 0) {
+        showToast('当前无可用集群', 'info');
+        return;
+      }
       const c = currentClusters[0];
       promptRestart(c.namespace, c.name);
     }
 
     function triggerRebalanceActionPrompt() {
-      if (currentClusters.length === 0) return;
+      if (currentClusters.length === 0) {
+        showToast('当前无可用集群', 'info');
+        return;
+      }
       selectedCluster = currentClusters[0];
       triggerRebalanceAction();
     }
 
     function triggerReloadLicenseActionPrompt() {
-      if (currentClusters.length === 0) return;
+      if (currentClusters.length === 0) {
+        showToast('当前无可用集群', 'info');
+        return;
+      }
       selectedCluster = currentClusters[0];
       triggerReloadLicenseAction();
     }
 
+    // Backups
     function openBackupModal() {
       document.getElementById('modal-backup').classList.add('open');
     }
@@ -1604,7 +2957,7 @@ spec:
       const snapshot = document.getElementById('backup-snapshot').checked;
 
       if (!cluster || dbs.length === 0) {
-        alert('Cluster and at least one database are required');
+        showToast('请指定集群与至少一个数据库', 'error');
         return;
       }
 
@@ -1616,13 +2969,14 @@ spec:
         });
         if (res.ok) {
           closeModal('modal-backup');
+          showToast('快照备份任务已成功创建', 'success');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Backup creation failed: ' + (err.error || res.statusText));
+          showToast('备份创建失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('请求异常: ' + e, 'error');
       }
     }
 
@@ -1644,7 +2998,7 @@ spec:
       const targetDatabase = document.getElementById('restore-target-db').value.trim();
 
       if (!cluster || !database) {
-        alert('Cluster and database are required');
+        showToast('集群与原数据库均为必填项', 'error');
         return;
       }
 
@@ -1656,28 +3010,30 @@ spec:
         });
         if (res.ok) {
           closeModal('modal-restore');
+          showToast('数据恢复任务已提交启动', 'success');
           fetchDashboardData();
         } else {
           const err = await res.json();
-          alert('Restore execution failed: ' + (err.error || res.statusText));
+          showToast('恢复执行失败: ' + (err.error || res.statusText), 'error');
         }
       } catch (e) {
-        alert('Request failed: ' + e);
+        showToast('请求异常: ' + e, 'error');
       }
     }
 
+    // Operations Table
     function renderOperationsTable(ops) {
       document.getElementById('stat-ops').textContent = ops.filter(o => o.status && o.status.phase === 'Running').length;
       const tbody = document.getElementById('operations-table-body');
       if (ops.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No operations recorded.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无执行中的运维任务记录</td></tr>';
         return;
       }
 
       tbody.innerHTML = ops.map(o => {
         const phase = o.status ? o.status.phase : 'Pending';
         let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
-        if (phase === 'Succeeded') phaseBadge = '<span class="badge badge-success">Succeeded</span>';
+        if (phase === 'Succeeded') phaseBadge = '<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Succeeded</span>';
         if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
 
         const progress = o.status ? (o.status.progress || 0) : 0;
@@ -1687,21 +3043,21 @@ spec:
 
         return `
           <tr>
-            <td><strong>${o.metadata.name}</strong></td>
-            <td>${o.spec.cluster}</td>
+            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${o.metadata.name}</strong></td>
+            <td><strong>${o.spec.cluster}</strong></td>
             <td><span class="badge badge-purple">${o.spec.type}</span></td>
             <td>${phaseBadge}</td>
-            <td><code>${step}</code></td>
+            <td><code style="font-size: 11px;">${step}</code></td>
             <td>
               <div class="progress-bar-container">
                 <div class="progress-bar" style="width: ${progress}%;"></div>
               </div>
-              ${progress}%
+              <span style="font-size: 10px; font-weight: 700; color: var(--text-muted);">${progress}%</span>
             </td>
             <td style="color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
-            <td>${age}</td>
-            <td>
-              <button class="btn btn-secondary btn-sm" onclick="deleteOperation('${o.metadata.namespace}', '${o.metadata.name}')">Delete</button>
+            <td style="color: var(--text-dim); font-size: 11px;">${age}</td>
+            <td style="text-align: right;">
+              <button class="btn btn-secondary btn-sm" onclick="deleteOperation('${o.metadata.namespace}', '${o.metadata.name}')">删除</button>
             </td>
           </tr>
         `;
@@ -1709,13 +3065,15 @@ spec:
     }
 
     async function deleteOperation(namespace, name) {
-      if (!confirm(`Delete operation record ${name}?`)) return;
+      if (!confirm(`确认清理记录 ${name}？`)) return;
       try {
         await fetch(`/api/operations/${namespace}/${name}`, { method: 'DELETE' });
+        showToast(`已清理任务记录 ${name}`, 'info');
         fetchDashboardData();
       } catch (e) {}
     }
 
+    // Backups Table
     function renderBackupsTable(backups) {
       let chunks = 0;
       backups.forEach(b => {
@@ -1725,35 +3083,35 @@ spec:
 
       const tbody = document.getElementById('backups-table-body');
       if (backups.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No backups found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无快照备份记录，点击上方按钮创建新备份策略</td></tr>';
         return;
       }
 
       tbody.innerHTML = backups.map(b => {
         const phase = b.status ? b.status.phase : 'Pending';
         let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
-        if (phase === 'Completed') phaseBadge = '<span class="badge badge-success">Completed</span>';
+        if (phase === 'Completed') phaseBadge = '<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Completed</span>';
         if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
 
         const dbs = (b.spec.databases || []).join(', ');
         const total = b.status ? (b.status.totalChunks || 0) : 0;
-        const sched = b.spec.schedule ? `<code>${b.spec.schedule}</code>` : '-';
+        const sched = b.spec.schedule ? `<code style="font-size: 11px;">${b.spec.schedule}</code>` : '<span style="color: var(--text-dim);">一次性</span>';
         const next = b.status && b.status.nextBackupTime ? b.status.nextBackupTime.replace('T', ' ').replace('Z', '') : '-';
         const last = b.status && b.status.lastBackupTime ? formatAge(new Date(b.status.lastBackupTime)) : '-';
 
         return `
           <tr>
-            <td><strong>${b.metadata.name}</strong></td>
-            <td>${b.spec.cluster}</td>
-            <td><code>${dbs}</code></td>
+            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${b.metadata.name}</strong></td>
+            <td><strong>${b.spec.cluster}</strong></td>
+            <td><code style="color: #38bdf8; font-size: 11px;">${dbs}</code></td>
             <td>${phaseBadge}</td>
-            <td>${total}</td>
+            <td><strong style="color: #ffffff;">${total}</strong></td>
             <td>${sched}</td>
-            <td>${next}</td>
-            <td>${last}</td>
-            <td>
-              <button class="btn btn-secondary btn-sm" onclick="openRestoreModal('${b.spec.cluster}', '${dbs}')">Restore</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteBackup('${b.metadata.namespace}', '${b.metadata.name}')">Delete</button>
+            <td style="color: var(--text-dim); font-size: 11px;">${next}</td>
+            <td style="color: var(--text-dim); font-size: 11px;">${last}</td>
+            <td style="text-align: right;">
+              <button class="btn btn-secondary btn-sm" onclick="openRestoreModal('${b.spec.cluster}', '${dbs}')">恢复</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteBackup('${b.metadata.namespace}', '${b.metadata.name}')">删除</button>
             </td>
           </tr>
         `;
@@ -1761,17 +3119,19 @@ spec:
     }
 
     async function deleteBackup(namespace, name) {
-      if (!confirm(`Delete backup ${name}?`)) return;
+      if (!confirm(`确认删除备份 ${name}？`)) return;
       try {
         await fetch(`/api/backups/${namespace}/${name}`, { method: 'DELETE' });
+        showToast(`已删除备份任务 ${name}`, 'info');
         fetchDashboardData();
       } catch (e) {}
     }
 
+    // Restores Table
     function renderRestoresTable(restores) {
       const tbody = document.getElementById('restores-table-body');
       if (restores.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No restores executed.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无数据恢复审计记录</td></tr>';
         return;
       }
 
@@ -1786,15 +3146,15 @@ spec:
 
         return `
           <tr>
-            <td><strong>${r.metadata.name}</strong></td>
-            <td>${r.spec.cluster}</td>
-            <td><code>${r.spec.database}</code></td>
-            <td><code>${r.spec.targetDatabase || r.spec.database}</code></td>
+            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${r.metadata.name}</strong></td>
+            <td><strong>${r.spec.cluster}</strong></td>
+            <td><code style="font-size: 11px;">${r.spec.database}</code></td>
+            <td><code style="font-size: 11px; color: #34d399;">${r.spec.targetDatabase || r.spec.database}</code></td>
             <td>${phaseBadge}</td>
-            <td>${completion}</td>
+            <td style="color: var(--text-dim); font-size: 11px;">${completion}</td>
             <td style="color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
-            <td>
-              <button class="btn btn-secondary btn-sm" onclick="deleteRestore('${r.metadata.namespace}', '${r.metadata.name}')">Delete</button>
+            <td style="text-align: right;">
+              <button class="btn btn-secondary btn-sm" onclick="deleteRestore('${r.metadata.namespace}', '${r.metadata.name}')">清理</button>
             </td>
           </tr>
         `;
@@ -1802,27 +3162,44 @@ spec:
     }
 
     async function deleteRestore(namespace, name) {
-      if (!confirm(`Delete restore record ${name}?`)) return;
+      if (!confirm(`确认删除恢复审计记录 ${name}？`)) return;
       try {
         await fetch(`/api/restores/${namespace}/${name}`, { method: 'DELETE' });
+        showToast(`已清理恢复记录 ${name}`, 'info');
         fetchDashboardData();
       } catch (e) {}
     }
 
     function formatAge(date) {
       const seconds = Math.floor((new Date() - date) / 1000);
-      if (seconds < 60) return `${seconds}s ago`;
+      if (seconds < 60) return `${seconds}秒前`;
       const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes}m ago`;
+      if (minutes < 60) return `${minutes}分钟前`;
       const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours}h ago`;
+      if (hours < 24) return `${hours}小时前`;
       const days = Math.floor(hours / 24);
-      return `${days}d ago`;
+      return `${days}天前`;
     }
 
     function closeModal(id) {
       document.getElementById(id).classList.remove('open');
     }
+
+    // Escape Key Listener to Close Modals
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+      }
+    });
+
+    // Close Modal on Click Outside Dialog
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          overlay.classList.remove('open');
+        }
+      });
+    });
 
     // Init
     window.addEventListener('DOMContentLoaded', () => {
