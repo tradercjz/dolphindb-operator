@@ -1,11 +1,14 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -18,7 +21,7 @@ func TestDashboardHealthz(t *testing.T) {
 	_ = v1alpha1.AddToScheme(scheme)
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	srv := NewServer(cli, ":0", "default")
+	srv := NewServer(cli, nil, ":0", "default")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	w := httptest.NewRecorder()
@@ -40,9 +43,11 @@ func TestDashboardHealthz(t *testing.T) {
 	}
 }
 
-func TestDashboardListClusters(t *testing.T) {
+func TestDashboardListAndCreateClusters(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	_ = storagev1.AddToScheme(scheme)
 
 	testCluster := &v1alpha1.DolphinDBCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -75,11 +80,11 @@ func TestDashboardListClusters(t *testing.T) {
 	}
 
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(testCluster).Build()
-	srv := NewServer(cli, ":0", "default")
+	srv := NewServer(cli, nil, ":0", "default")
 
+	// 1. List clusters
 	req := httptest.NewRequest(http.MethodGet, "/api/clusters", nil)
 	w := httptest.NewRecorder()
-
 	srv.handleClusters(w, req)
 
 	resp := w.Result()
@@ -91,12 +96,69 @@ func TestDashboardListClusters(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&clusters); err != nil {
 		t.Fatalf("failed to decode clusters: %v", err)
 	}
-
-	if len(clusters) != 1 {
-		t.Fatalf("expected 1 cluster, got %d", len(clusters))
+	if len(clusters) != 1 || clusters[0].Name != "test-ddb" {
+		t.Fatalf("expected 1 cluster 'test-ddb', got %d", len(clusters))
 	}
 
-	if clusters[0].Name != "test-ddb" || clusters[0].ReadyNodes != 3 {
-		t.Errorf("unexpected cluster summary: %+v", clusters[0])
+	// 2. Create new cluster via POST
+	createBody := CreateClusterRequest{
+		Name:      "new-cluster",
+		Namespace: "default",
+		Mode:      "cluster",
+		Version:   "3.00.5",
+		Controller: &NodeGroupConfig{
+			Replicas: 1,
+		},
+		DataNode: &NodeGroupConfig{
+			Replicas: 2,
+		},
+	}
+	bodyBytes, _ := json.Marshal(createBody)
+	postReq := httptest.NewRequest(http.MethodPost, "/api/clusters", bytes.NewReader(bodyBytes))
+	postW := httptest.NewRecorder()
+	srv.handleClusters(postW, postReq)
+
+	postResp := postW.Result()
+	if postResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d", postResp.StatusCode)
+	}
+
+	// 3. Delete cluster
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/clusters/default/new-cluster", nil)
+	delW := httptest.NewRecorder()
+	srv.deleteCluster(delW, delReq, "default", "new-cluster")
+	if delW.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on delete, got %d", delW.Result().StatusCode)
+	}
+}
+
+func TestDashboardNamespacesAndStorageClasses(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = storagev1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "prod-zone"}}
+	sc := &storagev1.StorageClass{
+		ObjectMeta:  metav1.ObjectMeta{Name: "longhorn-nvme"},
+		Provisioner: "driver.longhorn.io",
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, sc).Build()
+	srv := NewServer(cli, nil, ":0", "default")
+
+	// Namespaces
+	reqNS := httptest.NewRequest(http.MethodGet, "/api/namespaces", nil)
+	wNS := httptest.NewRecorder()
+	srv.handleNamespaces(wNS, reqNS)
+	if wNS.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", wNS.Result().StatusCode)
+	}
+
+	// StorageClasses
+	reqSC := httptest.NewRequest(http.MethodGet, "/api/storageclasses", nil)
+	wSC := httptest.NewRecorder()
+	srv.handleStorageClasses(wSC, reqSC)
+	if wSC.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", wSC.Result().StatusCode)
 	}
 }

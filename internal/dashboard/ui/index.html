@@ -74,6 +74,11 @@
     .btn-secondary { background: var(--card-bg); color: var(--text); border-color: var(--card-border); }
     .btn-secondary:hover { background: #283548; }
     .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-warning { background: var(--warning); color: #000; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-sm { padding: 4px 8px; font-size: 11px; }
+
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -88,6 +93,7 @@
     }
     .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
     .stat-val { font-size: 26px; font-weight: 700; color: #fff; }
+
     .nav-tabs {
       display: flex;
       gap: 8px;
@@ -154,6 +160,7 @@
     .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #dc2626; }
     .badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #2563eb; }
     .badge-purple { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #7c3aed; }
+    
     .progress-bar-container {
       width: 100px;
       background: #334155;
@@ -169,6 +176,7 @@
       background: var(--primary);
       transition: width 0.3s;
     }
+
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -186,10 +194,13 @@
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
-      width: 480px;
+      width: 520px;
       max-width: 90vw;
       padding: 24px;
+      max-height: 90vh;
+      overflow-y: auto;
     }
+    .modal-lg { width: 850px; }
     .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
     .form-group { margin-bottom: 16px; }
     .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
@@ -204,9 +215,10 @@
     }
     .form-control:focus { outline: none; border-color: var(--primary); }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
     .node-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
       gap: 12px;
       margin-top: 12px;
     }
@@ -214,13 +226,18 @@
       background: #151e2e;
       border: 1px solid var(--card-border);
       border-radius: 6px;
-      padding: 12px;
+      padding: 14px;
       font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
-    .node-card.ready { border-left: 3px solid var(--success); }
-    .node-card.not-ready { border-left: 3px solid var(--danger); }
-    .node-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; display: flex; justify-content: space-between; }
-    .node-meta { color: var(--text-muted); line-height: 1.6; }
+    .node-card.ready { border-left: 4px solid var(--success); }
+    .node-card.not-ready { border-left: 4px solid var(--danger); }
+    .node-name { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .node-meta { color: var(--text-muted); line-height: 1.6; margin-bottom: 10px; }
+    .node-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+
     .alert-banner {
       background: rgba(239, 68, 68, 0.15);
       border: 1px solid var(--danger);
@@ -231,6 +248,50 @@
       margin-bottom: 12px;
       display: none;
     }
+
+    /* Terminal logs viewer styling */
+    .terminal-container {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: #38bdf8;
+      height: 420px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Dual pane wizard styling */
+    .wizard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .wizard-grid { grid-template-columns: 1fr; }
+    }
+    .yaml-preview {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 16px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: #a5f3fc;
+      height: 520px;
+      overflow-y: auto;
+      white-space: pre;
+    }
+    .form-row {
+      display: flex;
+      gap: 12px;
+    }
+    .form-row .form-group {
+      flex: 1;
+    }
   </style>
 </head>
 <body>
@@ -240,11 +301,15 @@
       <div class="logo-icon">D</div>
       <div>
         <h1>DolphinDB Operator Console</h1>
-        <div style="font-size: 12px; color: var(--text-muted);">Enterprise High-Performance Distributed TSDB Platform on Kubernetes</div>
+        <div style="font-size: 12px; color: var(--text-muted);">Enterprise Distributed TSDB Orchestration Platform on Kubernetes</div>
       </div>
     </div>
     <div class="header-actions">
-      <span id="auto-refresh-badge" class="badge badge-success">Auto-Refresh 5s</span>
+      <button class="btn btn-primary" onclick="switchTab('wizard')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        + Create Cluster
+      </button>
+      <span id="auto-refresh-badge" class="badge badge-success" style="cursor: pointer;" onclick="toggleAutoRefresh()">Auto-Refresh 5s</span>
       <button class="btn btn-secondary" onclick="fetchDashboardData()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         Refresh
@@ -274,16 +339,19 @@
 
   <!-- Navigation Tabs -->
   <div class="nav-tabs">
-    <button class="tab-btn active" onclick="switchTab('clusters')">Clusters & Topology</button>
-    <button class="tab-btn" onclick="switchTab('operations')">Day-2 Operations (DAG)</button>
-    <button class="tab-btn" onclick="switchTab('backups')">Backups & Restores</button>
+    <button id="nav-clusters" class="tab-btn active" onclick="switchTab('clusters')">Clusters & Topology</button>
+    <button id="nav-wizard" class="tab-btn" onclick="switchTab('wizard')">Create Cluster (向导)</button>
+    <button id="nav-operations" class="tab-btn" onclick="switchTab('operations')">Day-2 Operations (DAG)</button>
+    <button id="nav-backups" class="tab-btn" onclick="switchTab('backups')">Backups & Restores</button>
+    <button id="nav-storage" class="tab-btn" onclick="switchTab('storage')">Storage & Namespaces</button>
   </div>
 
-  <!-- TAB 1: Clusters -->
+  <!-- TAB 1: Clusters & Topology -->
   <div id="tab-clusters" class="tab-pane">
     <div class="card">
       <div class="card-title">
-        <span>Clusters</span>
+        <span>Clusters Overview</span>
+        <button class="btn btn-secondary btn-sm" onclick="fetchDashboardData()">Reload</button>
       </div>
       <table>
         <thead>
@@ -308,21 +376,180 @@
     <div id="cluster-topology-card" class="card" style="display: none;">
       <div class="card-title">
         <span id="topology-title">Cluster Topology & Nodes</span>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-secondary" onclick="openScaleModal()">Scale Cluster</button>
-          <button class="btn btn-secondary" onclick="openRestartModal()">Rolling Restart</button>
-          <button class="btn btn-primary" onclick="openBackupModal()">Create Backup</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="openScaleModal()">Scale</button>
+          <button class="btn btn-secondary btn-sm" onclick="openRestartModal()">Rolling Restart</button>
+          <button class="btn btn-secondary btn-sm" onclick="triggerRebalanceAction()">Rebalance Chunks</button>
+          <button class="btn btn-secondary btn-sm" onclick="triggerReloadLicenseAction()">Reload License</button>
+          <button class="btn btn-primary btn-sm" onclick="openBackupModal()">Backup</button>
+          <button class="btn btn-danger btn-sm" onclick="openDeleteClusterModal()">Delete Cluster</button>
         </div>
       </div>
       <div id="topology-nodes-container" class="node-grid"></div>
     </div>
   </div>
 
-  <!-- TAB 2: Operations -->
+  <!-- TAB 2: Create Cluster Wizard -->
+  <div id="tab-wizard" class="tab-pane" style="display: none;">
+    <div class="wizard-grid">
+      <!-- Left Column: Form -->
+      <div class="card">
+        <div class="card-title">
+          <span>Cluster Creation Wizard</span>
+          <span style="font-size: 12px; color: var(--text-muted);">Visual Configuration</span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cluster Name *</label>
+            <input type="text" id="wiz-name" class="form-control" value="ddb-prod" oninput="updateWizardYAML()">
+          </div>
+          <div class="form-group">
+            <label>Namespace *</label>
+            <select id="wiz-namespace" class="form-control" onchange="updateWizardYAML()"></select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Deployment Mode</label>
+            <select id="wiz-mode" class="form-control" onchange="onModeChange()">
+              <option value="cluster">Cluster (Multi-Node Distributed)</option>
+              <option value="standalone">Standalone (Single Node)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Version</label>
+            <select id="wiz-version" class="form-control" onchange="onVersionChange()">
+              <option value="3.00.5">v3.00.5 (Latest)</option>
+              <option value="3.00.3">v3.00.3</option>
+              <option value="2.00.11">v2.00.11</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Container Image</label>
+          <input type="text" id="wiz-image" class="form-control" value="192.168.100.250/dolphindb/dolphindb:v3.00.5" oninput="updateWizardYAML()">
+        </div>
+
+        <div class="form-group">
+          <label>StorageClass</label>
+          <select id="wiz-storageclass" class="form-control" onchange="updateWizardYAML()"></select>
+        </div>
+
+        <!-- Clustered Specs -->
+        <div id="wiz-cluster-specs">
+          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--primary);">Controller Configuration</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Replicas</label>
+              <select id="wiz-ctl-replicas" class="form-control" onchange="updateWizardYAML()">
+                <option value="1">1 (Standard)</option>
+                <option value="3">3 (Raft HA)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>CPU Request / Limit</label>
+              <input type="text" id="wiz-ctl-cpu" class="form-control" value="1000m / 2000m" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>Memory Request / Limit</label>
+              <input type="text" id="wiz-ctl-mem" class="form-control" value="2Gi / 4Gi" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>Metadata Disk Size</label>
+              <input type="text" id="wiz-ctl-disk" class="form-control" value="10Gi" oninput="updateWizardYAML()">
+            </div>
+          </div>
+
+          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--success);">DataNode Configuration (DFS Storage)</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Replicas</label>
+              <input type="number" id="wiz-dn-replicas" class="form-control" value="2" min="1" max="64" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>CPU Request / Limit</label>
+              <input type="text" id="wiz-dn-cpu" class="form-control" value="2000m / 4000m" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>Memory Request / Limit</label>
+              <input type="text" id="wiz-dn-mem" class="form-control" value="4Gi / 8Gi" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>DFS Data Disk Size</label>
+              <input type="text" id="wiz-dn-disk" class="form-control" value="50Gi" oninput="updateWizardYAML()">
+            </div>
+          </div>
+
+          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--accent);">ComputeNode Configuration (Stateless)</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Replicas</label>
+              <input type="number" id="wiz-cn-replicas" class="form-control" value="1" min="0" max="64" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>CPU Request / Limit</label>
+              <input type="text" id="wiz-cn-cpu" class="form-control" value="1000m / 2000m" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>Memory Request / Limit</label>
+              <input type="text" id="wiz-cn-mem" class="form-control" value="2Gi / 4Gi" oninput="updateWizardYAML()">
+            </div>
+          </div>
+        </div>
+
+        <!-- Standalone Specs -->
+        <div id="wiz-standalone-specs" style="display: none;">
+          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px; color: var(--primary);">Standalone Specifications</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>CPU Request / Limit</label>
+              <input type="text" id="wiz-single-cpu" class="form-control" value="1000m / 2000m" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>Memory Request / Limit</label>
+              <input type="text" id="wiz-single-mem" class="form-control" value="2Gi / 4Gi" oninput="updateWizardYAML()">
+            </div>
+            <div class="form-group">
+              <label>Storage Size</label>
+              <input type="text" id="wiz-single-disk" class="form-control" value="20Gi" oninput="updateWizardYAML()">
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: YAML Preview & Submit -->
+      <div class="card">
+        <div class="card-title">
+          <span>Kubernetes Manifest Preview</span>
+          <div>
+            <label style="font-size: 12px; cursor: pointer; color: var(--text-muted);">
+              <input type="checkbox" id="wiz-edit-yaml" onchange="toggleDirectYamlEdit()"> Direct YAML Edit
+            </label>
+          </div>
+        </div>
+        <textarea id="wiz-yaml-editor" class="yaml-preview" spellcheck="false"></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+          <button class="btn btn-secondary" onclick="copyWizardYAML()">Copy YAML</button>
+          <button class="btn btn-primary" onclick="submitCreateCluster()">🚀 Deploy Cluster</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Operations -->
   <div id="tab-operations" class="tab-pane" style="display: none;">
     <div class="card">
       <div class="card-title">
         <span>Day-2 Operations Flow Execution</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary btn-sm" onclick="triggerRollingRestartActionPrompt()">Rolling Restart</button>
+          <button class="btn btn-secondary btn-sm" onclick="triggerRebalanceActionPrompt()">Rebalance Chunks</button>
+          <button class="btn btn-secondary btn-sm" onclick="triggerReloadLicenseActionPrompt()">Reload License</button>
+        </div>
       </div>
       <table>
         <thead>
@@ -335,21 +562,22 @@
             <th>Progress</th>
             <th>Message</th>
             <th>Age</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="operations-table-body">
-          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading operations...</td></tr>
+          <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading operations...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- TAB 3: Backups & Restores -->
+  <!-- TAB 4: Backups & Restores -->
   <div id="tab-backups" class="tab-pane" style="display: none;">
     <div class="card">
       <div class="card-title">
         <span>DFS Database Backups</span>
-        <button class="btn btn-primary" onclick="openBackupModal()">+ New Backup</button>
+        <button class="btn btn-primary btn-sm" onclick="openBackupModal()">+ New Backup</button>
       </div>
       <table>
         <thead>
@@ -362,10 +590,11 @@
             <th>Schedule (Cron)</th>
             <th>Next Run</th>
             <th>Last Backup</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="backups-table-body">
-          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading backups...</td></tr>
+          <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading backups...</td></tr>
         </tbody>
       </table>
     </div>
@@ -373,7 +602,7 @@
     <div class="card">
       <div class="card-title">
         <span>Restore Executions</span>
-        <button class="btn btn-secondary" onclick="openRestoreModal()">+ Trigger Restore</button>
+        <button class="btn btn-secondary btn-sm" onclick="openRestoreModal()">+ Trigger Restore</button>
       </div>
       <table>
         <thead>
@@ -385,12 +614,80 @@
             <th>Phase</th>
             <th>Completion</th>
             <th>Message</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="restores-table-body">
-          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading restores...</td></tr>
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading restores...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- TAB 5: Storage & Namespaces -->
+  <div id="tab-storage" class="tab-pane" style="display: none;">
+    <div class="card">
+      <div class="card-title">
+        <span>Kubernetes StorageClasses</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Provisioner</th>
+            <th>Default StorageClass</th>
+          </tr>
+        </thead>
+        <tbody id="storageclasses-table-body">
+          <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Loading storage classes...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Kubernetes Namespaces</span>
+      </div>
+      <div id="namespaces-list-container" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+    </div>
+  </div>
+
+  <!-- Modal: Pod Logs Viewer -->
+  <div id="modal-logs" class="modal-overlay">
+    <div class="modal modal-lg">
+      <div class="modal-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>Container Logs: <span id="log-node-title" style="color: var(--primary);"></span></span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="log-taillines" class="form-control" style="width: auto; padding: 4px 8px; font-size: 11px;" onchange="fetchNodeLogs()">
+            <option value="100">Tail 100 lines</option>
+            <option value="200">Tail 200 lines</option>
+            <option value="500">Tail 500 lines</option>
+            <option value="1000">Tail 1000 lines</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="fetchNodeLogs()">Refresh</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy</button>
+          <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-logs')">✕</button>
+        </div>
+      </div>
+      <div id="terminal-logs-content" class="terminal-container">Loading logs...</div>
+    </div>
+  </div>
+
+  <!-- Modal: Delete Cluster Confirmation -->
+  <div id="modal-delete-cluster" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-title" style="color: var(--danger);">Confirm Delete Cluster</div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Warning: Deleting cluster <strong id="delete-cluster-name-display" style="color: #fff;"></strong> will remove the DolphinDB cluster CR and terminate all its managed pods.
+      </p>
+      <div class="form-group">
+        <label>Please type the cluster name to confirm:</label>
+        <input type="text" id="delete-confirm-input" class="form-control" placeholder="">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('modal-delete-cluster')">Cancel</button>
+        <button id="btn-confirm-delete" class="btn btn-danger" onclick="submitDeleteCluster()">Delete Cluster</button>
+      </div>
     </div>
   </div>
 
@@ -443,11 +740,15 @@
       <div class="modal-title">New DFS Backup</div>
       <div class="form-group">
         <label>Target Cluster</label>
-        <input type="text" id="backup-cluster" class="form-control" placeholder="e.g. ddb-cluster">
+        <select id="backup-cluster-select" class="form-control"></select>
       </div>
       <div class="form-group">
         <label>Databases (comma separated)</label>
-        <input type="text" id="backup-dbs" class="form-control" placeholder="e.g. dfs://k8sScaleTestDB">
+        <input type="text" id="backup-dbs" class="form-control" placeholder="e.g. dfs://prodDB2026">
+      </div>
+      <div class="form-group">
+        <label>Tables (Optional, comma separated)</label>
+        <input type="text" id="backup-tables" class="form-control" placeholder="Leave empty for all tables">
       </div>
       <div class="form-group">
         <label>Schedule (Optional Cron, e.g. 0 2 * * * for 2 AM daily)</label>
@@ -455,7 +756,15 @@
       </div>
       <div class="form-group">
         <label>Destination Path (Optional)</label>
-        <input type="text" id="backup-path" class="form-control" placeholder="Defaults to /data/ddb/backup/<cluster>/<name>">
+        <input type="text" id="backup-path" class="form-control" placeholder="Defaults to /tmp/backup/<cluster>/<name>">
+      </div>
+      <div class="form-row">
+        <label style="font-size: 12px; color: var(--text-muted); cursor: pointer;">
+          <input type="checkbox" id="backup-parallel" checked> Parallel Export
+        </label>
+        <label style="font-size: 12px; color: var(--text-muted); cursor: pointer; margin-left: 16px;">
+          <input type="checkbox" id="backup-snapshot" checked> Snapshot Isolation
+        </label>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeModal('modal-backup')">Cancel</button>
@@ -470,19 +779,23 @@
       <div class="modal-title">Trigger DFS Restore</div>
       <div class="form-group">
         <label>Target Cluster</label>
-        <input type="text" id="restore-cluster" class="form-control" placeholder="e.g. ddb-cluster">
+        <select id="restore-cluster-select" class="form-control"></select>
       </div>
       <div class="form-group">
-        <label>Source Backup Name</label>
-        <input type="text" id="restore-backup-name" class="form-control" placeholder="e.g. backup-ddb-cluster-12345">
+        <label>Source Backup Name (Optional if path specified)</label>
+        <input type="text" id="restore-backup-name" class="form-control" placeholder="e.g. prod-backup-db2026">
       </div>
       <div class="form-group">
-        <label>Source Database URL</label>
-        <input type="text" id="restore-database" class="form-control" placeholder="e.g. dfs://k8sScaleTestDB">
+        <label>Backup Path (Optional if backup name specified)</label>
+        <input type="text" id="restore-backup-path" class="form-control" placeholder="e.g. /tmp/backup/ddb-cluster/prod-backup-db2026">
+      </div>
+      <div class="form-group">
+        <label>Source Database URL *</label>
+        <input type="text" id="restore-database" class="form-control" placeholder="e.g. dfs://prodDB2026">
       </div>
       <div class="form-group">
         <label>Target Database URL (Optional override)</label>
-        <input type="text" id="restore-target-db" class="form-control" placeholder="e.g. dfs://k8sScaleTestDB_restored">
+        <input type="text" id="restore-target-db" class="form-control" placeholder="e.g. dfs://prodDB2026_restored">
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeModal('modal-restore')">Cancel</button>
@@ -495,18 +808,116 @@
     let currentClusters = [];
     let selectedCluster = null;
     let selectedClusterDetail = null;
+    let currentLogNode = null;
+    let autoRefreshTimer = null;
+    let isAutoRefresh = true;
+
+    let availableNamespaces = [];
+    let availableStorageClasses = [];
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
-      event.target.classList.add('active');
-      document.getElementById('tab-' + tabId).style.display = 'block';
+
+      const btn = document.getElementById('nav-' + tabId);
+      if (btn) btn.classList.add('active');
+      const pane = document.getElementById('tab-' + tabId);
+      if (pane) pane.style.display = 'block';
+
+      if (tabId === 'wizard') {
+        updateWizardYAML();
+      }
     }
 
-    function openModal(id) { document.getElementById(id).classList.add('open'); }
-    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+    function toggleAutoRefresh() {
+      isAutoRefresh = !isAutoRefresh;
+      const badge = document.getElementById('auto-refresh-badge');
+      if (isAutoRefresh) {
+        badge.className = 'badge badge-success';
+        badge.textContent = 'Auto-Refresh 5s';
+        startAutoRefresh();
+      } else {
+        badge.className = 'badge badge-warning';
+        badge.textContent = 'Paused';
+        clearInterval(autoRefreshTimer);
+      }
+    }
 
-    async function fetchDashboardData() {
+    function startAutoRefresh() {
+      clearInterval(autoRefreshTimer);
+      autoRefreshTimer = setInterval(() => {
+        if (isAutoRefresh) {
+          fetchDashboardData(true);
+        }
+      }, 5000);
+    }
+
+    async function fetchMetadata() {
+      try {
+        const [nsRes, scRes] = await Promise.all([
+          fetch('/api/namespaces'),
+          fetch('/api/storageclasses')
+        ]);
+        if (nsRes.ok) {
+          availableNamespaces = await nsRes.json();
+          renderNamespaces();
+        }
+        if (scRes.ok) {
+          availableStorageClasses = await scRes.json();
+          renderStorageClasses();
+        }
+      } catch (e) {
+        console.error('Failed to load metadata', e);
+      }
+    }
+
+    function renderNamespaces() {
+      const select = document.getElementById('wiz-namespace');
+      select.innerHTML = '';
+      availableNamespaces.forEach(ns => {
+        const opt = document.createElement('option');
+        opt.value = ns;
+        opt.textContent = ns;
+        if (ns === 'ddb-v2-test') opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      const container = document.getElementById('namespaces-list-container');
+      if (container) {
+        container.innerHTML = availableNamespaces.map(ns =>
+          `<span class="badge badge-info" style="font-size: 13px; padding: 4px 10px;">${ns}</span>`
+        ).join('');
+      }
+    }
+
+    function renderStorageClasses() {
+      const select = document.getElementById('wiz-storageclass');
+      select.innerHTML = '<option value="">(Cluster Default)</option>';
+      availableStorageClasses.forEach(sc => {
+        const opt = document.createElement('option');
+        opt.value = sc.name;
+        opt.textContent = `${sc.name} ${sc.isDefault ? '(default)' : ''}`;
+        if (sc.isDefault || sc.name === 'longhorn') opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      const tbody = document.getElementById('storageclasses-table-body');
+      if (tbody) {
+        if (availableStorageClasses.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No StorageClasses detected</td></tr>';
+        } else {
+          tbody.innerHTML = availableStorageClasses.map(sc => `
+            <tr>
+              <td><strong>${sc.name}</strong></td>
+              <td style="color: var(--text-muted);">${sc.provisioner}</td>
+              <td>${sc.isDefault ? '<span class="badge badge-success">DEFAULT</span>' : '<span style="color: var(--text-muted);">-</span>'}</td>
+            </tr>
+          `).join('');
+        }
+      }
+    }
+
+    async function fetchDashboardData(isBackground = false) {
       try {
         const [clustersRes, opsRes, backupsRes, restoresRes] = await Promise.all([
           fetch('/api/clusters'),
@@ -517,204 +928,733 @@
 
         if (clustersRes.ok) {
           currentClusters = await clustersRes.json();
-          renderClusters(currentClusters);
-        }
-        if (opsRes.ok) {
-          const ops = await opsRes.json();
-          renderOperations(ops);
-        }
-        if (backupsRes.ok) {
-          const backups = await backupsRes.json();
-          renderBackups(backups);
-        }
-        if (restoresRes.ok) {
-          const restores = await restoresRes.json();
-          renderRestores(restores);
+          renderClustersTable(currentClusters);
+          updateClusterSelects(currentClusters);
         }
 
+        if (opsRes.ok) {
+          const ops = await opsRes.json();
+          renderOperationsTable(ops);
+        }
+
+        if (backupsRes.ok) {
+          const backups = await backupsRes.json();
+          renderBackupsTable(backups);
+        }
+
+        if (restoresRes.ok) {
+          const restores = await restoresRes.json();
+          renderRestoresTable(restores);
+        }
+
+        updateStats();
+
         if (selectedCluster) {
-          inspectCluster(selectedCluster.namespace, selectedCluster.name, false);
+          fetchClusterDetail(selectedCluster.namespace, selectedCluster.name, true);
         }
       } catch (err) {
-        console.error("Dashboard refresh error:", err);
+        console.error("Dashboard fetch error:", err);
       }
     }
 
-    function renderClusters(clusters) {
-      document.getElementById('stat-clusters').textContent = clusters.length;
-      let totalReady = 0;
-      let totalDesired = 0;
-      clusters.forEach(c => {
-        totalReady += (c.readyNodes || 0);
-        totalDesired += (c.desiredNodes || 0);
-      });
-      document.getElementById('stat-nodes').textContent = `${totalReady} / ${totalDesired}`;
+    function updateClusterSelects(clusters) {
+      const backupSel = document.getElementById('backup-cluster-select');
+      const restoreSel = document.getElementById('restore-cluster-select');
+      if (backupSel) {
+        backupSel.innerHTML = clusters.map(c => `<option value="${c.name}">${c.name} (${c.namespace})</option>`).join('');
+      }
+      if (restoreSel) {
+        restoreSel.innerHTML = clusters.map(c => `<option value="${c.name}">${c.name} (${c.namespace})</option>`).join('');
+      }
+    }
 
+    function updateStats() {
+      document.getElementById('stat-clusters').textContent = currentClusters.length;
+      let ready = 0, desired = 0;
+      currentClusters.forEach(c => {
+        ready += (c.readyNodes || 0);
+        desired += (c.desiredNodes || 0);
+      });
+      document.getElementById('stat-nodes').textContent = `${ready} / ${desired}`;
+    }
+
+    function renderClustersTable(clusters) {
       const tbody = document.getElementById('clusters-table-body');
       if (clusters.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No DolphinDB clusters found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No DolphinDB clusters found. Click "+ Create Cluster" to deploy.</td></tr>';
         return;
       }
 
       tbody.innerHTML = clusters.map(c => {
-        const healthBadge = c.health === 'Healthy' 
-          ? '<span class="badge badge-success">Healthy</span>' 
-          : (c.health === 'Degraded' ? '<span class="badge badge-warning">Degraded</span>' : '<span class="badge badge-danger">' + (c.health || 'Unknown') + '</span>');
-        
+        const healthBadge = c.health === 'Ready'
+          ? '<span class="badge badge-success">Ready</span>'
+          : '<span class="badge badge-warning">' + c.health + '</span>';
+        const modeBadge = c.mode === 'cluster'
+          ? '<span class="badge badge-info">Cluster</span>'
+          : '<span class="badge badge-purple">Standalone</span>';
+
         return `
           <tr>
             <td><strong>${c.name}</strong></td>
             <td>${c.namespace}</td>
-            <td><span class="badge badge-info">${c.mode}</span></td>
+            <td>${modeBadge}</td>
             <td>${c.version}</td>
             <td>${healthBadge}</td>
-            <td>${c.readyNodes} / ${c.desiredNodes} (DN: ${c.dataNodes}, CN: ${c.computeNodes || 0})</td>
+            <td>${c.readyNodes} / ${c.desiredNodes}</td>
             <td>${c.dfsReplicationFactor}</td>
             <td>
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="inspectCluster('${c.namespace}', '${c.name}', true)">View Topology</button>
+              <button class="btn btn-secondary btn-sm" onclick="selectCluster('${c.namespace}', '${c.name}')">Topology</button>
+              <button class="btn btn-secondary btn-sm" onclick="promptScale('${c.namespace}', '${c.name}', ${c.dataNodes}, ${c.computeNodes}, ${c.dfsReplicationFactor})">Scale</button>
+              <button class="btn btn-secondary btn-sm" onclick="promptRestart('${c.namespace}', '${c.name}')">Restart</button>
+              <button class="btn btn-danger btn-sm" onclick="promptDeleteCluster('${c.namespace}', '${c.name}')">Delete</button>
             </td>
           </tr>
         `;
       }).join('');
     }
 
-    async function inspectCluster(namespace, name, scroll) {
+    async function selectCluster(namespace, name) {
+      selectedCluster = { namespace, name };
+      await fetchClusterDetail(namespace, name);
+      document.getElementById('cluster-topology-card').style.display = 'block';
+      document.getElementById('cluster-topology-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function fetchClusterDetail(namespace, name, silent = false) {
       try {
         const res = await fetch(`/api/clusters/${namespace}/${name}`);
         if (!res.ok) return;
         selectedClusterDetail = await res.json();
-        selectedCluster = { namespace, name };
-
-        document.getElementById('topology-title').textContent = `Topology: ${name} (${namespace}) - Mode: ${selectedClusterDetail.cluster.spec.mode}`;
-        document.getElementById('cluster-topology-card').style.display = 'block';
-
-        const container = document.getElementById('topology-nodes-container');
-        container.innerHTML = selectedClusterDetail.nodes.map(n => {
-          const isReady = n.ready;
-          const readyBadge = isReady ? '<span class="badge badge-success">Ready (1/1)</span>' : '<span class="badge badge-danger">Not Ready</span>';
-          let roleBadge = '<span class="badge badge-info">' + n.role + '</span>';
-          if (n.role === 'controller') roleBadge = '<span class="badge badge-purple">Controller</span>';
-          if (n.role === 'computenode') roleBadge = '<span class="badge badge-warning">ComputeNode</span>';
-          if (n.role === 'datanode') roleBadge = '<span class="badge badge-info">DataNode (' + (n.chunksCount || 0) + ' chunks)</span>';
-          if (n.role === 'single') roleBadge = '<span class="badge badge-purple">Single</span>';
-
-          return `
-            <div class="node-card ${isReady ? 'ready' : 'not-ready'}">
-              <div class="node-name">
-                <span>${n.name}</span>
-                ${roleBadge}
-              </div>
-              <div class="node-meta">
-                <div>Status: ${readyBadge}</div>
-                <div>Pod IP: ${n.podIP || 'Pending'} : ${n.port}</div>
-                <div>Host IP: ${n.hostIP || 'Pending'}</div>
-                <div>Probe: ${isReady ? 'isNodeInitialized = 1 (Ready)' : 'Recovering/Initializing'}</div>
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        if (scroll) {
-          document.getElementById('cluster-topology-card').scrollIntoView({ behavior: 'smooth' });
-        }
+        renderClusterTopology(selectedClusterDetail);
       } catch (err) {
-        console.error("Failed to inspect cluster:", err);
+        if (!silent) console.error(err);
       }
     }
 
-    function renderOperations(ops) {
-      let activeCount = ops.filter(o => o.status && (o.status.phase === 'Running' || o.status.phase === 'Pending')).length;
-      document.getElementById('stat-ops').textContent = activeCount;
+    function renderClusterTopology(detail) {
+      const c = detail.cluster;
+      document.getElementById('topology-title').textContent = `${c.metadata.name} (${c.metadata.namespace}) - ${c.spec.mode.toUpperCase()}`;
 
+      const container = document.getElementById('topology-nodes-container');
+      if (!detail.nodes || detail.nodes.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); padding: 12px;">No active node pods reported.</div>';
+        return;
+      }
+
+      container.innerHTML = detail.nodes.map(n => {
+        const readyClass = n.ready ? 'ready' : 'not-ready';
+        const readyBadge = n.ready
+          ? '<span class="badge badge-success">Ready</span>'
+          : '<span class="badge badge-danger">Not Ready</span>';
+        const roleBadge = '<span class="badge badge-info">' + n.role.toUpperCase() + '</span>';
+
+        return `
+          <div class="node-card ${readyClass}">
+            <div>
+              <div class="node-name">
+                <span>${n.name}</span>
+                ${readyBadge}
+              </div>
+              <div class="node-meta">
+                Role: ${roleBadge}<br>
+                Pod IP: <code>${n.podIP || '-'}</code><br>
+                Host IP: <code>${n.hostIP || '-'}</code> (Port ${n.port})<br>
+                DDB State: <strong>${n.ddbState === 1 ? '1 (Alive)' : '0 (Offline)'}</strong><br>
+                DFS Chunks: <strong>${n.chunksCount}</strong>
+              </div>
+            </div>
+            <div class="node-actions">
+              <button class="btn btn-secondary btn-sm" onclick="openNodeLogs('${selectedCluster.namespace}', '${n.name}')">Logs</button>
+              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'restart')">Restart</button>
+              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'stop')">Stop</button>
+              <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'start')">Start</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function executeNodeAction(namespace, nodeName, action) {
+      if (!confirm(`Confirm to ${action.toUpperCase()} node ${nodeName}?`)) return;
+      try {
+        const res = await fetch(`/api/nodes/${namespace}/${nodeName}/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        });
+        if (res.ok) {
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Action failed: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    function openNodeLogs(namespace, nodeName) {
+      currentLogNode = { namespace, nodeName };
+      document.getElementById('log-node-title').textContent = `${nodeName} (${namespace})`;
+      document.getElementById('modal-logs').classList.add('open');
+      fetchNodeLogs();
+    }
+
+    async function fetchNodeLogs() {
+      if (!currentLogNode) return;
+      const tailLines = document.getElementById('log-taillines').value;
+      const content = document.getElementById('terminal-logs-content');
+      try {
+        const res = await fetch(`/api/nodes/${currentLogNode.namespace}/${currentLogNode.nodeName}/logs?tailLines=${tailLines}`);
+        if (res.ok) {
+          const data = await res.json();
+          content.textContent = data.logs || "(No logs returned)";
+          content.scrollTop = content.scrollHeight;
+        } else {
+          const err = await res.json();
+          content.textContent = 'Error fetching logs: ' + (err.error || res.statusText);
+        }
+      } catch (e) {
+        content.textContent = 'Connection error: ' + e;
+      }
+    }
+
+    function copyLogs() {
+      const text = document.getElementById('terminal-logs-content').textContent;
+      navigator.clipboard.writeText(text).then(() => alert('Logs copied to clipboard'));
+    }
+
+    function promptDeleteCluster(namespace, name) {
+      document.getElementById('delete-cluster-name-display').textContent = `${name} (${namespace})`;
+      document.getElementById('delete-confirm-input').value = '';
+      document.getElementById('delete-confirm-input').dataset.targetNamespace = namespace;
+      document.getElementById('delete-confirm-input').dataset.targetName = name;
+      document.getElementById('modal-delete-cluster').classList.add('open');
+    }
+
+    function openDeleteClusterModal() {
+      if (!selectedCluster) return;
+      promptDeleteCluster(selectedCluster.namespace, selectedCluster.name);
+    }
+
+    async function submitDeleteCluster() {
+      const input = document.getElementById('delete-confirm-input');
+      const namespace = input.dataset.targetNamespace;
+      const name = input.dataset.targetName;
+      if (input.value.trim() !== name) {
+        alert('Please enter the exact cluster name to confirm deletion.');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/clusters/${namespace}/${name}`, { method: 'DELETE' });
+        if (res.ok) {
+          closeModal('modal-delete-cluster');
+          selectedCluster = null;
+          document.getElementById('cluster-topology-card').style.display = 'none';
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Delete failed: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    // Wizard logic
+    function onModeChange() {
+      const mode = document.getElementById('wiz-mode').value;
+      if (mode === 'standalone') {
+        document.getElementById('wiz-cluster-specs').style.display = 'none';
+        document.getElementById('wiz-standalone-specs').style.display = 'block';
+      } else {
+        document.getElementById('wiz-cluster-specs').style.display = 'block';
+        document.getElementById('wiz-standalone-specs').style.display = 'none';
+      }
+      updateWizardYAML();
+    }
+
+    function onVersionChange() {
+      const ver = document.getElementById('wiz-version').value;
+      document.getElementById('wiz-image').value = `192.168.100.250/dolphindb/dolphindb:v${ver}`;
+      updateWizardYAML();
+    }
+
+    function updateWizardYAML() {
+      if (document.getElementById('wiz-edit-yaml').checked) return;
+
+      const name = document.getElementById('wiz-name').value.trim() || 'ddb-cluster';
+      const ns = document.getElementById('wiz-namespace').value || 'default';
+      const mode = document.getElementById('wiz-mode').value;
+      const version = document.getElementById('wiz-version').value;
+      const image = document.getElementById('wiz-image').value.trim();
+      const sc = document.getElementById('wiz-storageclass').value;
+
+      let yamlText = `apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ${name}
+  namespace: ${ns}
+spec:
+  mode: "${mode}"
+  version: "${version}"
+  image: "${image}"\n`;
+
+      if (mode === 'standalone') {
+        const cpu = document.getElementById('wiz-single-cpu').value.split('/');
+        const mem = document.getElementById('wiz-single-mem').value.split('/');
+        const disk = document.getElementById('wiz-single-disk').value.trim();
+
+        yamlText += `  standalone:
+    port: 8848
+    resources:
+      requests:
+        cpu: "${cpu[0] ? cpu[0].trim() : '1000m'}"
+        memory: "${mem[0] ? mem[0].trim() : '2Gi'}"
+      limits:
+        cpu: "${cpu[1] ? cpu[1].trim() : '2000m'}"
+        memory: "${mem[1] ? mem[1].trim() : '4Gi'}"
+    storage:
+      dataVolumeSize: "${disk || '20Gi'}"
+      metaVolumeSize: "10Gi"
+      dataVolumeCount: 1\n`;
+        if (sc) {
+          yamlText += `      storageClassName: "${sc}"\n`;
+        }
+      } else {
+        const ctlRep = document.getElementById('wiz-ctl-replicas').value;
+        const ctlCpu = document.getElementById('wiz-ctl-cpu').value.split('/');
+        const ctlMem = document.getElementById('wiz-ctl-mem').value.split('/');
+        const ctlDisk = document.getElementById('wiz-ctl-disk').value.trim();
+
+        yamlText += `  controller:
+    replicas: ${ctlRep}
+    port: 8900
+    resources:
+      requests:
+        cpu: "${ctlCpu[0] ? ctlCpu[0].trim() : '1000m'}"
+        memory: "${ctlMem[0] ? ctlMem[0].trim() : '2Gi'}"
+      limits:
+        cpu: "${ctlCpu[1] ? ctlCpu[1].trim() : '2000m'}"
+        memory: "${ctlMem[1] ? ctlMem[1].trim() : '4Gi'}"
+    storage:
+      metaVolumeSize: "${ctlDisk || '10Gi'}"
+      dataVolumeSize: "${ctlDisk || '10Gi'}"
+      dataVolumeCount: 1\n`;
+        if (sc) yamlText += `      storageClassName: "${sc}"\n`;
+
+        const dnRep = document.getElementById('wiz-dn-replicas').value || 2;
+        const dnCpu = document.getElementById('wiz-dn-cpu').value.split('/');
+        const dnMem = document.getElementById('wiz-dn-mem').value.split('/');
+        const dnDisk = document.getElementById('wiz-dn-disk').value.trim();
+
+        yamlText += `  dataNode:
+    replicas: ${dnRep}
+    port: 8901
+    resources:
+      requests:
+        cpu: "${dnCpu[0] ? dnCpu[0].trim() : '2000m'}"
+        memory: "${dnMem[0] ? dnMem[0].trim() : '4Gi'}"
+      limits:
+        cpu: "${dnCpu[1] ? dnCpu[1].trim() : '4000m'}"
+        memory: "${dnMem[1] ? dnMem[1].trim() : '8Gi'}"
+    storage:
+      dataVolumeSize: "${dnDisk || '50Gi'}"
+      metaVolumeSize: "20Gi"
+      dataVolumeCount: 1\n`;
+        if (sc) yamlText += `      storageClassName: "${sc}"\n`;
+
+        const cnRep = parseInt(document.getElementById('wiz-cn-replicas').value || '0', 10);
+        if (cnRep > 0) {
+          const cnCpu = document.getElementById('wiz-cn-cpu').value.split('/');
+          const cnMem = document.getElementById('wiz-cn-mem').value.split('/');
+          yamlText += `  computeNode:
+    replicas: ${cnRep}
+    port: 8902
+    resources:
+      requests:
+        cpu: "${cnCpu[0] ? cnCpu[0].trim() : '1000m'}"
+        memory: "${cnMem[0] ? cnMem[0].trim() : '2Gi'}"
+      limits:
+        cpu: "${cnCpu[1] ? cnCpu[1].trim() : '2000m'}"
+        memory: "${cnMem[1] ? cnMem[1].trim() : '4Gi'}"\n`;
+        }
+      }
+
+      document.getElementById('wiz-yaml-editor').value = yamlText;
+    }
+
+    function toggleDirectYamlEdit() {
+      const isCustom = document.getElementById('wiz-edit-yaml').checked;
+      const editor = document.getElementById('wiz-yaml-editor');
+      if (isCustom) {
+        editor.style.borderColor = 'var(--primary)';
+      } else {
+        editor.style.borderColor = 'var(--card-border)';
+        updateWizardYAML();
+      }
+    }
+
+    function copyWizardYAML() {
+      const yaml = document.getElementById('wiz-yaml-editor').value;
+      navigator.clipboard.writeText(yaml).then(() => alert('YAML copied to clipboard'));
+    }
+
+    async function submitCreateCluster() {
+      const yaml = document.getElementById('wiz-yaml-editor').value;
+      try {
+        const res = await fetch('/api/clusters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yaml })
+        });
+        if (res.ok) {
+          const c = await res.json();
+          alert(`Cluster ${c.metadata.name} created successfully!`);
+          switchTab('clusters');
+          fetchDashboardData();
+          selectCluster(c.metadata.namespace, c.metadata.name);
+        } else {
+          const err = await res.json();
+          alert('Failed to deploy cluster: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Network request failed: ' + e);
+      }
+    }
+
+    // Modal triggers & handlers
+    function promptScale(namespace, name, dataNodes, computeNodes, repl) {
+      document.getElementById('scale-cluster-name').textContent = `${name} (${namespace})`;
+      document.getElementById('scale-datanodes').value = dataNodes;
+      document.getElementById('scale-computenodes').value = computeNodes;
+      document.getElementById('scale-repl-factor').textContent = repl;
+      document.getElementById('scale-alert').style.display = 'none';
+
+      selectedCluster = { namespace, name, repl };
+      document.getElementById('modal-scale').classList.add('open');
+    }
+
+    function openScaleModal() {
+      if (!selectedClusterDetail) return;
+      const c = selectedClusterDetail.cluster;
+      const dn = c.spec.dataNode ? c.spec.dataNode.replicas : 0;
+      const cn = c.spec.computeNode ? c.spec.computeNode.replicas : 0;
+      const repl = 2;
+      promptScale(c.metadata.namespace, c.metadata.name, dn, cn, repl);
+    }
+
+    async function submitScale() {
+      const dn = parseInt(document.getElementById('scale-datanodes').value, 10);
+      const cn = parseInt(document.getElementById('scale-computenodes').value, 10);
+      const alertBox = document.getElementById('scale-alert');
+
+      if (dn < selectedCluster.repl) {
+        alertBox.textContent = `Error: DataNodes cannot be less than replication factor (${selectedCluster.repl}).`;
+        alertBox.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/scale`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataNodes: dn, computeNodes: cn })
+        });
+
+        if (res.ok) {
+          closeModal('modal-scale');
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alertBox.textContent = err.error || 'Failed to scale';
+          alertBox.style.display = 'block';
+        }
+      } catch (e) {
+        alertBox.textContent = e.message;
+        alertBox.style.display = 'block';
+      }
+    }
+
+    function promptRestart(namespace, name) {
+      document.getElementById('restart-cluster-name').textContent = `${name} (${namespace})`;
+      selectedCluster = { namespace, name };
+      document.getElementById('modal-restart').classList.add('open');
+    }
+
+    function openRestartModal() {
+      if (!selectedCluster) return;
+      promptRestart(selectedCluster.namespace, selectedCluster.name);
+    }
+
+    async function submitRollingRestart() {
+      const nodeType = document.getElementById('restart-node-type').value;
+      try {
+        const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/restart`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodeType })
+        });
+        if (res.ok) {
+          closeModal('modal-restart');
+          alert('Rolling restart DAG initiated!');
+          switchTab('operations');
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Failed to initiate restart: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    async function triggerRebalanceAction() {
+      if (!selectedCluster) return;
+      if (!confirm(`Trigger chunk rebalance DAG for ${selectedCluster.name}?`)) return;
+      try {
+        const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/rebalance`, { method: 'POST' });
+        if (res.ok) {
+          alert('Chunk rebalance DAG initiated!');
+          switchTab('operations');
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Rebalance failed: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    async function triggerReloadLicenseAction() {
+      if (!selectedCluster) return;
+      if (!confirm(`Reload license across all nodes for ${selectedCluster.name}?`)) return;
+      try {
+        const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/reload-license`, { method: 'POST' });
+        if (res.ok) {
+          alert('License reload initiated!');
+          switchTab('operations');
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Reload license failed: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    function triggerRollingRestartActionPrompt() {
+      if (currentClusters.length === 0) return;
+      const c = currentClusters[0];
+      promptRestart(c.namespace, c.name);
+    }
+
+    function triggerRebalanceActionPrompt() {
+      if (currentClusters.length === 0) return;
+      selectedCluster = currentClusters[0];
+      triggerRebalanceAction();
+    }
+
+    function triggerReloadLicenseActionPrompt() {
+      if (currentClusters.length === 0) return;
+      selectedCluster = currentClusters[0];
+      triggerReloadLicenseAction();
+    }
+
+    function openBackupModal() {
+      document.getElementById('modal-backup').classList.add('open');
+    }
+
+    async function submitBackup() {
+      const cluster = document.getElementById('backup-cluster-select').value;
+      const dbs = document.getElementById('backup-dbs').value.split(',').map(s => s.trim()).filter(Boolean);
+      const tables = document.getElementById('backup-tables').value.split(',').map(s => s.trim()).filter(Boolean);
+      const schedule = document.getElementById('backup-schedule').value.trim();
+      const path = document.getElementById('backup-path').value.trim();
+      const parallel = document.getElementById('backup-parallel').checked;
+      const snapshot = document.getElementById('backup-snapshot').checked;
+
+      if (!cluster || dbs.length === 0) {
+        alert('Cluster and at least one database are required');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/backups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cluster, databases: dbs, tables, schedule, backupPath: path, parallel, snapshot })
+        });
+        if (res.ok) {
+          closeModal('modal-backup');
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Backup creation failed: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    function openRestoreModal(clusterName = '', dbName = '') {
+      if (clusterName) {
+        document.getElementById('restore-cluster-select').value = clusterName;
+      }
+      if (dbName) {
+        document.getElementById('restore-database').value = dbName;
+      }
+      document.getElementById('modal-restore').classList.add('open');
+    }
+
+    async function submitRestore() {
+      const cluster = document.getElementById('restore-cluster-select').value;
+      const backupName = document.getElementById('restore-backup-name').value.trim();
+      const backupPath = document.getElementById('restore-backup-path').value.trim();
+      const database = document.getElementById('restore-database').value.trim();
+      const targetDatabase = document.getElementById('restore-target-db').value.trim();
+
+      if (!cluster || !database) {
+        alert('Cluster and database are required');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/restores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cluster, backupName, backupPath, database, targetDatabase })
+        });
+        if (res.ok) {
+          closeModal('modal-restore');
+          fetchDashboardData();
+        } else {
+          const err = await res.json();
+          alert('Restore execution failed: ' + (err.error || res.statusText));
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    function renderOperationsTable(ops) {
+      document.getElementById('stat-ops').textContent = ops.filter(o => o.status && o.status.phase === 'Running').length;
       const tbody = document.getElementById('operations-table-body');
       if (ops.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No operations recorded.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No operations recorded.</td></tr>';
         return;
       }
 
       tbody.innerHTML = ops.map(o => {
         const phase = o.status ? o.status.phase : 'Pending';
-        let badge = '<span class="badge badge-info">' + phase + '</span>';
-        if (phase === 'Succeeded') badge = '<span class="badge badge-success">Succeeded</span>';
-        if (phase === 'Failed') badge = '<span class="badge badge-danger">Failed</span>';
-        if (phase === 'Running') badge = '<span class="badge badge-warning">Running</span>';
+        let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
+        if (phase === 'Succeeded') phaseBadge = '<span class="badge badge-success">Succeeded</span>';
+        if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
 
+        const progress = o.status ? (o.status.progress || 0) : 0;
         const step = o.status ? (o.status.currentStep || '-') : '-';
-        const prog = o.status ? (o.status.progress || '0%') : '0%';
         const msg = o.status ? (o.status.message || '') : '';
-        const age = o.metadata ? new Date(o.metadata.creationTimestamp).toLocaleTimeString() : '-';
+        const age = o.metadata.creationTimestamp ? formatAge(new Date(o.metadata.creationTimestamp)) : '-';
 
         return `
           <tr>
             <td><strong>${o.metadata.name}</strong></td>
             <td>${o.spec.cluster}</td>
             <td><span class="badge badge-purple">${o.spec.type}</span></td>
-            <td>${badge}</td>
-            <td>${step}</td>
+            <td>${phaseBadge}</td>
+            <td><code>${step}</code></td>
             <td>
-              <div class="progress-bar-container"><div class="progress-bar" style="width: ${prog};"></div></div>
-              <span>${prog}</span>
+              <div class="progress-bar-container">
+                <div class="progress-bar" style="width: ${progress}%;"></div>
+              </div>
+              ${progress}%
             </td>
-            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
+            <td style="color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
             <td>${age}</td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="deleteOperation('${o.metadata.namespace}', '${o.metadata.name}')">Delete</button>
+            </td>
           </tr>
         `;
       }).join('');
     }
 
-    function renderBackups(backups) {
-      let totalChunks = 0;
+    async function deleteOperation(namespace, name) {
+      if (!confirm(`Delete operation record ${name}?`)) return;
+      try {
+        await fetch(`/api/operations/${namespace}/${name}`, { method: 'DELETE' });
+        fetchDashboardData();
+      } catch (e) {}
+    }
+
+    function renderBackupsTable(backups) {
+      let chunks = 0;
       backups.forEach(b => {
-        if (b.status && b.status.totalChunks) totalChunks += b.status.totalChunks;
+        if (b.status && b.status.totalChunks) chunks += b.status.totalChunks;
       });
-      document.getElementById('stat-chunks').textContent = totalChunks;
+      document.getElementById('stat-chunks').textContent = chunks;
 
       const tbody = document.getElementById('backups-table-body');
       if (backups.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No backups found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No backups found.</td></tr>';
         return;
       }
 
       tbody.innerHTML = backups.map(b => {
         const phase = b.status ? b.status.phase : 'Pending';
-        let badge = '<span class="badge badge-info">' + phase + '</span>';
-        if (phase === 'Completed') badge = '<span class="badge badge-success">Completed</span>';
-        if (phase === 'Failed') badge = '<span class="badge badge-danger">Failed</span>';
+        let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
+        if (phase === 'Completed') phaseBadge = '<span class="badge badge-success">Completed</span>';
+        if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
 
-        const chunks = b.status ? (b.status.totalChunks || 0) : 0;
-        const sched = b.spec.schedule || 'One-off';
-        const nextRun = b.status && b.status.nextBackupTime ? new Date(b.status.nextBackupTime).toLocaleString() : '-';
-        const lastRun = b.status && b.status.lastBackupTime ? new Date(b.status.lastBackupTime).toLocaleString() : '-';
+        const dbs = (b.spec.databases || []).join(', ');
+        const total = b.status ? (b.status.totalChunks || 0) : 0;
+        const sched = b.spec.schedule ? `<code>${b.spec.schedule}</code>` : '-';
+        const next = b.status && b.status.nextBackupTime ? b.status.nextBackupTime.replace('T', ' ').replace('Z', '') : '-';
+        const last = b.status && b.status.lastBackupTime ? formatAge(new Date(b.status.lastBackupTime)) : '-';
 
         return `
           <tr>
             <td><strong>${b.metadata.name}</strong></td>
             <td>${b.spec.cluster}</td>
-            <td><code>${b.spec.databases.join(', ')}</code></td>
-            <td>${badge}</td>
-            <td>${chunks}</td>
-            <td><code>${sched}</code></td>
-            <td>${nextRun}</td>
-            <td>${lastRun}</td>
+            <td><code>${dbs}</code></td>
+            <td>${phaseBadge}</td>
+            <td>${total}</td>
+            <td>${sched}</td>
+            <td>${next}</td>
+            <td>${last}</td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="openRestoreModal('${b.spec.cluster}', '${dbs}')">Restore</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteBackup('${b.metadata.namespace}', '${b.metadata.name}')">Delete</button>
+            </td>
           </tr>
         `;
       }).join('');
     }
 
-    function renderRestores(restores) {
+    async function deleteBackup(namespace, name) {
+      if (!confirm(`Delete backup ${name}?`)) return;
+      try {
+        await fetch(`/api/backups/${namespace}/${name}`, { method: 'DELETE' });
+        fetchDashboardData();
+      } catch (e) {}
+    }
+
+    function renderRestoresTable(restores) {
       const tbody = document.getElementById('restores-table-body');
       if (restores.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No restores recorded.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No restores executed.</td></tr>';
         return;
       }
 
       tbody.innerHTML = restores.map(r => {
         const phase = r.status ? r.status.phase : 'Pending';
-        let badge = '<span class="badge badge-info">' + phase + '</span>';
-        if (phase === 'Completed') badge = '<span class="badge badge-success">Completed</span>';
-        if (phase === 'Failed') badge = '<span class="badge badge-danger">Failed</span>';
+        let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
+        if (phase === 'Completed') phaseBadge = '<span class="badge badge-success">Completed</span>';
+        if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
 
-        const completion = r.status && r.status.completionTime ? new Date(r.status.completionTime).toLocaleTimeString() : '-';
+        const completion = r.status && r.status.completionTime ? formatAge(new Date(r.status.completionTime)) : '-';
         const msg = r.status ? (r.status.message || '') : '';
 
         return `
@@ -723,177 +1663,47 @@
             <td>${r.spec.cluster}</td>
             <td><code>${r.spec.database}</code></td>
             <td><code>${r.spec.targetDatabase || r.spec.database}</code></td>
-            <td>${badge}</td>
+            <td>${phaseBadge}</td>
             <td>${completion}</td>
-            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
+            <td style="color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="deleteRestore('${r.metadata.namespace}', '${r.metadata.name}')">Delete</button>
+            </td>
           </tr>
         `;
       }).join('');
     }
 
-    function openScaleModal() {
-      if (!selectedClusterDetail) return;
-      const c = selectedClusterDetail.cluster;
-      document.getElementById('scale-cluster-name').textContent = c.metadata.name;
-      document.getElementById('scale-datanodes').value = c.spec.dataNodes;
-      document.getElementById('scale-computenodes').value = c.spec.computeNodes || 0;
-      const repl = c.spec.dfsReplicationFactor || 2;
-      document.getElementById('scale-repl-factor').textContent = repl;
-      document.getElementById('scale-alert').style.display = 'none';
-      openModal('modal-scale');
-    }
-
-    async function submitScale() {
-      if (!selectedClusterDetail) return;
-      const c = selectedClusterDetail.cluster;
-      const dn = parseInt(document.getElementById('scale-datanodes').value);
-      const cn = parseInt(document.getElementById('scale-computenodes').value);
-      const repl = c.spec.dfsReplicationFactor || 2;
-
-      if (dn < repl) {
-        const alert = document.getElementById('scale-alert');
-        alert.textContent = `Error: Cannot scale DataNodes to ${dn}: cluster dfsReplicationFactor is ${repl}. Minimum DataNodes is ${repl}.`;
-        alert.style.display = 'block';
-        return;
-      }
-
+    async function deleteRestore(namespace, name) {
+      if (!confirm(`Delete restore record ${name}?`)) return;
       try {
-        const res = await fetch(`/api/clusters/${c.metadata.namespace}/${c.metadata.name}/scale`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dataNodes: dn, computeNodes: cn })
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert("Scale failed: " + (data.error || res.statusText));
-          return;
-        }
-        closeModal('modal-scale');
+        await fetch(`/api/restores/${namespace}/${name}`, { method: 'DELETE' });
         fetchDashboardData();
-      } catch (err) {
-        alert("Scale failed: " + err.message);
-      }
+      } catch (e) {}
     }
 
-    function openRestartModal() {
-      if (!selectedClusterDetail) return;
-      document.getElementById('restart-cluster-name').textContent = selectedClusterDetail.cluster.metadata.name;
-      openModal('modal-restart');
+    function formatAge(date) {
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 60) return `${seconds}s ago`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
     }
 
-    async function submitRollingRestart() {
-      if (!selectedClusterDetail) return;
-      const c = selectedClusterDetail.cluster;
-      const nodeType = document.getElementById('restart-node-type').value;
-
-      try {
-        const res = await fetch(`/api/clusters/${c.metadata.namespace}/${c.metadata.name}/restart`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nodeType })
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert("Restart failed: " + (data.error || res.statusText));
-          return;
-        }
-        closeModal('modal-restart');
-        fetchDashboardData();
-      } catch (err) {
-        alert("Restart failed: " + err.message);
-      }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
     }
 
-    function openBackupModal() {
-      if (selectedClusterDetail) {
-        document.getElementById('backup-cluster').value = selectedClusterDetail.cluster.metadata.name;
-      }
-      openModal('modal-backup');
-    }
-
-    async function submitBackup() {
-      const cluster = document.getElementById('backup-cluster').value.trim();
-      const dbs = document.getElementById('backup-dbs').value.split(',').map(s => s.trim()).filter(Boolean);
-      const schedule = document.getElementById('backup-schedule').value.trim();
-      const path = document.getElementById('backup-path').value.trim();
-
-      if (!cluster || dbs.length === 0) {
-        alert("Cluster and Database are required!");
-        return;
-      }
-
-      const ns = selectedCluster ? selectedCluster.namespace : 'default';
-      try {
-        const res = await fetch('/api/backups', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cluster,
-            namespace: ns,
-            databases: dbs,
-            schedule,
-            backupPath: path,
-            force: true
-          })
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert("Backup failed: " + (data.error || res.statusText));
-          return;
-        }
-        closeModal('modal-backup');
-        fetchDashboardData();
-      } catch (err) {
-        alert("Backup failed: " + err.message);
-      }
-    }
-
-    function openRestoreModal() {
-      if (selectedClusterDetail) {
-        document.getElementById('restore-cluster').value = selectedClusterDetail.cluster.metadata.name;
-      }
-      openModal('modal-restore');
-    }
-
-    async function submitRestore() {
-      const cluster = document.getElementById('restore-cluster').value.trim();
-      const backupName = document.getElementById('restore-backup-name').value.trim();
-      const database = document.getElementById('restore-database').value.trim();
-      const targetDb = document.getElementById('restore-target-db').value.trim();
-
-      if (!cluster || !database) {
-        alert("Cluster and Database are required!");
-        return;
-      }
-
-      const ns = selectedCluster ? selectedCluster.namespace : 'default';
-      try {
-        const res = await fetch('/api/restores', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cluster,
-            namespace: ns,
-            backupName,
-            database,
-            targetDatabase: targetDb
-          })
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert("Restore failed: " + (data.error || res.statusText));
-          return;
-        }
-        closeModal('modal-restore');
-        fetchDashboardData();
-      } catch (err) {
-        alert("Restore failed: " + err.message);
-      }
-    }
-
-    // Initialize & polling
-    fetchDashboardData();
-    setInterval(fetchDashboardData, 5000);
+    // Init
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchMetadata();
+      fetchDashboardData();
+      startAutoRefresh();
+      updateWizardYAML();
+    });
   </script>
 </body>
 </html>
