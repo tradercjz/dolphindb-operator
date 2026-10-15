@@ -1,0 +1,25 @@
+# AWS EBS CSI StorageClasses for DolphinDB
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-gp3-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer # 关键：必须等 Pod 调度到具体可用区(AZ)后，再在对应 AZ 动态创建 EBS
+allowVolumeExpansion: true             # 支持在线热扩容
+parameters:
+  type: gp3
+  iops: "3000"                         # 生产环境可按需调整 (最高 16000)
+  throughput: "125"                    # 生产环境可按需调整 (最高 1000 MB/s)
+  encrypted: "true"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-io2-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: io2
+  iopsPerGB: "50"                      # io2 Block Express 极低延迟与超高吞吐
+  encrypted: "true"

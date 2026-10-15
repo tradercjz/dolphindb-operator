@@ -1,0 +1,81 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-aws-ha
+  namespace: dolphindb
+spec:
+  version: "3.00.5"
+  mode: "cluster"
+  imageRepository: "dolphindb"
+  
+  # 1. 跨可用区 (Multi-AZ) Raft 高可用控制器 (打散在 3 个不同的 AWS AZ, 如 us-east-1a, 1b, 1c)
+  controller:
+    replicas: 3
+    port: 8900
+    antiAffinity: "ZoneRequired" # 强制跨可用区，任一 AZ 宕机 Raft 仲裁不受影响
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc" # AWS EBS gp3 驱动
+      metaVolumeSize: "40Gi"
+    config:
+      dfsReplicationFactor: "2"
+      dfsReplicaReliabilityLevel: "1"
+      dataSync: "1"
+
+  # 2. 分布式数据存储节点 (挂载 AWS EBS gp3/io2 或使用 i4i 本地 NVMe 实例)
+  datanode:
+    replicas: 3
+    port: 8848
+    antiAffinity: "ZonePreferred" # 优先跨可用区分散分布
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "40Gi"
+      dataVolumeCount: 1
+      dataVolumeSize: "500Gi" # 支持通过 CRD 在线热扩容 (allowVolumeExpansion)
+    config:
+      chunkCacheEngineMemSize: "8"
+      TSDBCacheEngineSize: "4"
+      newValuePartitionPolicy: "add"
+
+  # 3. 弹性计算节点池 (可配合 AWS Karpenter / EC2 Auto Scaling 自动调度 Spot 竞价实例)
+  computenode:
+    replicas: 2
+    port: 8902
+    computeGroup: "analytics"
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+
+  # 4. 商业 License 配置 (基于 K8s Secret 容器虚拟注入，避免 EC2 实例销毁替换导致授权失效)
+  license:
+    mode: "secret"
+    secretName: "dolphindb-license" # Secret 内包含 dolphindb.lic 与 machine-id 键值
+    autoReload: true
+
+  # 5. 网络与接入层配置 (自动向 AWS Load Balancer Controller 索取内网/公网高性能 NLB)
+  networking:
+    serviceType: "LoadBalancer"
+    annotations:
+      # 声明式调用 AWS Load Balancer Controller 创建四层 NLB
+      service.beta.kubernetes.io/aws-load-balancer-type: "external"
+      # 直通模式：NLB 流量直接转发到 Pod ENI IP，跳过 kube-proxy 转发与源地址转换
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internal" # 或 "internet-facing"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
