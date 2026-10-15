@@ -341,7 +341,47 @@ endpoint now carries an explicit `reachable` flag and, for a NodePort on a cloud
 
 ---
 
-## 5. Helm chart fixes
+## 5. Create wizard now asks the cluster
+
+Three of the wizard's inputs were unusable on a fresh EKS cluster, and one was
+actively harmful:
+
+* **Namespaces and storage classes were empty.** `GET /api/namespaces` and
+  `GET /api/storageclasses` both failed with
+  `cannot list resource "namespaces" ... at the cluster scope` - the same class of
+  gap as the missing `nodes` rule, because the ClusterRole had only ever been
+  audited against what the *reconciler* needs, not what the *dashboard* reads.
+* **`开启物理机 NodePort 外部网络直连` defaulted to on**, generating
+  `serviceType: NodePort`. On a cloud that publishes a URL whose port the node
+  security group drops, so the link is dead on arrival.
+* **Defaults pointed at a machine that does not exist**: the image field was
+  prefilled with `192.168.100.250/dolphindb/...`, and the generated YAML
+  hardcoded `license.mode: machineFingerprint` with privileged hostPath mounts.
+
+A single `GET /api/platform` now describes the installation, and the browser
+decides nothing:
+
+* namespaces are listed **with whether the operator may create a cluster in
+  them** (checked with a `SelfSubjectAccessReview`); unusable ones are disabled
+  with the reason, instead of being silently absent;
+* storage classes are **validated, not just listed**: a CSI-backed class whose
+  driver is not installed (`ebs-gp3-sc` without the EBS CSI driver) and the legacy
+  in-tree AWS provisioner are flagged, and the **first usable** class is
+  preselected - previously the first alphabetically, which preselected a class that
+  would leave every PVC `Pending`;
+* exposure defaults to **nothing on a cloud**, with one checkbox per component and
+  the load balancer cost stated next to them; bare metal keeps the historical
+  NodePort behaviour;
+* the image registry is a chart value (`dashboard.defaultImage.*`) rather than a
+  string in the browser, so a mirrored or air-gapped install configures it once.
+
+See [cluster-provisioning.md](cluster-provisioning.md) for the design and a
+comparison with how CloudNativePG, Percona Everest, KubeDB and the managed
+database vendors approach the same problem.
+
+---
+
+## 6. Helm chart fixes
 
 | Fix | Detail |
 | :--- | :--- |
@@ -351,7 +391,7 @@ endpoint now carries an explicit `reachable` flag and, for a NodePort on a cloud
 
 ---
 
-## 6. Verification
+## 7. Verification
 
 Performed on EKS 1.34 / `ap-southeast-2` / 2 × `m7i-flex.large`.
 
@@ -391,7 +431,7 @@ ddb-min-cluster   cluster     Ready   1            2
 
 ---
 
-## 7. Upgrade notes
+## 8. Upgrade notes
 
 **Breaking change — Deployment selectors.** The operator and dashboard
 Deployments no longer share a pod selector. `spec.selector` is immutable, so
@@ -431,7 +471,7 @@ kubectl apply -f config/crd/bases/
 
 ---
 
-## 8. Known limitations
+## 9. Known limitations
 
 * **TLS** — exposure does not terminate TLS. Front the port with an Ingress
   controller or an ALB + ACM certificate if TLS is required.
@@ -449,7 +489,7 @@ kubectl apply -f config/crd/bases/
 
 ---
 
-## 9. Files changed
+## 10. Files changed
 
 ```
 internal/exposure/              new — cloud-aware exposure (14 unit tests)
@@ -478,5 +518,5 @@ deploy/helm/dolphindb-operator/{Chart.yaml,values.yaml,templates/*}
 README.md
 ```
 
-Test suite: 86 assertions across 9 packages. `gofmt`, `go vet`, `go test ./...`
+Test suite: 96 assertions across 9 packages. `gofmt`, `go vet`, `go test ./...`
 and `helm lint` all clean.

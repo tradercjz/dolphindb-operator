@@ -34,6 +34,23 @@ spec:
           args:
             - --listen=:{{ .Values.dashboard.service.port }}
           {{- end }}
+          env:
+            # The dashboard may run with an empty --namespace ("watch everything").
+            # The wizard still needs to know which namespace to default a new
+            # cluster to, and this is the only reliable source.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Prefill the create wizard's image field. Configurable per
+            # installation so mirrored/air-gapped registries do not require
+            # editing the dashboard.
+            - name: DDB_IMAGE_REGISTRY
+              value: {{ .Values.dashboard.defaultImage.registry | quote }}
+            - name: DDB_IMAGE_REPOSITORY
+              value: {{ .Values.dashboard.defaultImage.repository | quote }}
+            - name: DDB_DEFAULT_VERSION
+              value: {{ .Values.dashboard.defaultImage.version | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.dashboard.service.port }}

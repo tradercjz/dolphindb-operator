@@ -49,6 +49,16 @@
   * Bring your own certificate by pointing `spec.security.tls.secretName` at any
     `kubernetes.io/tls` Secret.
   * See [docs/tls.md](docs/tls.md).
+* **Create Wizard That Asks the Cluster**:
+  * Namespaces, storage classes and the container registry come from the
+    installation (`GET /api/platform`), not from hardcoded browser defaults.
+  * Only workable choices are offered: namespaces the operator may not write to are
+    disabled with a reason, and a CSI-backed storage class whose driver is missing
+    is flagged instead of silently leaving PVCs `Pending`.
+  * On a cloud the wizard defaults to **nothing exposed** and states the load
+    balancer cost per component; on bare metal the traditional NodePort behaviour
+    is preserved.
+  * See [docs/cluster-provisioning.md](docs/cluster-provisioning.md).
 * **Enterprise Observability**:
   * Prometheus metrics exported on port `8989` (`dolphindb_cluster_nodes`, `dolphindb_backup_total_chunks`, etc.).
   * Native `ServiceMonitor` integration for Prometheus Operator.

@@ -62,6 +62,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/namespaces", s.handleNamespaces)
 	mux.HandleFunc("/api/storageclasses", s.handleStorageClasses)
+	mux.HandleFunc("/api/platform", s.handlePlatform)
 
 	mux.HandleFunc("/api/clusters", s.handleClusters)
 	mux.HandleFunc("/api/clusters/", s.handleClusterSubRoutes)
@@ -168,6 +169,11 @@ type StorageClassSummary struct {
 	Name        string `json:"name"`
 	Provisioner string `json:"provisioner"`
 	IsDefault   bool   `json:"isDefault"`
+	// Usable is false when the class cannot bind a PVC as things stand, for example
+	// a CSI class whose driver is not installed.
+	Usable bool `json:"usable"`
+	// Hint explains a class that will not work, or a caveat about one that will.
+	Hint string `json:"hint,omitempty"`
 }
 
 func (s *Server) handleStorageClasses(w http.ResponseWriter, r *http.Request) {

@@ -1971,26 +1971,22 @@
             </div>
             <div class="form-group">
               <label>容器镜像 (Container Image)</label>
-              <input type="text" id="wiz-image" class="form-control" value="192.168.100.250/dolphindb/dolphindb:v3.00.6" oninput="updateWizardYAML()">
+              <input type="text" id="wiz-image" class="form-control" value="dolphindb/dolphindb:v3.00.6" oninput="updateWizardYAML()">
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
               <label>持久化存储类 (StorageClass)</label>
-              <select id="wiz-storageclass" class="form-control" onchange="updateWizardYAML()"></select>
+              <select id="wiz-storageclass" class="form-control" onchange="renderStorageClasses(); updateWizardYAML();"></select>
+              <div id="wiz-storageclass-note" style="display:none; font-size: 11px; color: var(--danger-text); margin-top: 4px;"></div>
             </div>
             <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
-              <label>网络暴露方式 (Networking Exposure)</label>
-              <div class="toggle-wrap" style="margin-top: 4px;">
-                <label class="toggle-switch">
-                  <input type="checkbox" id="wiz-enable-nodeport" checked onchange="updateWizardYAML()">
-                  <span class="slider"></span>
-                </label>
-                <span style="font-size: 12px; font-weight: 600; color: var(--primary);">
-                  开启物理机 NodePort 外部网络直连 (创建后可直接在外部浏览器打开 Web 终端)
-                </span>
-              </div>
+              <label>网络暴露 (Networking Exposure)</label>
+              <!-- Rendered by renderExposureControls() from /api/platform. The old
+                   form had a single "物理机 NodePort" toggle that defaulted to ON
+                   and produced an unreachable URL on any cloud. -->
+              <div id="wiz-exposure" style="margin-top: 4px;"></div>
             </div>
           </div>
 
@@ -3011,6 +3007,7 @@
     let isAutoRefresh = true;
 
     let availableNamespaces = [];
+    let platformInfo = null;
     let availableStorageClasses = [];
 
     // Theme Management (Default Light Theme, Switchable)
@@ -3117,21 +3114,27 @@
     setInterval(updateClock, 1000);
     updateClock();
 
-    // Fetch Metadata
+    // Fetch installation/cluster facts for the create wizard.
+    //
+    // These used to come from two separate calls that both failed with
+    // "forbidden at the cluster scope" because the operator's ClusterRole did not
+    // grant namespaces or storageclasses, which left both dropdowns empty.
     async function fetchMetadata() {
       try {
-        const [nsRes, scRes] = await Promise.all([
-          fetch('/api/namespaces'),
-          fetch('/api/storageclasses')
-        ]);
-        if (nsRes.ok) {
-          availableNamespaces = await nsRes.json();
-          renderNamespaces();
+        const res = await fetch('/api/platform');
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error('Failed to load platform info', err);
+          showToast('无法读取平台信息（命名空间/存储类可能不可选）: ' + (err.error || res.statusText), 'error');
+          return;
         }
-        if (scRes.ok) {
-          availableStorageClasses = await scRes.json();
-          renderStorageClasses();
-        }
+        platformInfo = await res.json();
+        syncImageFromPlatform();
+        availableNamespaces = platformInfo.namespaces || [];
+        availableStorageClasses = platformInfo.storageClasses || [];
+        renderNamespaces();
+        renderStorageClasses();
+        renderExposureControls();
       } catch (e) {
         console.error('Failed to load metadata', e);
       }
@@ -3139,33 +3142,112 @@
 
     function renderNamespaces() {
       const select = document.getElementById('wiz-namespace');
+      if (!select) return;
       select.innerHTML = '';
+      const preferred = (platformInfo && platformInfo.namespace) || 'default';
+      // (the API returns the operator's own namespace, which is always writable)
       availableNamespaces.forEach(ns => {
+        const name = typeof ns === 'string' ? ns : ns.name;
+        const writable = typeof ns === 'string' ? true : ns.writable !== false;
         const opt = document.createElement('option');
-        opt.value = ns;
-        opt.textContent = ns;
-        if (ns === 'ddb-v2-test') opt.selected = true;
+        opt.value = name;
+        // Namespaces the operator cannot create clusters in are shown but disabled,
+        // so the user learns why instead of hitting a failure on submit.
+        opt.disabled = !writable;
+        opt.textContent = name + (writable ? '' : ' (无权限)');
+        if (name === preferred && writable) opt.selected = true;
         select.appendChild(opt);
       });
+      if (!select.value && select.options.length) {
+        const firstUsable = Array.from(select.options).find(o => !o.disabled);
+        if (firstUsable) firstUsable.selected = true;
+      }
 
       const container = document.getElementById('namespaces-list-container');
       if (container) {
-        container.innerHTML = availableNamespaces.map(ns =>
-          `<span class="badge badge-info" style="font-size: 12px; padding: 5px 12px;">${ns}</span>`
-        ).join('');
+        container.innerHTML = availableNamespaces.map(ns => {
+          const name = typeof ns === 'string' ? ns : ns.name;
+          return `<span class="badge badge-info" style="font-size: 12px; padding: 5px 12px;">${name}</span>`;
+        }).join('');
+      }
+    }
+
+    // Point the image field at the registry this installation is configured for.
+    function syncImageFromPlatform() {
+      const el = document.getElementById('wiz-image');
+      if (!el || !platformInfo) return;
+      const reg = platformInfo.imageRegistry || 'dolphindb';
+      const repo = platformInfo.imageRepository || 'dolphindb';
+      const ver = (document.getElementById('wiz-version') || {}).value || platformInfo.defaultVersion || '3.00.6';
+      el.value = `${reg}/${repo}:v${ver}`;
+    }
+
+    // Platform-aware exposure controls.
+    //
+    // On a managed cloud: one checkbox per component, all off. Each exposed
+    // component is its own load balancer, so the cost is stated up front, and the
+    // old NodePort toggle is not offered because the node security group is never
+    // opened by the operator.
+    // On bare metal: the traditional NodePort switch, on by default.
+    function renderExposureControls() {
+      const host = document.getElementById('wiz-exposure');
+      if (!host || !platformInfo) return;
+      const cloud = platformInfo.supportsLoadBalancer;
+      const label = { controller: '控制节点 :8900（Web 控制台 / 管理 API）',
+                      datanode: '数据节点 :8901（DFS 读写）',
+                      computenode: '计算节点 :8902（查询计算）' };
+      if (cloud) {
+        const def = platformInfo.defaultExpose || {};
+        const rows = ['controller', 'datanode', 'computenode'].map(c => `
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+            <input type="checkbox" id="wiz-expose-${c}" ${def[c] ? 'checked' : ''} onchange="updateWizardYAML()">
+            <span>${label[c]}</span>
+          </label>`).join('');
+        host.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 2px;">${rows}</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            ${platformInfo.providerName}：每个勾选的组件都会创建一个 ${platformInfo.defaultServiceType}（约 US$16/月），
+            默认全部不勾选。控制节点只能做管理，数据操作必须勾选数据节点或计算节点。
+          </div>
+          <div style="margin-top: 6px; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px;">访问范围</span>
+            <select id="wiz-expose-scheme" class="form-control" style="width: auto; padding: 2px 8px; font-size: 12px;" onchange="updateWizardYAML()">
+              <option value="internet-facing" selected>公网 internet-facing</option>
+              <option value="internal">仅内网 internal</option>
+            </select>
+          </div>`;
+      } else {
+        const def = platformInfo.defaultExpose || {};
+        host.innerHTML = `
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" id="wiz-enable-nodeport" ${def.controller ? 'checked' : ''} onchange="updateWizardYAML()">
+            <span>开启 NodePort 外部直连（自建集群，需自行放行防火墙/安全组）</span>
+          </label>`;
       }
     }
 
     function renderStorageClasses() {
       const select = document.getElementById('wiz-storageclass');
-      select.innerHTML = '<option value="">(Cluster Default / 集群默认)</option>';
+      if (!select) return;
+      select.innerHTML = '';
+      const preferred = (platformInfo && platformInfo.defaultStorageClass) || '';
       availableStorageClasses.forEach(sc => {
         const opt = document.createElement('option');
         opt.value = sc.name;
-        opt.textContent = `${sc.name} ${sc.isDefault ? '(默认 Default)' : ''}`;
-        if (sc.isDefault || sc.name === 'longhorn') opt.selected = true;
+        // Unusable classes stay selectable (a driver may be installed later) but are
+        // labelled, so nobody picks one that silently leaves PVCs Pending.
+        const flag = sc.usable === false ? ' ⚠ 当前不可用' : '';
+        opt.textContent = `${sc.name}${sc.isDefault ? ' (默认 Default)' : ''} · ${sc.provisioner}${flag}`;
+        if (sc.hint) opt.title = sc.hint;
+        if (sc.name === preferred) opt.selected = true;
         select.appendChild(opt);
       });
+      const sel = select.options[select.selectedIndex];
+      const note = document.getElementById('wiz-storageclass-note');
+      if (note) {
+        note.textContent = sel && sel.title ? '⚠ ' + sel.title : '';
+        note.style.display = sel && sel.title ? 'block' : 'none';
+      }
 
       const tbody = document.getElementById('storageclasses-table-body');
       if (tbody) {
@@ -4505,7 +4587,11 @@
 
     function onVersionChange() {
       const ver = document.getElementById('wiz-version').value;
-      document.getElementById('wiz-image').value = `192.168.100.250/dolphindb/dolphindb:v${ver}`;
+      // Build the reference from the installation's configured registry instead of
+      // a hardcoded private one, which does not exist on a cloud.
+      const reg = (platformInfo && platformInfo.imageRegistry) || 'dolphindb';
+      const repo = (platformInfo && platformInfo.imageRepository) || 'dolphindb';
+      document.getElementById('wiz-image').value = `${reg}/${repo}:v${ver}`;
       updateWizardYAML();
     }
 
@@ -4619,25 +4705,45 @@ spec:
     maxLogSize: ${maxLogSize}
     logLevel: "${logLevel}"\n`;
 
+      // No licence block: the CRD defaults license.mode to "secret", so the image's
+      // bundled licence is used until a Secret is provided. Emitting the old
+      // machineFingerprint default would request privileged hostPath mounts that
+      // do not exist outside the original author's machine.
       yamlText += `  license:
-    mode: "machineFingerprint"
-    secretName: "dolphindb-license"
-    autoReload: true
-    machineFingerprint:
-      autoPassthrough: true
-      mountMachineId: true
-      mountHostEtc: true
-      useHostName: false\n`;
+    mode: "secret"
+    autoReload: true\n`;
 
-      const enableNodePort = document.getElementById('wiz-enable-nodeport').checked;
-      if (enableNodePort) {
-        yamlText += `  networking:
-    serviceType: "NodePort"
-    exposureMode: "NodePortDirect"\n`;
+      // Exposure, driven by the platform-aware controls.
+      const cloud = !!(platformInfo && platformInfo.supportsLoadBalancer);
+      let expose = { controller: false, datanode: false, computenode: false };
+      let serviceType = 'ClusterIP';
+      let scheme = 'internet-facing';
+      if (cloud) {
+        expose = {
+          controller: !!(document.getElementById('wiz-expose-controller') || {}).checked,
+          datanode: !!(document.getElementById('wiz-expose-datanode') || {}).checked,
+          computenode: !!(document.getElementById('wiz-expose-computenode') || {}).checked,
+        };
+        serviceType = (platformInfo && platformInfo.defaultServiceType) || 'LoadBalancer';
+        const schemeEl = document.getElementById('wiz-expose-scheme');
+        if (schemeEl) scheme = schemeEl.value;
       } else {
-        yamlText += `  networking:
-    serviceType: "ClusterIP"
-    exposureMode: "ClusterIP"\n`;
+        const np = document.getElementById('wiz-enable-nodeport');
+        const on = np ? np.checked : true;
+        expose = { controller: on, datanode: on, computenode: on };
+        serviceType = on ? 'NodePort' : 'ClusterIP';
+      }
+      const anyExposed = expose.controller || expose.datanode || expose.computenode;
+      yamlText += `  networking:\n    expose:\n`;
+      yamlText += `      controller: ${expose.controller}\n      datanode: ${expose.datanode}\n      computenode: ${expose.computenode}\n`;
+      if (anyExposed) {
+        yamlText += `    serviceType: "${serviceType}"\n`;
+        if (serviceType === 'LoadBalancer') {
+          yamlText += `    annotations:\n      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"\n`;
+          if (scheme === 'internal') {
+            yamlText += `      service.beta.kubernetes.io/aws-load-balancer-internal: "true"\n`;
+          }
+        }
       }
 
       document.getElementById('wiz-yaml-editor').value = yamlText;

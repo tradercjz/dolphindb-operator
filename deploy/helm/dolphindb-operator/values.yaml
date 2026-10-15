@@ -73,6 +73,13 @@ dashboard:
   command:
     - /ddb-dashboard
   args: []
+  # Registry used to prefill the create wizard's image field. Change this for an
+  # air-gapped or mirrored installation; the wizard no longer hardcodes a
+  # private registry that does not exist on a cloud.
+  defaultImage:
+    registry: dolphindb
+    repository: dolphindb
+    version: "3.00.6"
   resources:
     limits:
       cpu: 200m

@@ -45,6 +45,37 @@ rules:
       - get
       - list
       - watch
+  # Read-only cluster metadata for the dashboard's create wizard.
+  #
+  # The wizard needs to offer a namespace and a storage class, and without these
+  # rules both dropdowns render empty with a "forbidden at the cluster scope"
+  # error - the same class of gap as the missing `nodes` rule.
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+      - csidrivers
+    verbs:
+      - get
+      - list
+      - watch
+  # Used to check whether the operator may actually create a cluster in a given
+  # namespace, so the wizard can mark unusable namespaces instead of offering
+  # choices that will fail on submit.
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - selfsubjectaccessreviews
+    verbs:
+      - create
   - apiGroups:
       - dolphindb.io
     resources:
