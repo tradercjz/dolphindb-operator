@@ -364,11 +364,16 @@ decides nothing:
 * namespaces are listed **with whether the operator may create a cluster in
   them** (checked with a `SelfSubjectAccessReview`); unusable ones are disabled
   with the reason, instead of being silently absent;
-* storage classes are **validated, not just listed**: a CSI-backed class whose
-  driver is not installed (`ebs-gp3-sc` without the EBS CSI driver) and the legacy
-  in-tree AWS provisioner are flagged, and the **first usable** class is
-  preselected - previously the first alphabetically, which preselected a class that
-  would leave every PVC `Pending`;
+* storage classes are **validated, not just listed**, and the validation was
+  calibrated against the live cluster. A probe PVC per class showed that both
+  `ebs-gp3-sc` (`ebs.csi.aws.com`) and `gp2` (`kubernetes.io/aws-ebs`) stay
+  `Pending` forever, the latter because **CSI migration forwards the in-tree
+  provisioner to the EBS CSI driver**. Availability is read from
+  `CSINode.spec.drivers` (what kubelet actually registered) rather than `CSIDriver`
+  objects, because the object outlives the driver - `efs.csi.aws.com` had a
+  `CSIDriver` object applied by hand with no plugin running. The **first usable**
+  class is preselected; previously the first alphabetically, which picked a class
+  that would leave every PVC `Pending`;
 * exposure defaults to **nothing on a cloud**, with one checkbox per component and
   the load balancer cost stated next to them; bare metal keeps the historical
   NodePort behaviour;

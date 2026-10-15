@@ -186,7 +186,7 @@ func (s *Server) listStorageClasses(ctx context.Context) ([]StorageClassSummary,
 	if err := s.client.List(ctx, scList); err != nil {
 		return nil, ""
 	}
-	drivers := s.installedCSIDrivers(ctx)
+	drivers := s.csiDriverState(ctx)
 
 	summaries := make([]StorageClassSummary, 0, len(scList.Items))
 	for i := range scList.Items {
@@ -230,39 +230,70 @@ func (s *Server) listStorageClasses(ctx context.Context) ([]StorageClassSummary,
 	return summaries, def
 }
 
-// installedCSIDrivers returns the CSI drivers present in the cluster. A driver
-// creates its CSIDriver object when it is installed, so its absence is a reliable
-// signal that a StorageClass backed by it cannot provision anything.
-func (s *Server) installedCSIDrivers(ctx context.Context) map[string]bool {
-	out := map[string]bool{}
-	list := &storagev1.CSIDriverList{}
-	if err := s.client.List(ctx, list); err != nil {
-		return out
+// csiDriverState is what the cluster knows about CSI drivers, from two sources
+// that mean different things.
+type csiDriverState struct {
+	// registered is what kubelet actually registered, read from CSINode. This is
+	// the strong signal: it only lists a driver whose node plugin is running.
+	registered map[string]bool
+	// declared is what CSIDriver objects exist, read from CSIDriver. This is the
+	// weak signal: the object survives the driver, as observed on a real cluster
+	// where `efs.csi.aws.com` had a CSIDriver object applied by hand but no plugin
+	// running anywhere.
+	declared map[string]bool
+}
+
+func (s *Server) csiDriverState(ctx context.Context) csiDriverState {
+	state := csiDriverState{registered: map[string]bool{}, declared: map[string]bool{}}
+
+	nodes := &storagev1.CSINodeList{}
+	if err := s.client.List(ctx, nodes); err == nil {
+		for i := range nodes.Items {
+			for _, d := range nodes.Items[i].Spec.Drivers {
+				state.registered[d.Name] = true
+			}
+		}
 	}
-	for i := range list.Items {
-		out[list.Items[i].Name] = true
+
+	declared := &storagev1.CSIDriverList{}
+	if err := s.client.List(ctx, declared); err == nil {
+		for i := range declared.Items {
+			state.declared[declared.Items[i].Name] = true
+		}
 	}
-	return out
+	return state
 }
 
 // classifyStorageClass reports whether a StorageClass is expected to work, and why
 // not when it is not.
-func classifyStorageClass(provisioner string, drivers map[string]bool) (bool, string) {
-	// CSI-backed class: the driver has to be installed.
-	if drivers[provisioner] {
+//
+// Verified against a real EKS cluster: `ebs-gp3-sc` (ebs.csi.aws.com) and `gp2`
+// (kubernetes.io/aws-ebs) both stay Pending forever, because neither the EBS CSI
+// driver is installed nor - thanks to CSI migration - is the in-tree provisioner
+// still served. Both PVCs reported:
+//
+//	ExternalProvisioning: Waiting for a volume to be created either by the external
+//	provisioner 'ebs.csi.aws.com' or manually by the system administrator.
+func classifyStorageClass(provisioner string, drivers csiDriverState) (bool, string) {
+	if drivers.registered[provisioner] {
 		return true, ""
 	}
-	if strings.Contains(provisioner, ".csi.") || strings.HasSuffix(provisioner, ".csi") {
+	// A CSIDriver object without a registered node plugin means the driver was
+	// applied but is not running: it cannot provision anything.
+	if drivers.declared[provisioner] {
+		return false, fmt.Sprintf("the CSI driver %q is declared but no node plugin is running, so PVCs would stay Pending", provisioner)
+	}
+	if strings.Contains(provisioner, ".csi.") {
 		return false, fmt.Sprintf("the CSI driver %q is not installed in this cluster, so PVCs would stay Pending", provisioner)
 	}
-	// The legacy in-tree AWS provisioner was removed from upstream Kubernetes and is
-	// not served by modern EKS clusters.
+	// The legacy in-tree AWS provisioner is migrated to the EBS CSI driver on modern
+	// clusters, so it fails for the same reason.
 	if provisioner == "kubernetes.io/aws-ebs" || provisioner == "kubernetes.io/aws-efs" {
-		return false, "the legacy in-tree AWS provisioner is no longer served by this cluster"
+		return false, "the legacy in-tree AWS provisioner is migrated to the EBS/EFS CSI driver on modern clusters; without that driver PVCs stay Pending"
 	}
-	// Anything else (local-path, NFS, a cloud block provisioner, ...) is assumed to
-	// work: the operator has no cheap way to prove otherwise, and hiding a working
-	// class would be worse than offering it.
+	// Anything else (local-path, NFS, an in-cluster provisioner) is assumed to work:
+	// there is no cheap way to prove otherwise, and hiding a working class would be
+	// worse than offering it.
 	return true, ""
 }
 

@@ -20,20 +20,26 @@ import (
 // explanation, which is exactly what happened with an EBS class on a cluster
 // without the EBS CSI driver.
 func TestClassifyStorageClass(t *testing.T) {
-	installed := map[string]bool{"ebs.csi.aws.com": true}
+	running := csiDriverState{registered: map[string]bool{"ebs.csi.aws.com": true}, declared: map[string]bool{"ebs.csi.aws.com": true}}
+	declaredOnly := csiDriverState{registered: map[string]bool{}, declared: map[string]bool{"efs.csi.aws.com": true}}
+	nothing := csiDriverState{registered: map[string]bool{}, declared: map[string]bool{}}
 
 	tests := []struct {
 		name        string
 		provisioner string
-		drivers     map[string]bool
+		drivers     csiDriverState
 		wantUsable  bool
 	}{
-		{"csi driver installed", "ebs.csi.aws.com", installed, true},
-		{"csi driver missing", "ebs.csi.aws.com", map[string]bool{}, false},
-		{"another csi driver missing", "pd.csi.storage.gke.io", map[string]bool{}, false},
-		{"legacy aws provisioner", "kubernetes.io/aws-ebs", map[string]bool{}, false},
-		{"local path", "rancher.io/local-path", map[string]bool{}, true},
-		{"unknown non-csi provisioner", "example.com/nfs", map[string]bool{}, true},
+		{"csi driver running", "ebs.csi.aws.com", running, true},
+		{"csi driver missing", "ebs.csi.aws.com", nothing, false},
+		{"another csi driver missing", "pd.csi.storage.gke.io", nothing, false},
+		// A CSIDriver object without a running node plugin cannot provision. Seen on
+		// a real cluster where efs.csi.aws.com had been applied by hand.
+		{"declared but not running", "efs.csi.aws.com", declaredOnly, false},
+		// CSI migration forwards the in-tree AWS provisioner to the EBS CSI driver.
+		{"legacy aws provisioner", "kubernetes.io/aws-ebs", nothing, false},
+		{"local path", "rancher.io/local-path", nothing, true},
+		{"unknown non-csi provisioner", "example.com/nfs", nothing, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

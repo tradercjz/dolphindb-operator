@@ -86,14 +86,27 @@ decided by a `SelfSubjectAccessReview`, not by hoping. This is the difference
 between "the dropdown is empty" and "this option is unavailable because…".
 
 **2. Validate the storage class, do not just list it.** A `StorageClass` is only
-real if its provisioner is installed. The endpoint lists `CSIDriver` objects and
-marks a CSI-backed class unusable when its driver is absent:
+real if its provisioner is installed *and running*. Two signals are combined,
+because each alone is wrong:
 
-| Class | Provisioner | Verdict |
-| :--- | :--- | :--- |
-| `local-path` | `rancher.io/local-path` | usable |
-| `ebs-gp3-sc` | `ebs.csi.aws.com` | **unsuitable** — driver not installed |
-| `gp2` | `kubernetes.io/aws-ebs` | **unsuitable** — legacy provisioner no longer served |
+* `CSINode.spec.drivers` — what **kubelet actually registered**. This is the strong
+  signal: a driver appears only while its node plugin is running.
+* `CSIDriver` objects — the weak signal. The object **outlives** the driver. On the
+  test cluster `efs.csi.aws.com` had a `CSIDriver` object that somebody had applied
+  by hand while no plugin ran anywhere, so trusting it alone would have marked an
+  EFS class as working.
+
+Measured on a real EKS cluster (a probe PVC per class, left to run):
+
+| Class | Provisioner | Verdict | Observed |
+| :--- | :--- | :--- | :--- |
+| `local-path` | `rancher.io/local-path` | **usable** | binds |
+| `ebs-gp3-sc` | `ebs.csi.aws.com` | **unsuitable** | `ExternalProvisioning: Waiting for a volume to be created either by the external provisioner 'ebs.csi.aws.com'` |
+| `gp2` | `kubernetes.io/aws-ebs` | **unsuitable** | same message — **CSI migration forwards the in-tree provisioner to the EBS CSI driver**, so the legacy class fails for the same reason |
+
+Neither EBS class can work without the EBS CSI driver, which on this project cannot
+be installed the documented way because that needs IRSA and the account SCP denies
+`iam:*OpenIDConnectProvider*`. `local-path` is the working option here.
 
 The preselected default is the **first usable** class. Previously it was "first
 alphabetically", which preselected a CSI class whose driver was missing — every PVC
