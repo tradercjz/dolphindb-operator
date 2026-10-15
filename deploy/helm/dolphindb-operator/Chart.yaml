@@ -2,8 +2,14 @@ apiVersion: v2
 name: dolphindb-operator
 description: Enterprise High-Performance Kubernetes Operator for DolphinDB Distributed Time-Series Database
 type: application
-version: 0.2.0
+version: 0.3.0
 appVersion: "3.00.5"
+annotations:
+  # 0.3.0 changes the operator Deployment's immutable pod selector (to separate it
+  # from the dashboard's). Upgrading from 0.2.x requires deleting the operator
+  # Deployment first so Helm can recreate it:
+  #   kubectl -n <ns> delete deploy <release>-dolphindb-operator
+  "dolphindb.io/upgrade-notes": "0.3.0: operator Deployment selector now includes app.kubernetes.io/component=operator; delete the Deployment before upgrading. ClusterRole now grants nodes/events. Container command is configurable."
 keywords:
   - dolphindb
   - operator

@@ -518,8 +518,8 @@ spec:
                           name
                         type: string
                       licensePath:
-                        description: LicensePath optional host license file path (defaults
-                          to /home/jzchen/dolphindb.lic)
+                        description: LicensePath is the absolute path of the licence file on the host,
+                          used only for host-bound licensing. No default is applied.
                         type: string
                       machineIdSecretName:
                         description: MachineIdSecretName specifies the secret containing
@@ -554,7 +554,7 @@ spec:
                         type: string
                     type: object
                   mode:
-                    default: machineFingerprint
+                    default: secret
                     description: 'Mode defines the license type: server, secret, or
                       machineFingerprint'
                     enum:

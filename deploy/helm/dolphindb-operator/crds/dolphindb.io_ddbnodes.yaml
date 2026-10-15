@@ -104,8 +104,8 @@ spec:
                     description: Hostname manual override if not using host node name
                     type: string
                   licensePath:
-                    description: LicensePath optional host license file path (defaults
-                      to /home/jzchen/dolphindb.lic)
+                    description: LicensePath is the absolute path of the licence file on the host,
+                      used only for host-bound licensing. No default is applied.
                     type: string
                   machineIdSecretName:
                     description: MachineIdSecretName specifies the secret containing

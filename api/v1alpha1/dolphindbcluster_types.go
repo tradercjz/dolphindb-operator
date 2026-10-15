@@ -70,14 +70,22 @@ type MachineFingerprintSpec struct {
 	// NodeName manual node pinning if specified
 	NodeName string `json:"nodeName,omitempty"`
 
-	// LicensePath optional host license file path (defaults to /home/jzchen/dolphindb.lic)
+	// LicensePath is the absolute path of the licence file on the host, used only
+	// for host-bound (machineFingerprint) licensing. It has no default: supply it
+	// explicitly, otherwise the licence is taken from a Secret or from the image.
 	LicensePath string `json:"licensePath,omitempty"`
 }
 
 // LicenseSpec defines licensing configuration
 type LicenseSpec struct {
 	// Mode defines the license type: server, secret, or machineFingerprint
-	// +kubebuilder:default="machineFingerprint"
+	//
+	// The default is `secret` rather than `machineFingerprint`: host-bound
+	// licensing requires hostPath mounts (/etc/machine-id, /etc/hostname) and a
+	// licence file that exists on the node, which is rarely true on Kubernetes and
+	// never true on a managed cloud. Opting in explicitly is safer than surprising
+	// users with privileged mounts that fail to start.
+	// +kubebuilder:default="secret"
 	Mode LicenseMode `json:"mode,omitempty"`
 
 	// SecretName is the K8s Secret containing dolphindb.lic

@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"dolphindb.io/operator/api/v1alpha1"
+	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
 )
 
@@ -42,9 +43,10 @@ func executeFlushCache(ctx context.Context, cli client.Client, ns, name string) 
 
 	var flushedCount int
 	var logs []string
+	adminUser, adminPass := credentials.Resolve(ctx, cli, ns, credentials.DefaultAdminSecretName)
 	for _, p := range podList.Items {
 		if (strings.Contains(p.Name, name) || (p.Labels != nil && p.Labels["dolphindb.io/dolphindb.name"] == name)) && p.Status.PodIP != "" {
-			clientDDB := ddbclient.NewClient(fmt.Sprintf("http://%s:8848", p.Status.PodIP), "admin", "123456")
+			clientDDB := ddbclient.NewClient(fmt.Sprintf("http://%s:8848", p.Status.PodIP), adminUser, adminPass)
 			_, err := clientDDB.ExecuteScript(ctx, "flushOLAPCache(); flushTSDBCache();")
 			if err != nil {
 				logs = append(logs, fmt.Sprintf("Pod %s (%s): 触发刷盘通知已记录 (HTTP响应: %v)", p.Name, p.Status.PodIP, err))

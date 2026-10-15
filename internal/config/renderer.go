@@ -343,7 +343,44 @@ func (r *ConfigRenderer) renderClusterCfg() string {
 		}
 	}
 
+	// cluster.cfg is consumed by DataNodes and ComputeNodes, both of which are
+	// ChunkNodes and therefore require the cache engine when dataSync is on.
+	ensureCacheEngineForDataSync(cfg)
+
 	return formatProps(cfg)
+}
+
+// Smallest cache engine sizes DolphinDB accepts.
+//
+// TSDBCacheEngineSize is parsed as a whole number of gigabytes, so a value such
+// as "0.5" is read as 0 and rejected with "TSDBCacheEngineSize must be greater
+// than 0". Always use whole gigabytes here.
+const (
+	defaultChunkCacheEngineMemSizeGB = "1"
+	defaultTSDBCacheEngineSizeGB     = "1"
+)
+
+// ensureCacheEngineForDataSync enables the cache engine whenever dataSync is on.
+//
+// DolphinDB refuses to start a ChunkNode with:
+//
+//	When the feature of dataSync and cache engine must be enable at same time.
+//
+// The renderer used to set dataSync=1 without configuring any cache engine, so a
+// cluster created from a minimal CR could never start its DataNodes — the sample
+// manifests only worked because they happened to set the cache values by hand.
+// Explicit user configuration always wins, because this runs after the overrides
+// have been merged in.
+func ensureCacheEngineForDataSync(cfg map[string]string) {
+	if cfg["dataSync"] == "0" {
+		return
+	}
+	if cfg["chunkCacheEngineMemSize"] == "" {
+		cfg["chunkCacheEngineMemSize"] = defaultChunkCacheEngineMemSizeGB
+	}
+	if cfg["TSDBCacheEngineSize"] == "" {
+		cfg["TSDBCacheEngineSize"] = defaultTSDBCacheEngineSizeGB
+	}
 }
 
 // formatProps formats key-values deterministically
@@ -401,6 +438,7 @@ func (r *ConfigRenderer) renderDataNodeCfg() string {
 			}
 		}
 	}
+	ensureCacheEngineForDataSync(cfg)
 	return formatProps(cfg)
 }
 
@@ -419,6 +457,7 @@ func (r *ConfigRenderer) renderComputeNodeCfg() string {
 			}
 		}
 	}
+	ensureCacheEngineForDataSync(cfg)
 	return formatProps(cfg)
 }
 

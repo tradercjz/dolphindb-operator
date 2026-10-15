@@ -22,6 +22,7 @@ import (
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/config"
+	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
 	"dolphindb.io/operator/internal/flowengine"
 	"dolphindb.io/operator/internal/metrics"
@@ -664,10 +665,9 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	}
 
 	if cluster.Spec.License.MachineFingerprint != nil {
+		// Host-bound licensing is strictly opt-in: the fingerprint block carries the
+		// operator's licence path and cannot be guessed, so no path is invented here.
 		nodeSpec.Fingerprint = cluster.Spec.License.MachineFingerprint.DeepCopy()
-		if nodeSpec.Fingerprint.LicensePath == "" {
-			nodeSpec.Fingerprint.LicensePath = "/home/jzchen/dolphindb.lic"
-		}
 		if cluster.Spec.Mode == v1alpha1.ModeStandalone {
 			if nodeSpec.NodeName == "" && cluster.Spec.License.MachineFingerprint.NodeName != "" {
 				nodeSpec.NodeName = cluster.Spec.License.MachineFingerprint.NodeName
@@ -675,15 +675,6 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 			if nodeSpec.Hostname == "" && cluster.Spec.License.MachineFingerprint.Hostname != "" {
 				nodeSpec.Hostname = cluster.Spec.License.MachineFingerprint.Hostname
 			}
-		}
-	} else if cluster.Spec.License.Mode == v1alpha1.LicenseModeMachineFingerprint || cluster.Spec.License.Mode == "" {
-		// Auto-default fingerprint if mode is machineFingerprint
-		nodeSpec.Fingerprint = &v1alpha1.MachineFingerprintSpec{
-			AutoPassthrough: true,
-			MountMachineId:  true,
-			MountHostEtc:    true,
-			UseHostName:     true,
-			LicensePath:     "/home/jzchen/dolphindb.lic",
 		}
 	}
 
@@ -693,7 +684,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if binding.Hostname != "" {
 			nodeSpec.Hostname = binding.Hostname
 		} else if cluster.Spec.Mode == v1alpha1.ModeStandalone {
-			nodeSpec.Hostname = binding.NodeName
+			nodeSpec.Hostname = SanitizeHostname(binding.NodeName)
 		}
 		if binding.LicenseSecretName != "" {
 			nodeSpec.LicenseSecretName = binding.LicenseSecretName
@@ -701,7 +692,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	} else if nodeSpec.NodeName == "" && defaultNodeName != "" {
 		nodeSpec.NodeName = defaultNodeName
 		if cluster.Spec.Mode == v1alpha1.ModeStandalone && nodeSpec.Hostname == "" {
-			nodeSpec.Hostname = defaultNodeName
+			nodeSpec.Hostname = SanitizeHostname(defaultNodeName)
 		}
 	}
 
@@ -777,6 +768,13 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 				existing.Spec.Fingerprint.UseHostName = nodeSpec.Fingerprint.UseHostName
 				needsUpdate = true
 			}
+		} else if existing.Spec.Fingerprint != nil && nodeSpec.Fingerprint == nil {
+			// Host-bound licensing is opt-in, so removing it from the CR has to be
+			// reflected here too. Without this branch a stale fingerprint persisted
+			// forever, which kept hostPath mounts (and their startup failures) alive
+			// even after the user switched to a Secret-based licence.
+			existing.Spec.Fingerprint = nil
+			needsUpdate = true
 		}
 		if existing.Spec.NodeName != nodeSpec.NodeName {
 			existing.Spec.NodeName = nodeSpec.NodeName
@@ -898,7 +896,8 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 						if cluster.Spec.Controller.Port > 0 {
 							ctlPort = cluster.Spec.Controller.Port
 						}
-						c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort), "admin", "123456")
+						adminUser, adminPass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+						c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort), adminUser, adminPass)
 						alias, err := c.GetLeaderControllerAlias(ctx)
 						if err == nil && alias != "" {
 							leaderAlias = alias
@@ -1029,6 +1028,7 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 	}
 
 	url := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
+	adminUser, adminPass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
 	payload := map[string]interface{}{
 		"functionName": "executeCode",
 		"params": []map[string]string{
@@ -1036,7 +1036,7 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 				"name":  "script",
 				"form":  "scalar",
 				"type":  "string",
-				"value": `login("admin", "123456"); concat(funcByName("getAclPublicKey")())`,
+				"value": credentials.LoginScript(adminUser, adminPass) + ` concat(funcByName("getAclPublicKey")())`,
 			},
 		},
 	}
@@ -1123,7 +1123,8 @@ func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBClu
 		ctlPort = cluster.Spec.Controller.Port
 	}
 	baseURL := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
-	return ddbclient.NewClient(baseURL, "admin", "123456")
+	adminUser, adminPass := credentials.Resolve(context.Background(), r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+	return ddbclient.NewClient(baseURL, adminUser, adminPass)
 }
 
 func (r *DolphinDBClusterReconciler) reconcileScaleDown(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {

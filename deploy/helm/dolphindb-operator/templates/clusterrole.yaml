@@ -21,6 +21,30 @@ rules:
       - patch
       - update
       - watch
+  # Node inventory is required in two places that previously broke on managed
+  # Kubernetes: controller placement (getAvailableK8sNodes) and cloud detection
+  # for exposure (exposure.DetectProvider reads node.spec.providerID). Without
+  # this rule the operator cannot list nodes, so every "expose" silently falls
+  # back to NodePort instead of provisioning a cloud load balancer.
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  # Informational events emitted while reconciling clusters and nodes.
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - get
+      - list
+      - watch
   - apiGroups:
       - dolphindb.io
     resources:

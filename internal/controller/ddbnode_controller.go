@@ -489,12 +489,13 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			Name:      licVolName,
 			MountPath: "/data/ddb/license",
 		})
-	} else if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
+	} else if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough && node.Spec.Fingerprint.LicensePath != "" {
+		// Host-path licence passthrough is strictly opt-in. There is deliberately no
+		// fallback path here: the previous hardcoded default pointed at a directory
+		// inside the original author's home directory, so on any other machine the
+		// kubelet failed with "not a directory" and the container never started.
 		licVolName := "host-dolphindb-license"
-		licPath := "/home/jzchen/dolphindb.lic"
-		if node.Spec.Fingerprint.LicensePath != "" {
-			licPath = node.Spec.Fingerprint.LicensePath
-		}
+		licPath := node.Spec.Fingerprint.LicensePath
 		volumes = append(volumes, corev1.Volume{
 			Name: licVolName,
 			VolumeSource: corev1.VolumeSource{
@@ -637,18 +638,21 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		}
 	}
 
-	// Hardware fingerprint passthrough (if enabled)
+	// Hardware fingerprint passthrough (if enabled).
+	//
+	// Any node name that ends up as the Pod hostname must be sanitised: managed
+	// node names are DNS names containing dots, which Kubernetes rejects outright.
 	podHostname := node.Name
 	if node.Spec.Role == v1alpha1.NodeRoleSingle {
 		if node.Spec.Hostname != "" {
-			podHostname = node.Spec.Hostname
+			podHostname = SanitizeHostname(node.Spec.Hostname)
 		} else if node.Spec.Fingerprint != nil {
 			if node.Spec.Fingerprint.Hostname != "" {
-				podHostname = node.Spec.Fingerprint.Hostname
+				podHostname = SanitizeHostname(node.Spec.Fingerprint.Hostname)
 			} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
-				podHostname = node.Spec.NodeName
+				podHostname = SanitizeHostname(node.Spec.NodeName)
 			} else if node.Spec.NodeName != "" {
-				podHostname = node.Spec.NodeName
+				podHostname = SanitizeHostname(node.Spec.NodeName)
 			}
 		}
 	}

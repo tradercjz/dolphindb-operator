@@ -17,6 +17,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"dolphindb.io/operator/api/v1alpha1"
+	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
 	"dolphindb.io/operator/internal/metrics"
 )
@@ -238,7 +239,8 @@ func (r *DDBBackupReconciler) getDDBClient(ctx context.Context, cluster *v1alpha
 	}
 
 	baseURL := fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port)
-	return ddbclient.NewClient(baseURL, "admin", "123456")
+	user, pass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+	return ddbclient.NewClient(baseURL, user, pass)
 }
 
 func (r *DDBBackupReconciler) findActiveDataNode(ctx context.Context, cli *ddbclient.Client, cluster *v1alpha1.DolphinDBCluster) (string, error) {

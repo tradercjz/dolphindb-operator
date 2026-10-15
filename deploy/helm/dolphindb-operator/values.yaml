@@ -6,6 +6,12 @@ image:
   repository: 192.168.100.250/dolphindb/operator
   tag: v2.0.0
   pullPolicy: IfNotPresent
+  # Optional container command override. Leave empty to use the image ENTRYPOINT,
+  # which is the portable choice: images built with a different toolchain (e.g.
+  # `ko`, which places binaries under /ko-app/) then work without chart changes.
+  command: []
+  # Optional args override. Empty means the metrics/health flags below are used.
+  args: []
 
 agentImage:
   repository: 192.168.100.250/dolphindb/ddb-agent
@@ -61,6 +67,12 @@ dashboard:
     type: NodePort
     port: 9527
     nodePort: 30527
+  # The dashboard shares the operator image, so its binary must be selected
+  # explicitly. Point this at the right path for the image you build, e.g.
+  # ["/ko-app/ddb-dashboard"] for a ko-built image.
+  command:
+    - /ddb-dashboard
+  args: []
   resources:
     limits:
       cpu: 200m
