@@ -487,8 +487,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		})
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      licVolName,
-			MountPath: "/data/ddb/server/dolphindb.lic",
-			SubPath:   "dolphindb.lic",
+			MountPath: "/data/ddb/license",
 		})
 	} else if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
 		licVolName := "host-dolphindb-license"
@@ -832,7 +831,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Command: []string{
 						"/bin/sh",
 						"-c",
-						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; exec /data/ddb/server/dolphindb "$@"`,
+						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; exec /data/ddb/server/dolphindb "$@"`,
 						"--",
 					},
 					Args:           args,
