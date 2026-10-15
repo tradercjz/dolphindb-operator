@@ -21,8 +21,8 @@ spec:
         cpu: "4"
         memory: "8Gi"
     storage:
-      storageClassName: "alicloud-disk-topology" # 阿里云极速 ESSD 云盘驱动
-      size: "40Gi"
+      storageClassName: "alicloud-disk-topology-alltype" # 阿里云极速 ESSD 云盘驱动
+      metaVolumeSize: "40Gi"
     config:
       dfsReplicationFactor: "2"
       dfsReplicaReliabilityLevel: "1"
