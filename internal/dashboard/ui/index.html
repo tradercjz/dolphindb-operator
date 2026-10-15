@@ -1083,6 +1083,248 @@
       max-width: 900px;
     }
 
+    .modal-dialog.modal-xl {
+      max-width: 1200px;
+      width: 95vw;
+    }
+
+    /* Visual Metrics Styles */
+    .metrics-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 960px) {
+      .metrics-summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 600px) {
+      .metrics-summary-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .metrics-summary-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      box-shadow: var(--shadow-sm);
+    }
+    .metrics-summary-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary);
+    }
+    .metrics-summary-card.kpi-memory::before { background: var(--cyan); }
+    .metrics-summary-card.kpi-disk::before { background: var(--purple); }
+    .metrics-summary-card.kpi-io::before { background: var(--warning); }
+
+    .metrics-summary-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .metrics-summary-value {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .metrics-summary-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .metrics-subnav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .metrics-tabs-pill {
+      display: flex;
+      background: var(--bg-canvas);
+      padding: 3px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-default);
+      gap: 4px;
+    }
+
+    .metrics-tab-btn {
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .metrics-tab-btn:hover {
+      color: var(--text-main);
+    }
+
+    .metrics-tab-btn.active {
+      background: var(--bg-surface);
+      color: var(--primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .metrics-charts-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 992px) {
+      .metrics-charts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .metric-chart-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .metric-chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .metric-chart-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .metric-chart-legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+    }
+
+    .metric-chart-content {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 280px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .metric-node-bar-group {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .metric-bar-row-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    .metric-bar-node-name {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .metric-bar-val-text {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .metric-track-box {
+      width: 100%;
+      height: 10px;
+      border-radius: 5px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+      display: flex;
+      position: relative;
+    }
+
+    .metric-fill-bar {
+      height: 100%;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 4px;
+    }
+
+    .metric-dual-track {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
     .modal-header {
       padding: 16px 22px;
       border-bottom: 1px solid var(--border-default);
@@ -2419,6 +2661,129 @@
     </div>
   </div>
 
+  <!-- Modal: Cluster Metrics Dashboard (Visual Charts & Raw Prometheus) -->
+  <div id="modal-cluster-metrics" class="modal-overlay">
+    <div class="modal-dialog modal-xl" style="max-height: 92vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
+            <svg style="width: 18px; height: 18px;" viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          </div>
+          <div>
+            <div style="font-size: 15px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+              集群实时监控大盘
+              <span id="cluster-metrics-name-badge" class="badge badge-primary" style="font-family: var(--font-mono); font-size: 11px;"></span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 12px; margin-top: 2px;">
+              <span id="cluster-metrics-node-count">节点数: 0</span>
+              <span id="cluster-metrics-last-updated">最后采集: -</span>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); background: var(--bg-canvas); padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-default);">
+            <span>自动刷新:</span>
+            <select id="cluster-metrics-refresh-select" class="form-control" style="padding: 2px 4px; height: 24px; font-size: 11px; width: auto;" onchange="onClusterMetricsIntervalChange(this.value)">
+              <option value="0">关闭</option>
+              <option value="3000">3 秒</option>
+              <option value="5000" selected>5 秒</option>
+              <option value="10000">10 秒</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="fetchClusterMetrics(true)" title="立即刷新最新指标">
+            <svg id="cluster-metrics-refresh-icon" style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            刷新
+          </button>
+          <a id="cluster-metrics-raw-link" href="#" target="_blank" class="btn btn-secondary btn-sm" title="在新标签页直接查看原生 Prometheus 格式文本">
+            Prometheus 端点 ↗
+          </a>
+          <button class="btn btn-ghost btn-sm" onclick="closeClusterMetricsModal()">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding: 16px; flex: 1; overflow-y: auto;">
+        <!-- Top Aggregate KPI Summary Cards -->
+        <div class="metrics-summary-grid" id="cluster-metrics-summary-cards">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Sub-nav bar: Tabs & Filters -->
+        <div class="metrics-subnav">
+          <!-- Tabs -->
+          <div class="metrics-tabs-pill">
+            <button id="cm-tab-charts" class="metrics-tab-btn active" onclick="switchClusterMetricsTab('charts')">
+              <svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              可视化图表大盘
+            </button>
+            <button id="cm-tab-table" class="metrics-tab-btn" onclick="switchClusterMetricsTab('table')">
+              <svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              节点指标明细表
+            </button>
+            <button id="cm-tab-raw" class="metrics-tab-btn" onclick="switchClusterMetricsTab('raw')">
+              <svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Prometheus 采集文本
+            </button>
+          </div>
+
+          <!-- Role Filter (Only applicable for charts & table) -->
+          <div id="cluster-metrics-role-filter" style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 11px; color: var(--text-muted);">节点筛选:</span>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn btn-xs btn-primary cm-filter-btn active" data-role="all" onclick="filterClusterMetricsRole('all')">全部</button>
+              <button class="btn btn-xs btn-secondary cm-filter-btn" data-role="controller" onclick="filterClusterMetricsRole('controller')">控制节点</button>
+              <button class="btn btn-xs btn-secondary cm-filter-btn" data-role="datanode" onclick="filterClusterMetricsRole('datanode')">数据节点</button>
+              <button class="btn btn-xs btn-secondary cm-filter-btn" data-role="computenode" onclick="filterClusterMetricsRole('computenode')">计算节点</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 1: Visual Charts Pane -->
+        <div id="cm-pane-charts" class="cm-pane">
+          <div class="metrics-charts-grid" id="cluster-metrics-charts-container">
+            <!-- 6 Charts dynamically generated -->
+          </div>
+        </div>
+
+        <!-- TAB 2: Node Table Pane -->
+        <div id="cm-pane-table" class="cm-pane" style="display: none;">
+          <div class="table-responsive" style="border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+            <table class="table" style="margin: 0; font-size: 12px;">
+              <thead>
+                <tr>
+                  <th>节点 / 别名</th>
+                  <th>角色</th>
+                  <th>CPU 使用率 / 负载</th>
+                  <th>内存 (已用 / 分配)</th>
+                  <th>DFS 磁盘存储 (已用 / 总量)</th>
+                  <th>网络吞吐 (接收 / 发送)</th>
+                  <th>磁盘 I/O (读 / 写)</th>
+                  <th>活动连接</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="cm-nodes-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: Raw Prometheus Text Pane -->
+        <div id="cm-pane-raw" class="cm-pane" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">标准 Prometheus Metrics 格式输出 (适用于 Prometheus / Grafana 采集):</div>
+            <button class="btn btn-secondary btn-sm" onclick="copyClusterRawPrometheus()">复制全部文本</button>
+          </div>
+          <div class="terminal-window" style="max-height: 480px; overflow-y: auto;">
+            <pre class="terminal-body" id="cluster-metrics-raw-content" style="white-space: pre-wrap; word-break: break-all; margin: 0; font-family: var(--font-mono); font-size: 11px;">
+              正在加载 Prometheus metrics...
+            </pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Node Metrics Terminal / View -->
   <div id="modal-node-metrics" class="modal-overlay">
     <div class="modal-dialog modal-lg">
@@ -3309,12 +3674,632 @@
       });
     }
 
+    // =========================================================================
+    // CLUSTER METRICS VISUAL DASHBOARD (集群实时可视化监控大盘)
+    // =========================================================================
+    let clusterMetricsTimer = null;
+    let clusterMetricsInterval = 5000;
+    let clusterMetricsRoleFilter = 'all';
+    let clusterMetricsActiveTab = 'charts';
+    let currentClusterMetricsData = null;
+
+    function formatBytes(bytes) {
+      if (bytes === undefined || bytes === null || isNaN(bytes)) return '-';
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(i >= 2 ? 1 : 0) + ' ' + sizes[i];
+    }
+
+    function formatBytesRate(bytesPerSec) {
+      if (bytesPerSec === undefined || bytesPerSec === null || isNaN(bytesPerSec)) return '-';
+      if (bytesPerSec === 0) return '0 B/s';
+      const k = 1024;
+      const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+      const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+      const val = (bytesPerSec / Math.pow(k, i)).toFixed(1);
+      return val + ' ' + sizes[i];
+    }
+
     function openClusterMetrics() {
       if (!selectedCluster) {
         showToast('请先选择一个集群', 'warning');
         return;
       }
-      window.open(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/metrics?format=prometheus`, '_blank');
+      
+      const badge = document.getElementById('cluster-metrics-name-badge');
+      if (badge) badge.textContent = `${selectedCluster.name} (${selectedCluster.namespace})`;
+      
+      const rawLink = document.getElementById('cluster-metrics-raw-link');
+      if (rawLink) rawLink.href = `/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/metrics?format=prometheus`;
+
+      switchClusterMetricsTab('charts');
+      filterClusterMetricsRole('all');
+
+      openModal('modal-cluster-metrics');
+      fetchClusterMetrics(true);
+
+      const intervalSelect = document.getElementById('cluster-metrics-refresh-select');
+      const intervalVal = intervalSelect ? parseInt(intervalSelect.value, 10) : 5000;
+      onClusterMetricsIntervalChange(intervalVal);
+    }
+
+    function closeClusterMetricsModal() {
+      closeModal('modal-cluster-metrics');
+    }
+
+    function onClusterMetricsIntervalChange(val) {
+      clusterMetricsInterval = parseInt(val, 10);
+      if (clusterMetricsTimer) {
+        clearInterval(clusterMetricsTimer);
+        clusterMetricsTimer = null;
+      }
+      if (clusterMetricsInterval > 0) {
+        clusterMetricsTimer = setInterval(() => {
+          fetchClusterMetrics(false);
+        }, clusterMetricsInterval);
+      }
+    }
+
+    function switchClusterMetricsTab(tab) {
+      clusterMetricsActiveTab = tab;
+      ['charts', 'table', 'raw'].forEach(t => {
+        const btn = document.getElementById(`cm-tab-${t}`);
+        const pane = document.getElementById(`cm-pane-${t}`);
+        if (btn) btn.classList.toggle('active', t === tab);
+        if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
+      });
+
+      const roleFilter = document.getElementById('cluster-metrics-role-filter');
+      if (roleFilter) {
+        roleFilter.style.display = (tab === 'raw') ? 'none' : 'flex';
+      }
+    }
+
+    function filterClusterMetricsRole(role) {
+      clusterMetricsRoleFilter = role;
+      document.querySelectorAll('.cm-filter-btn').forEach(btn => {
+        const isActive = btn.dataset.role === role;
+        btn.classList.toggle('active', isActive);
+        if (isActive) {
+          btn.classList.remove('btn-secondary');
+          btn.classList.add('btn-primary');
+        } else {
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-secondary');
+        }
+      });
+
+      if (currentClusterMetricsData && currentClusterMetricsData.nodes) {
+        renderClusterCharts(currentClusterMetricsData.nodes);
+        renderClusterNodeTable(currentClusterMetricsData.nodes);
+      }
+    }
+
+    async function fetchClusterMetrics(isManual) {
+      if (!selectedCluster) return;
+
+      const refreshIcon = document.getElementById('cluster-metrics-refresh-icon');
+      if (isManual && refreshIcon) {
+        refreshIcon.style.animation = 'spin 0.8s linear infinite';
+      }
+
+      try {
+        const res = await fetch(`/api/clusters/${selectedCluster.namespace}/${selectedCluster.name}/metrics`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        const data = await res.json();
+        currentClusterMetricsData = data;
+
+        // Update Header summary
+        const nodeCountEl = document.getElementById('cluster-metrics-node-count');
+        if (nodeCountEl) {
+          const totalNodes = (data.nodes || []).length;
+          const runningNodes = (data.nodes || []).filter(n => n.status === 'Running').length;
+          nodeCountEl.innerHTML = `总节点: <strong>${totalNodes}</strong> (运行中: <span style="color: var(--success);">${runningNodes}</span>)`;
+        }
+
+        const lastUpdatedEl = document.getElementById('cluster-metrics-last-updated');
+        if (lastUpdatedEl) {
+          const now = new Date();
+          const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0').slice(0, 2);
+          lastUpdatedEl.textContent = `最后更新: ${timeStr}`;
+        }
+
+        // Render Summary KPI Cards
+        renderClusterKPIs(data.nodes || []);
+
+        // Render Charts
+        renderClusterCharts(data.nodes || []);
+
+        // Render Table
+        renderClusterNodeTable(data.nodes || []);
+
+        // Fill Raw Prometheus text
+        const rawEl = document.getElementById('cluster-metrics-raw-content');
+        if (rawEl) {
+          rawEl.textContent = data.rawPrometheus || '# 暂无 Prometheus 指标数据';
+        }
+      } catch (err) {
+        console.error('Fetch cluster metrics failed:', err);
+        if (isManual) {
+          showToast(`拉取集群指标失败: ${err.message}`, 'error');
+        }
+      } finally {
+        if (refreshIcon) {
+          refreshIcon.style.animation = '';
+        }
+      }
+    }
+
+    function renderClusterKPIs(nodes) {
+      const container = document.getElementById('cluster-metrics-summary-cards');
+      if (!container) return;
+
+      let totalMemUsed = 0;
+      let totalMemAlloc = 0;
+      let totalDiskCap = 0;
+      let totalDiskFree = 0;
+      let totalNetRecv = 0;
+      let totalNetSend = 0;
+      let totalDiskRead = 0;
+      let totalDiskWrite = 0;
+      let totalConns = 0;
+      let totalRunningJobs = 0;
+      let totalQueuedJobs = 0;
+      let totalCpu = 0;
+      let cpuCount = 0;
+      let maxLoad = 0;
+
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        if (m.memoryUsed) totalMemUsed += m.memoryUsed;
+        if (m.memoryAlloc) totalMemAlloc += m.memoryAlloc;
+        if (m.diskCapacity) totalDiskCap += m.diskCapacity;
+        if (m.diskFreeSpace) totalDiskFree += m.diskFreeSpace;
+        if (m.networkRecvRate) totalNetRecv += m.networkRecvRate;
+        if (m.networkSendRate) totalNetSend += m.networkSendRate;
+        if (m.diskReadRate) totalDiskRead += m.diskReadRate;
+        if (m.diskWriteRate) totalDiskWrite += m.diskWriteRate;
+        if (m.connectionNum) totalConns += m.connectionNum;
+        if (m.runningJobs) totalRunningJobs += m.runningJobs;
+        if (m.queuedJobs) totalQueuedJobs += m.queuedJobs;
+        if (m.cpuUsage !== undefined) {
+          totalCpu += m.cpuUsage;
+          cpuCount++;
+        }
+        if (m.avgLoad && m.avgLoad > maxLoad) maxLoad = m.avgLoad;
+      });
+
+      const avgCpu = cpuCount > 0 ? (totalCpu / cpuCount).toFixed(1) : '0.0';
+      const memRatio = totalMemAlloc > 0 ? ((totalMemUsed / totalMemAlloc) * 100).toFixed(1) : '0';
+      const totalDiskUsed = totalDiskCap - totalDiskFree;
+      const diskUsedRatio = totalDiskCap > 0 ? ((totalDiskUsed / totalDiskCap) * 100).toFixed(1) : '0';
+
+      container.innerHTML = `
+        <div class="metrics-summary-card">
+          <div class="metrics-summary-label">
+            <svg style="width: 14px; height: 14px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+            CPU 平均负载
+          </div>
+          <div class="metrics-summary-value">
+            ${avgCpu}%
+            <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">峰值 Load: ${maxLoad.toFixed(2)}</span>
+          </div>
+          <div class="metric-track-box" style="height: 6px; margin-top: 4px;">
+            <div class="metric-fill-bar" style="width: ${Math.min(100, Math.max(0, avgCpu))}%; background: var(--primary);"></div>
+          </div>
+          <div class="metrics-summary-sub">
+            <span>在线节点: ${nodes.length} 个</span>
+            <span>最高负载节点: ${maxLoad > 0 ? maxLoad.toFixed(2) : '-'}</span>
+          </div>
+        </div>
+
+        <div class="metrics-summary-card kpi-memory">
+          <div class="metrics-summary-label">
+            <svg style="width: 14px; height: 14px; color: var(--cyan);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M4 11h16"/><path d="M4 16h16"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>
+            集群内存占用
+          </div>
+          <div class="metrics-summary-value">
+            ${formatBytes(totalMemUsed)}
+            <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ 分配 ${formatBytes(totalMemAlloc)}</span>
+          </div>
+          <div class="metric-track-box" style="height: 6px; margin-top: 4px;">
+            <div class="metric-fill-bar" style="width: ${memRatio}%; background: var(--cyan);"></div>
+          </div>
+          <div class="metrics-summary-sub">
+            <span>内存利用率: ${memRatio}%</span>
+            <span>可用空闲: ${formatBytes(Math.max(0, totalMemAlloc - totalMemUsed))}</span>
+          </div>
+        </div>
+
+        <div class="metrics-summary-card kpi-disk">
+          <div class="metrics-summary-label">
+            <svg style="width: 14px; height: 14px; color: var(--purple);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            DFS 存储空间 (数据节点)
+          </div>
+          <div class="metrics-summary-value">
+            ${formatBytes(totalDiskUsed)}
+            <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ 总计 ${formatBytes(totalDiskCap)}</span>
+          </div>
+          <div class="metric-track-box" style="height: 6px; margin-top: 4px;">
+            <div class="metric-fill-bar" style="width: ${diskUsedRatio}%; background: ${diskUsedRatio > 85 ? 'var(--danger)' : (diskUsedRatio > 70 ? 'var(--warning)' : 'var(--purple)')};"></div>
+          </div>
+          <div class="metrics-summary-sub">
+            <span>存储使用率: ${diskUsedRatio}%</span>
+            <span>剩余可用: ${formatBytes(totalDiskFree)}</span>
+          </div>
+        </div>
+
+        <div class="metrics-summary-card kpi-io">
+          <div class="metrics-summary-label">
+            <svg style="width: 14px; height: 14px; color: var(--warning);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            集群实时吞吐 / 并发
+          </div>
+          <div class="metrics-summary-value">
+            ${totalConns} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">连接</span>
+            <span style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-left: 6px;">运行: ${totalRunningJobs} / 排队: ${totalQueuedJobs}</span>
+          </div>
+          <div class="metrics-summary-sub" style="margin-top: 6px;">
+            <span>网络: ↓ ${formatBytesRate(totalNetRecv)}  ↑ ${formatBytesRate(totalNetSend)}</span>
+          </div>
+          <div class="metrics-summary-sub">
+            <span>磁盘: 读 ${formatBytesRate(totalDiskRead)}  写 ${formatBytesRate(totalDiskWrite)}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function getFilteredNodes(nodes) {
+      if (!nodes) return [];
+      if (clusterMetricsRoleFilter === 'all') return nodes;
+      return nodes.filter(n => (n.role || '').toLowerCase() === clusterMetricsRoleFilter);
+    }
+
+    function renderClusterCharts(allNodes) {
+      const container = document.getElementById('cluster-metrics-charts-container');
+      if (!container) return;
+
+      const nodes = getFilteredNodes(allNodes);
+      if (nodes.length === 0) {
+        container.innerHTML = `<div style="grid-column: span 2; padding: 32px; text-align: center; color: var(--text-muted);">当前筛选条件下没有匹配的节点</div>`;
+        return;
+      }
+
+      // Max values for relative scaling
+      let maxLoad = 1.0;
+      let maxMemAlloc = 1024 * 1024;
+      let maxDiskCap = 1024 * 1024;
+      let maxNetRate = 1024;
+      let maxDiskRate = 1024;
+      let maxConns = 10;
+
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        if (m.avgLoad && m.avgLoad > maxLoad) maxLoad = m.avgLoad;
+        if (m.memoryAlloc && m.memoryAlloc > maxMemAlloc) maxMemAlloc = m.memoryAlloc;
+        if (m.diskCapacity && m.diskCapacity > maxDiskCap) maxDiskCap = m.diskCapacity;
+        if (m.networkRecvRate && m.networkRecvRate > maxNetRate) maxNetRate = m.networkRecvRate;
+        if (m.networkSendRate && m.networkSendRate > maxNetRate) maxNetRate = m.networkSendRate;
+        if (m.diskReadRate && m.diskReadRate > maxDiskRate) maxDiskRate = m.diskReadRate;
+        if (m.diskWriteRate && m.diskWriteRate > maxDiskRate) maxDiskRate = m.diskWriteRate;
+        if (m.connectionNum && m.connectionNum > maxConns) maxConns = m.connectionNum;
+      });
+
+      // Chart 1: CPU & Load
+      let chart1Rows = '';
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        const cpu = m.cpuUsage !== undefined ? m.cpuUsage : 0;
+        const load = m.avgLoad !== undefined ? m.avgLoad : 0;
+        const cpuColor = cpu > 80 ? 'var(--danger)' : (cpu > 60 ? 'var(--warning)' : 'var(--primary)');
+        const leaderTag = n.isLeader ? '<span class="badge badge-success" style="font-size: 9px; padding: 1px 4px; border-radius: 3px;">Leader</span>' : '';
+        const roleBadge = `<span class="badge" style="font-size: 9px; padding: 1px 4px; background: var(--bg-canvas); color: var(--text-muted); border: 1px solid var(--border-subtle);">${n.role}</span>`;
+
+        chart1Rows += `
+          <div class="metric-bar-row">
+            <div class="metric-bar-row-info">
+              <span class="metric-bar-node-name">${n.alias || n.node} ${leaderTag} ${roleBadge}</span>
+              <span class="metric-bar-val-text">CPU: <strong>${cpu.toFixed(1)}%</strong> | Load: <strong>${load.toFixed(2)}</strong></span>
+            </div>
+            <div class="metric-track-box">
+              <div class="metric-fill-bar" style="width: ${Math.min(100, Math.max(0, cpu))}%; background: ${cpuColor};"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Chart 2: Memory Used vs Alloc
+      let chart2Rows = '';
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        const used = m.memoryUsed || 0;
+        const alloc = m.memoryAlloc || 1;
+        const ratio = ((used / alloc) * 100).toFixed(1);
+        const leaderTag = n.isLeader ? '<span class="badge badge-success" style="font-size: 9px; padding: 1px 4px; border-radius: 3px;">Leader</span>' : '';
+
+        chart2Rows += `
+          <div class="metric-bar-row">
+            <div class="metric-bar-row-info">
+              <span class="metric-bar-node-name">${n.alias || n.node} ${leaderTag}</span>
+              <span class="metric-bar-val-text">${formatBytes(used)} / ${formatBytes(alloc)} (<strong>${ratio}%</strong>)</span>
+            </div>
+            <div class="metric-track-box">
+              <div class="metric-fill-bar" style="width: ${Math.min(100, ratio)}%; background: var(--cyan);"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Chart 3: DFS Disk Space
+      let chart3Rows = '';
+      const dataNodes = nodes.filter(n => (n.role || '').toLowerCase() === 'datanode' || (n.metrics && n.metrics.diskCapacity > 0));
+      if (dataNodes.length === 0) {
+        chart3Rows = `<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">当前筛选节点中未配置本地 DFS 存储</div>`;
+      } else {
+        dataNodes.forEach(n => {
+          const m = n.metrics || {};
+          const cap = m.diskCapacity || 0;
+          const free = m.diskFreeSpace || 0;
+          const used = Math.max(0, cap - free);
+          const usedRatio = cap > 0 ? ((used / cap) * 100).toFixed(1) : '0';
+          const freeRatio = m.diskFreeSpaceRatio !== undefined ? (m.diskFreeSpaceRatio * 100).toFixed(1) : ((free / cap) * 100).toFixed(1);
+          const barColor = usedRatio > 85 ? 'var(--danger)' : (usedRatio > 70 ? 'var(--warning)' : 'var(--purple)');
+
+          chart3Rows += `
+            <div class="metric-bar-row">
+              <div class="metric-bar-row-info">
+                <span class="metric-bar-node-name">${n.alias || n.node}</span>
+                <span class="metric-bar-val-text">已用 ${formatBytes(used)} / 总量 ${formatBytes(cap)} (<strong>${usedRatio}%</strong>, 剩余 ${freeRatio}%)</span>
+              </div>
+              <div class="metric-track-box">
+                <div class="metric-fill-bar" style="width: ${usedRatio}%; background: ${barColor};"></div>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      // Chart 4: Network Throughput
+      let chart4Rows = '';
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        const recv = m.networkRecvRate || 0;
+        const send = m.networkSendRate || 0;
+        const recvPct = maxNetRate > 0 ? ((recv / maxNetRate) * 100).toFixed(1) : 0;
+        const sendPct = maxNetRate > 0 ? ((send / maxNetRate) * 100).toFixed(1) : 0;
+
+        chart4Rows += `
+          <div class="metric-bar-row">
+            <div class="metric-bar-row-info">
+              <span class="metric-bar-node-name">${n.alias || n.node}</span>
+              <span class="metric-bar-val-text"><span style="color: var(--success);">↓ ${formatBytesRate(recv)}</span> &nbsp; <span style="color: var(--purple);">↑ ${formatBytesRate(send)}</span></span>
+            </div>
+            <div class="metric-dual-track">
+              <div class="metric-track-box" style="height: 6px;" title="接收流量 (Inbound): ${formatBytesRate(recv)}">
+                <div class="metric-fill-bar" style="width: ${Math.max(1, recvPct)}%; background: var(--success);"></div>
+              </div>
+              <div class="metric-track-box" style="height: 6px;" title="发送流量 (Outbound): ${formatBytesRate(send)}">
+                <div class="metric-fill-bar" style="width: ${Math.max(1, sendPct)}%; background: var(--purple);"></div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Chart 5: Disk I/O Rates
+      let chart5Rows = '';
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        const read = m.diskReadRate || 0;
+        const write = m.diskWriteRate || 0;
+        const readPct = maxDiskRate > 0 ? ((read / maxDiskRate) * 100).toFixed(1) : 0;
+        const writePct = maxDiskRate > 0 ? ((write / maxDiskRate) * 100).toFixed(1) : 0;
+
+        chart5Rows += `
+          <div class="metric-bar-row">
+            <div class="metric-bar-row-info">
+              <span class="metric-bar-node-name">${n.alias || n.node}</span>
+              <span class="metric-bar-val-text"><span style="color: var(--cyan);">读: ${formatBytesRate(read)}</span> &nbsp; <span style="color: var(--warning);">写: ${formatBytesRate(write)}</span></span>
+            </div>
+            <div class="metric-dual-track">
+              <div class="metric-track-box" style="height: 6px;" title="磁盘读速率: ${formatBytesRate(read)}">
+                <div class="metric-fill-bar" style="width: ${Math.max(1, readPct)}%; background: var(--cyan);"></div>
+              </div>
+              <div class="metric-track-box" style="height: 6px;" title="磁盘写速率: ${formatBytesRate(write)}">
+                <div class="metric-fill-bar" style="width: ${Math.max(1, writePct)}%; background: var(--warning);"></div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Chart 6: Connections & Jobs
+      let chart6Rows = '';
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        const conns = m.connectionNum || 0;
+        const running = m.runningJobs || 0;
+        const queued = m.queuedJobs || 0;
+        const connPct = maxConns > 0 ? ((conns / maxConns) * 100).toFixed(1) : 0;
+        const leaderTag = n.isLeader ? '<span class="badge badge-success" style="font-size: 9px; padding: 1px 4px; border-radius: 3px;">Leader</span>' : '';
+
+        chart6Rows += `
+          <div class="metric-bar-row">
+            <div class="metric-bar-row-info">
+              <span class="metric-bar-node-name">${n.alias || n.node} ${leaderTag}</span>
+              <span class="metric-bar-val-text">连接: <strong>${conns}</strong> | 运行: ${running} | 排队: ${queued}</span>
+            </div>
+            <div class="metric-track-box">
+              <div class="metric-fill-bar" style="width: ${Math.max(2, connPct)}%; background: var(--primary);"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = `
+        <!-- Card 1: CPU & Load -->
+        <div class="metric-chart-card">
+          <div class="metric-chart-header">
+            <div class="metric-chart-title">
+              <svg style="width: 14px; height: 14px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+              节点 CPU 使用率 & 平均负载
+            </div>
+            <div class="metric-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background: var(--primary);"></span>正常 (&lt;60%)</span>
+              <span class="legend-item"><span class="legend-dot" style="background: var(--warning);"></span>告警 (60-80%)</span>
+              <span class="legend-item"><span class="legend-dot" style="background: var(--danger);"></span>高危 (&gt;80%)</span>
+            </div>
+          </div>
+          <div class="metric-chart-content">
+            ${chart1Rows}
+          </div>
+        </div>
+
+        <!-- Card 2: Memory -->
+        <div class="metric-chart-card">
+          <div class="metric-chart-header">
+            <div class="metric-chart-title">
+              <svg style="width: 14px; height: 14px; color: var(--cyan);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M4 11h16"/><path d="M4 16h16"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>
+              节点内存占用与分配配额
+            </div>
+            <div class="metric-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background: var(--cyan);"></span>已占用内存 (Used)</span>
+            </div>
+          </div>
+          <div class="metric-chart-content">
+            ${chart2Rows}
+          </div>
+        </div>
+
+        <!-- Card 3: Storage -->
+        <div class="metric-chart-card">
+          <div class="metric-chart-header">
+            <div class="metric-chart-title">
+              <svg style="width: 14px; height: 14px; color: var(--purple);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+              数据节点 DFS 磁盘容量与利用率
+            </div>
+            <div class="metric-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background: var(--purple);"></span>已使用空间 (Used)</span>
+            </div>
+          </div>
+          <div class="metric-chart-content">
+            ${chart3Rows}
+          </div>
+        </div>
+
+        <!-- Card 4: Network -->
+        <div class="metric-chart-card">
+          <div class="metric-chart-header">
+            <div class="metric-chart-title">
+              <svg style="width: 14px; height: 14px; color: var(--success);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+              实时网络 I/O 速率 (Recv / Send)
+            </div>
+            <div class="metric-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background: var(--success);"></span>↓ 接收 (Recv)</span>
+              <span class="legend-item"><span class="legend-dot" style="background: var(--purple);"></span>↑ 发送 (Send)</span>
+            </div>
+          </div>
+          <div class="metric-chart-content">
+            ${chart4Rows}
+          </div>
+        </div>
+
+        <!-- Card 5: Disk I/O -->
+        <div class="metric-chart-card">
+          <div class="metric-chart-header">
+            <div class="metric-chart-title">
+              <svg style="width: 14px; height: 14px; color: var(--warning);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              磁盘 I/O 读写吞吐率 (Read / Write)
+            </div>
+            <div class="metric-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background: var(--cyan);"></span>读速率 (Read)</span>
+              <span class="legend-item"><span class="legend-dot" style="background: var(--warning);"></span>写速率 (Write)</span>
+            </div>
+          </div>
+          <div class="metric-chart-content">
+            ${chart5Rows}
+          </div>
+        </div>
+
+        <!-- Card 6: Connections & Jobs -->
+        <div class="metric-chart-card">
+          <div class="metric-chart-header">
+            <div class="metric-chart-title">
+              <svg style="width: 14px; height: 14px; color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              客户端并发连接分布 & 任务负载
+            </div>
+            <div class="metric-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background: var(--primary);"></span>活动连接数</span>
+            </div>
+          </div>
+          <div class="metric-chart-content">
+            ${chart6Rows}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderClusterNodeTable(allNodes) {
+      const tbody = document.getElementById('cm-nodes-table-body');
+      if (!tbody) return;
+
+      const nodes = getFilteredNodes(allNodes);
+      if (nodes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">暂无匹配节点</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      nodes.forEach(n => {
+        const m = n.metrics || {};
+        const leaderTag = n.isLeader ? '<span class="badge badge-success" style="font-size: 10px; margin-left: 4px;">Raft Leader</span>' : '';
+        const roleBadge = `<span class="badge badge-secondary" style="font-size: 10px;">${n.role}</span>`;
+        const cpuStr = m.cpuUsage !== undefined ? `${m.cpuUsage.toFixed(1)}%` : '-';
+        const loadStr = m.avgLoad !== undefined ? m.avgLoad.toFixed(2) : '-';
+        const memUsedStr = formatBytes(m.memoryUsed);
+        const memAllocStr = formatBytes(m.memoryAlloc);
+        const diskUsed = m.diskCapacity ? formatBytes(m.diskCapacity - (m.diskFreeSpace || 0)) : '-';
+        const diskCap = m.diskCapacity ? formatBytes(m.diskCapacity) : '-';
+        const netRecv = formatBytesRate(m.networkRecvRate);
+        const netSend = formatBytesRate(m.networkSendRate);
+        const diskRead = formatBytesRate(m.diskReadRate);
+        const diskWrite = formatBytesRate(m.diskWriteRate);
+        const conns = m.connectionNum !== undefined ? m.connectionNum : '-';
+
+        html += `
+          <tr>
+            <td>
+              <div style="font-weight: 600; font-family: var(--font-mono); color: var(--text-main);">${n.alias || n.node} ${leaderTag}</div>
+              <div style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">${n.node}</div>
+            </td>
+            <td>${roleBadge}</td>
+            <td><strong>${cpuStr}</strong> <span style="font-size: 10px; color: var(--text-muted);">(负载: ${loadStr})</span></td>
+            <td>${memUsedStr} <span style="font-size: 10px; color: var(--text-muted);">/ ${memAllocStr}</span></td>
+            <td>${diskUsed} <span style="font-size: 10px; color: var(--text-muted);">/ ${diskCap}</span></td>
+            <td><span style="color: var(--success);">↓ ${netRecv}</span> &nbsp; <span style="color: var(--purple);">↑ ${netSend}</span></td>
+            <td><span style="color: var(--cyan);">读: ${diskRead}</span> &nbsp; <span style="color: var(--warning);">写: ${diskWrite}</span></td>
+            <td><strong style="color: var(--primary);">${conns}</strong></td>
+            <td>
+              <button class="btn btn-secondary btn-xs" onclick="openNodeMetrics('${selectedCluster.namespace}', '${n.node}')" title="查看该节点专属终端 Metrics">
+                节点监控
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+    }
+
+    function copyClusterRawPrometheus() {
+      const el = document.getElementById('cluster-metrics-raw-content');
+      if (!el) return;
+      navigator.clipboard.writeText(el.textContent).then(() => {
+        showToast('全集群 Prometheus 指标已复制到剪贴板', 'success');
+      });
     }
 
     // Delete Cluster
@@ -4340,14 +5325,32 @@ spec:
       return `${days}天前`;
     }
 
+    function openModal(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('open');
+    }
+
     function closeModal(id) {
-      document.getElementById(id).classList.remove('open');
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('open');
+      if (id === 'modal-cluster-metrics') {
+        if (clusterMetricsTimer) {
+          clearInterval(clusterMetricsTimer);
+          clusterMetricsTimer = null;
+        }
+      }
     }
 
     // Escape Key Listener to Close Modals
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+        document.querySelectorAll('.modal-overlay.open').forEach(m => {
+          m.classList.remove('open');
+          if (m.id === 'modal-cluster-metrics' && clusterMetricsTimer) {
+            clearInterval(clusterMetricsTimer);
+            clusterMetricsTimer = null;
+          }
+        });
       }
     });
 
@@ -4356,6 +5359,10 @@ spec:
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
           overlay.classList.remove('open');
+          if (overlay.id === 'modal-cluster-metrics' && clusterMetricsTimer) {
+            clearInterval(clusterMetricsTimer);
+            clusterMetricsTimer = null;
+          }
         }
       });
     });

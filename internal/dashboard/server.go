@@ -1270,12 +1270,13 @@ func (s *Server) getClusterMetrics(w http.ResponseWriter, r *http.Request, names
 	}
 
 	type NodeMetricItem struct {
-		Node    string             `json:"node"`
-		Alias   string             `json:"alias"`
-		Role    string             `json:"role"`
-		Status  string             `json:"status"`
-		Metrics map[string]float64 `json:"metrics,omitempty"`
-		Error   string             `json:"error,omitempty"`
+		Node     string             `json:"node"`
+		Alias    string             `json:"alias"`
+		Role     string             `json:"role"`
+		Status   string             `json:"status"`
+		IsLeader bool               `json:"isLeader,omitempty"`
+		Metrics  map[string]float64 `json:"metrics,omitempty"`
+		Error    string             `json:"error,omitempty"`
 	}
 
 	results := make([]NodeMetricItem, len(targetNodes))
@@ -1299,6 +1300,10 @@ func (s *Server) getClusterMetrics(w http.ResponseWriter, r *http.Request, names
 				item.Error = "Pod not ready or no IP"
 				results[idx] = item
 				return
+			}
+
+			if pod.Labels != nil && pod.Labels["dolphindb.io/leader"] == "true" {
+				item.IsLeader = true
 			}
 
 			targetURL := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, n.Spec.Port)
@@ -1331,28 +1336,30 @@ func (s *Server) getClusterMetrics(w http.ResponseWriter, r *http.Request, names
 
 	wg.Wait()
 
-	if r.URL.Query().Get("format") == "prometheus" {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		var out strings.Builder
-		for _, item := range results {
-			if item.Metrics != nil {
-				out.WriteString(fmt.Sprintf("# Metrics for node %s (%s, role=%s)\n", item.Node, item.Alias, item.Role))
-				for k, v := range item.Metrics {
-					out.WriteString(fmt.Sprintf("%s{cluster=\"%s\",node=\"%s\",alias=\"%s\",role=\"%s\"} %f\n", k, name, item.Node, item.Alias, item.Role, v))
-					snake := camelToSnake(k)
-					out.WriteString(fmt.Sprintf("dolphindb_metric_%s{dolphindb_io_dolphindb_name=\"%s\",pod=\"%s\",dolphindb_io_component_type=\"%s\"} %f\n", snake, name, item.Node, getLegacyComponentType(v1alpha1.NodeRole(item.Role)), v))
-				}
+	var rawProm strings.Builder
+	for _, item := range results {
+		if item.Metrics != nil {
+			rawProm.WriteString(fmt.Sprintf("# Metrics for node %s (%s, role=%s)\n", item.Node, item.Alias, item.Role))
+			for k, v := range item.Metrics {
+				rawProm.WriteString(fmt.Sprintf("%s{cluster=\"%s\",node=\"%s\",alias=\"%s\",role=\"%s\"} %f\n", k, name, item.Node, item.Alias, item.Role, v))
+				snake := camelToSnake(k)
+				rawProm.WriteString(fmt.Sprintf("dolphindb_metric_%s{dolphindb_io_dolphindb_name=\"%s\",pod=\"%s\",dolphindb_io_component_type=\"%s\"} %f\n", snake, name, item.Node, getLegacyComponentType(v1alpha1.NodeRole(item.Role)), v))
 			}
 		}
+	}
+
+	if r.URL.Query().Get("format") == "prometheus" {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(out.String()))
+		_, _ = w.Write([]byte(rawProm.String()))
 		return
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"cluster":   name,
-		"namespace": namespace,
-		"nodes":     results,
+		"cluster":       name,
+		"namespace":     namespace,
+		"nodes":         results,
+		"rawPrometheus": rawProm.String(),
 	})
 }
 
