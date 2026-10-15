@@ -1058,6 +1058,9 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 
 func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBCluster) *ddbclient.Client {
 	ctlPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
+	if cluster.Status.MasterController != "" {
+		ctlPodName = cluster.Status.MasterController
+	}
 	ctlPod := &corev1.Pod{}
 	if err := r.Get(context.Background(), client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err != nil {
 		return nil

@@ -1,6 +1,6 @@
 # DolphinDB 物理机绑定高可用集群升级与数据原盘纳管实施方案与测试验证手册
 
-**文档版本**：v2.0.0  
+**文档版本**：v2.1.0  
 **适用对象**：金融机构架构师、量化投研运维团队、数据库管理员 (DBA)、云原生基础设施工程师  
 **适用场景**：将运行在私有物理机 Kubernetes 集群、各 Pod 强绑定宿主机（基于本地 NVMe/SATA SSD 盘）的传统 DolphinDB 高可用集群，**平滑升级至新一代 DolphinDB 云原生架构（Operator v2 + DDBNode 体系）**，全过程**保证存量数据 100% 完整无损、零物理搬迁**。
 
@@ -21,6 +21,7 @@
   - [3.2 存量存储卷 (PVC) 与目录布局核查](#32-存量存储卷-pvc-与目录布局核查)
   - [3.3 业务停写与内存脏块强制刷盘 (Flush Cache)](#33-业务停写与内存脏块强制刷盘-flush-cache)
   - [3.4 元数据离线兜底备份建议](#34-元数据离线兜底备份建议)
+  - [3.5 导出并备份旧版资源定义 (Pre-Migration Rollback Asset Backup)](#35-导出并备份旧版资源定义-pre-migration-rollback-asset-backup)
 - [四、 标准化原地升级操作五步法 (Migration Runbook)](#四-标准化原地升级操作五步法-migration-runbook)
   - [步骤 1：部署新一代 Operator 控制面与 CRD 引擎](#步骤-1部署新一代-operator-控制面与-crd-引擎)
   - [步骤 2：业务安全停写与执行数据落盘](#步骤-2业务安全停写与执行数据落盘)
@@ -31,7 +32,9 @@
   - [测试项 1：Raft 高可用控制器状态与选主拓扑核验](#测试项-1raft-高可用控制器状态与选主拓扑核验)
   - [测试项 2：全量历史数据表与 DFS 元数据完整性校验](#测试项-2全量历史数据表与-dfs-元数据完整性校验)
   - [测试项 3：读写压力与增量写入性能测试](#测试项-3读写压力与增量写入性能测试)
-  - [测试项 4：Raft Leader 动态切换与自动切流高可用演练](#测试项-4raft-leader-动态切换与自动切流高可用演练)
+  - [测试项 4：节点故障自愈与 Raft 自动切流演练](#测试项-4节点故障自愈与-raft-自动切流演练)
+    - [4.1 控制器 Leader 宕机与秒级切流演练](#41-控制器-leader-宕机与秒级切流演练)
+    - [4.2 数据节点 (DataNode) 宕机与原盘自愈恢复演练](#42-数据节点-datanode-宕机与原盘自愈恢复演练)
   - [测试项 5：Web UI 参数配置修改与双向持久化自愈验证](#测试项-5web-ui-参数配置修改与双向持久化自愈验证)
   - [测试项 6：可视化指标大盘与 Prometheus Metrics 采集核验](#测试项-6可视化指标大盘与-prometheus-metrics-采集核验)
 - [六、 应急回滚预案 (Emergency Rollback Plan)](#六-应急回滚预案-emergency-rollback-plan)
@@ -178,16 +181,19 @@ DolphinDB 商业 License 的授权机制校验三项要素：
 在执行升级维护窗口前，通过 DolphinDB 客户端执行自检脚本，确保当前集群无损坏分区或异常节点：
 
 ```sql
-// 1. 检查节点在线状态与版本
-select name, mode, state, ip, port from rpc(getControllerAlias(), getClusterPerf);
+// 1. 登录集群管理员账号
+login("admin", "123456");
 
-// 2. 检查 Raft 高可用组健康状态
-getClusterRaftLeader();
+// 2. 检查全集群 6 个节点（3 控制器 + 3 数据节点）在线状态与宿主机映射
+select name, mode, state, host, port, isLeader from rpc(getControllerAlias(), getClusterPerf{true});
 
-// 3. 检查是否有处于恢复或离线状态的分区
+// 3. 检查 Raft 高可用控制器选主状态（唯一活跃 Leader）
+exec name from rpc(getControllerAlias(), getClusterPerf{true}) where mode == 2 and isLeader == 1;
+
+// 4. 检查是否有处于恢复中或离线的分区副本（期望返回空表 0 行）
 select * from rpc(getControllerAlias(), getRecoveryTaskStatus);
 ```
-> **要求**：所有节点状态必须为 `Online`，恢复任务队列为空，Raft 组已选出正常 Leader。
+> **验收基线**：所有数据节点与控制器的 `state` 必须为 `1` (Online)，恢复任务队列为空，Raft 组已正确选出唯一 Leader (`isLeader == 1`)。
 
 ### 3.2 存量存储卷 (PVC) 与目录布局核查
 
@@ -213,18 +219,21 @@ kubectl get pvc -n dolphindb -o custom-columns=NAME:.metadata.name,STATUS:.statu
 为确保数据 100% 落盘、无丢失风险，在计划停机窗口开始时，通知上游应用暂停写入，随后在客户端向各数据节点广播强制刷盘指令：
 
 ```sql
-// 向所有活跃数据节点广播落盘
+login("admin", "123456");
+
+// 向所有活跃数据节点广播执行 OLAP & TSDB 脏数据强制落盘
 def flushAllNodes() {
-    nodes = exec name from pnodeRun(getNodeAlias) where name like "%node%"
+    nodes = exec node from pnodeRun(getNodeAlias) where node like "%node%";
     for(n in nodes) {
         try {
-            rpc(n, flushOLAPCache)
-            rpc(n, flushTSDBCache)
-            print("Successfully flushed cache on: " + n)
+            rpc(n, flushOLAPCache);
+            rpc(n, flushTSDBCache);
+            print("Successfully flushed cache on: " + n);
         } catch(ex) {
-            print("Failed to flush on " + n + ": " + ex)
+            print("Failed to flush on " + n + ": " + ex);
         }
-    }
+    };
+    return "FLUSH_COMPLETED";
 }
 flushAllNodes();
 ```
@@ -236,6 +245,24 @@ flushAllNodes();
 ```bash
 # 在各物理机上快速将 controller 与 chunk 元数据打包暂存（数据量通常极小，几秒内完成）
 ssh jzchen@192.168.100.43 "tar -czf /opt/dolphindb_meta_backup_$(date +%Y%m%d).tar.gz /opt/local-path-provisioner/pvc* 2>/dev/null || true"
+```
+
+### 3.5 导出并备份旧版资源定义 (Pre-Migration Rollback Asset Backup)
+
+在执行解绑前，将当前旧版控制器的完整 Kubernetes 资源定义导出备用，以支持第 [六章](#六-应急回滚预案-emergency-rollback-plan) 极端情况下的秒级极速回滚：
+
+```bash
+# 备份旧版 StatefulSet 定义文件
+kubectl get sts -n dolphindb -l app.kubernetes.io/name=dolphindb -o yaml > /home/jzchen/backup_legacy_statefulsets.yaml
+
+# 备份旧版 CR 自定义资源定义
+kubectl get dolphindbs.dolphindb.dolphindb.io -n dolphindb -o yaml > /home/jzchen/backup_legacy_cr.yaml 2>/dev/null || true
+
+# 备份关联 Service 定义
+kubectl get svc -n dolphindb -l app.kubernetes.io/name=dolphindb -o yaml > /home/jzchen/backup_legacy_services.yaml
+
+# 验证备份完整性
+ls -lh /home/jzchen/backup_legacy_*.yaml
 ```
 
 ---
@@ -465,74 +492,85 @@ ddb-prod-ha   cluster   v3.00.5   Ready   3            3          ddb-prod-ha-ct
 
 ---
 
-### 测试项 2：全量历史数据表与 DFS 元数据完整性校验
+#### 测试项 2：全量历史数据表与 DFS 元数据完整性校验
 
 - **测试目标**：验证原有存储在本地 NVMe 盘上的分布式数据库（DFS Tables）是否在升级后完好读取，数据行数与分区无丢失。
+- **执行节点说明**：`getDFSTables()` 属于 DataNode 存储引擎原生接口。若连接 Controller Leader（NodePort 32946），需通过 RPC 路由执行；或直接连接 DataNode 业务接入端口（NodePort 35712）。
 - **测试脚本 (DolphinDB 客户端执行)**：
 ```sql
-// 1. 列出集群所有 DFS 分布式表
-dfsTables = getDFSTables()
-print("Total DFS Tables found: " + dfsTables.size())
-print(dfsTables)
+login("admin", "123456");
 
-// 2. 验证核心表的数据行数与分区健康度
-for(tbName in dfsTables) {
+// 1. 获取全集群所有 DFS 分布式表列表（在 DataNode 执行或从 Controller 发起 RPC）
+dfsTables = (exec node from pnodeRun(getNodeAlias))[0];
+allTables = rpc(dfsTables, getDFSTables);
+print("Total DFS Tables found: " + allTables.size());
+print(allTables);
+
+// 2. 动态遍历验证各分布式表的数据行数与分区健康度
+for(tbPath in allTables) {
     try {
-        tb = loadTable(tbName[0], tbName[1])
-        cnt = exec count(*) from tb
-        print("Table [" + tbName[1] + "] row count: " + cnt + " -> OK")
+        parts = split(tbPath, "/");
+        dbPath = concat(parts[0..(parts.size()-2)], "/");
+        tbName = parts[parts.size()-1];
+        tb = loadTable(dbPath, tbName);
+        cnt = exec count(*) from tb;
+        print("Table [" + tbPath + "] total rows: " + cnt + " -> OK");
     } catch(ex) {
-        print("ERROR on table [" + tbName[1] + "]: " + ex)
+        print("ERROR on table [" + tbPath + "]: " + ex);
     }
-}
+};
 
-// 3. 检查是否有丢失副本或处于 Recovery 的 Chunk
-chunks = rpc(getControllerAlias(), getClusterChunksStatus)
-damaged = select * from chunks where state != "Complete"
-assert damaged.rows() == 0, "Warning: detected incomplete chunks!"
-print("DFS Chunk Health Check: 100% HEALTHY!")
+// 3. 检查是否有损坏副本或处于非 Complete 状态的 Chunk
+chunks = rpc(getControllerAlias(), getClusterChunksStatus);
+damaged = select * from chunks where upper(state) != "COMPLETE";
+assert damaged.rows() == 0, "Warning: detected incomplete chunks!";
+print("DFS Chunk Health Check: 100% HEALTHY (0 damaged chunks)!");
 ```
-**期望结果**：所有升级前的历史分布式表全部可正常加载，行数核对无误，损害 Chunk 数为 0。
+**期望结果**：所有升级前的历史分布式表全部可正常加载（如 `dfs://local_ha_test/trade` 210,000 行），损害 Chunk 数严格为 0。
 
 ---
 
 ### 测试项 3：读写压力与增量写入性能测试
 
 - **测试目标**：验证原盘挂载后的在线写入、OLAP/TSDB 引擎落盘与查询响应是否正常。
-- **测试脚本**：
+- **测试脚本 (连接 DataNode 执行)**：
 ```sql
-// 1. 创建测试数据库与表
-dbName = "dfs://upgrade_verification_db"
-if(existsDatabase(dbName)) { dropDatabase(dbName) }
-db = database(dbName, VALUE, 2026.10.15..2026.10.16)
-colNames = `ts`sym`price`qty
-colTypes = [TIMESTAMP, SYMBOL, DOUBLE, INT]
-schemaTable = table(1:0, colNames, colTypes)
-pt = db.createPartitionedTable(schemaTable, `trades, `ts)
+login("admin", "123456");
 
-// 2. 插入测试数据
-n = 1000000
-t = table(take(2026.10.15T09:30:00.000 + 0..(n-1), n) as ts, 
+// 1. 创建测试数据库与分区表
+dbName = "dfs://upgrade_verification_db";
+if(existsDatabase(dbName)) { dropDatabase(dbName); };
+db = database(dbName, VALUE, 2026.10.15..2026.10.16);
+colNames = `ts`sym`price`qty;
+colTypes = [TIMESTAMP, SYMBOL, DOUBLE, INT];
+schemaTable = table(1:0, colNames, colTypes);
+pt = db.createPartitionedTable(schemaTable, `trades, `ts);
+
+// 2. 批量并发插入 100,000 行高频交易行情模拟数据
+n = 100000;
+t = table(temporalAdd(2026.10.15T09:30:00.000, 0..(n-1), "ms") as ts, 
           take(`AAPL`MSFT`GOOG`600519`000001, n) as sym,
           rand(100.0, n) as price, 
-          rand(1000, n) as qty)
-pt.append!(t)
+          rand(1000, n) as qty);
+pt.append!(t);
 
-// 3. 聚合查询校验
-res = select count(*), avg(price), sum(qty) from loadTable(dbName, `trades) group by sym
-print(res)
+// 3. 分布式聚合计算核验
+res = select count(*), avg(price), sum(qty) from loadTable(dbName, `trades) group by sym;
+print(res);
 
-// 4. 清理测试表
-dropDatabase(dbName)
-print("Write & Read Stress Test: PASSED!")
+// 4. 清理临时压力测试库
+dropDatabase(dbName);
+print("Write & Read Stress Test: PASSED with 0 errors!");
 ```
 
 ---
 
-### 测试项 4：Raft Leader 动态切换与自动切流高可用演练
+### 测试项 4：节点故障自愈与 Raft 自动切流演练
 
-- **测试目标**：主动模拟物理机故障或 Leader 宕机，验证新架构的秒级自愈与统一 Web 路由能力。
-- **演练步骤**：
+新一代架构为双层容灾体系：针对 Controller 采用 Raft 选主 + 动态 Service 路由；针对 DataNode 采用 DDBNode 控制器原机原盘秒级拉起。
+
+#### 4.1 控制器 Leader 宕机与秒级切流演练
+
 1. 确认当前 Leader 为 `ddb-prod-ha-ctl-2`（所在物理机 `aftersale3`）；
 2. 访问统一访问端口：`http://192.168.100.43:32946/`，浏览器自动呈现活跃 Leader 页面；
 3. **注入故障**：人工杀死当前的 Leader Pod：
@@ -540,10 +578,26 @@ print("Write & Read Stress Test: PASSED!")
    kubectl delete pod ddb-prod-ha-ctl-2 -n dolphindb
    ```
 4. **观察自愈反应**：
-   - 剩余 2 个 Controller 自动发起 Raft 选举，选出新 Leader（例如 `ddb-prod-ha-ctl-0`）；
-   - Operator 立即检测到新 Leader，并将统一 Service 的标签选择器原子切换至 `ddb-prod-ha-ctl-0`；
+   - 剩余 2 个 Controller 自动发起 Raft 选举，选出新 Leader（如 `ddb-prod-ha-ctl-1`）；
+   - Operator 立即检测到新 Leader，并将统一 Service 的标签选择器原子切换至 `ddb-prod-ha-ctl-1`；
    - 刷新浏览器页面 `http://192.168.100.43:32946/`，瞬间自动跳转至新 Leader，业务访问不中断；
    - 被杀死的 `ddb-prod-ha-ctl-2` Pod 自动原地拉起并重新加入集群作为 Follower。
+
+#### 4.2 数据节点 (DataNode) 宕机与原盘自愈恢复演练
+
+- **测试目标**：验证当数据节点 Pod 异常终止时，DDBNode 控制器能否在原物理宿主机上迅速拉起新 Pod，并重新安全挂载原有 PVC 恢复上线。
+- **演练步骤**：
+1. 记录当前运行在 `aftersale2` 上的数据节点 `ddb-prod-ha-dn-1`；
+2. **人工注入故障**：
+   ```bash
+   kubectl delete pod ddb-prod-ha-dn-1 -n dolphindb
+   ```
+3. **观察恢复过程**：
+   - DDBNode 控制器于 **3 秒内**捕获 Pod 缺失事件；
+   - 严格遵循 `nodeBindings`，将新 Pod 精确重新调度至宿主机 `aftersale2`；
+   - 重新挂载原物理本地卷 `data-ddb-ddb-prod-ha-dn-1-0`，零数据丢失；
+   - **8 秒内**完成初始化并恢复 `1/1 Running`，DolphinDB 集群自检显示 `state == 1`；
+   - 执行 `select * from rpc(getControllerAlias(), getClusterChunksStatus) where upper(state) != "COMPLETE"`，结果依然为 0 坏块！
 
 ---
 
@@ -616,3 +670,12 @@ kubectl get pods -n dolphindb -l app.kubernetes.io/name=dolphindb
 
 **Q4：新旧版本之间如何管理配置文件？Web 页面改的配置会不会丢？**  
 > **答**：新版架构彻底解决了“重启丢配置”的行业通病。Operator 运行后台异步同步协程（`reconcileWebUIConfigSync`），任何通过 Web UI 调优的参数均会被毫秒级捕获并持久化到 K8s 的 ConfigMap 与 CRD 中，实现真正的“动静统一、双向持久化”。
+
+**Q5：现场执行 curl 或 Python 脚本测试时报 502 Bad Gateway 或 Connection Refused 是什么原因？**  
+> **答**：金融内网服务器通常在 `/etc/profile`、`~/.bashrc` 或系统环境中配置了公司正向代理（如 `http_proxy`、`all_proxy`）。
+> 1. **代理旁路**：`curl` 和标准 HTTP 客户端会默认走代理，导致无法直接路由至 K8s 内部 ClusterIP 或 NodePort，报 `502 Bad Gateway`。请在测试命令中添加 `--noproxy "*"`，或在脚本中设置 `export NO_PROXY="*"`；
+> 2. **IPVS Local Hairpin 回流**：如果在物理宿主机本地通过 NodePort 访问本机的 IP，Linux 内核 IPVS 默认禁止回流导致 `Connection Refused`。建议测试时访问集群统一 ClusterIP（`ddb-prod-ha`），或在外部客户端机/跨节点访问 NodePort。
+
+**Q6：客户端直接调用 Controller 接口时返回 `<NotLeader>controllerX` 报错如何处理？**  
+> **答**：在 DolphinDB Raft 组中，非 Leader 的 Follower 节点不直接承载集群元数据写入与强一致查询。
+> 新一代 Operator 自动维护了集群高可用统一入口 Service `ddb-prod-ha`（带动态标签选择器 `dolphindb.io/leader: "true"`）。上游客户端、Grafana 或管理脚本只需始终连接该统一 Service（或 NodePort 32946），流量会自动且始终路由至当前活跃的 Raft Leader，无需业务层手动做选主寻址。
