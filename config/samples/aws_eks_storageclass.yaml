@@ -1,4 +1,46 @@
-# AWS EBS CSI StorageClasses for DolphinDB
+# AWS EBS StorageClasses for DolphinDB
+#
+# ---------------------------------------------------------------------------
+# PREREQUISITE: these classes declare a *provisioner*, they do not install one.
+#
+# `ebs.csi.aws.com` is the AWS EBS CSI driver, a cluster-level component that the
+# cluster administrator installs once per cluster - the same tier as the CNI
+# (aws-node) or CoreDNS. It is NOT part of the DolphinDB operator and is not
+# shipped with it: it runs privileged DaemonSet pods with hostPath mounts and
+# needs IAM permission to call the EC2 volume APIs, which is cluster
+# infrastructure, not an application concern.
+#
+# Applying this file to a cluster without that driver creates StorageClasses that
+# look fine but leave every PVC Pending forever:
+#
+#   ExternalProvisioning: Waiting for a volume to be created either by the external
+#   provisioner 'ebs.csi.aws.com' or manually by the system administrator.
+#
+# Install the driver first, for example:
+#
+#   # EKS managed add-on with IRSA (the documented path)
+#   eksctl create iamserviceaccount \
+#     --cluster <cluster> --namespace kube-system \
+#     --name ebs-csi-controller-sa \
+#     --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+#     --approve
+#   eksctl create addon --cluster <cluster> --name aws-ebs-csi-driver \
+#     --service-account-role-arn <the role created above> --force
+#
+#   # or a standalone cluster
+#   kubectl apply -k "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=release-1.x"
+#
+# Verify it registered before relying on these classes:
+#
+#   kubectl get csinodes -o jsonpath='{range .items[*]}{.metadata.name}: {.spec.drivers[*].name}{"\n"}{end}'
+#
+# The dashboard reads exactly that, and marks a class whose driver is not running
+# as unusable in the create wizard.
+#
+# Note: `gp2` / `kubernetes.io/aws-ebs` is not an alternative. On modern clusters
+# CSI migration forwards that in-tree provisioner to this same driver, so it fails
+# identically without it.
+# ---------------------------------------------------------------------------
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:

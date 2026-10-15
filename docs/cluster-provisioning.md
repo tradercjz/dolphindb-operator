@@ -163,7 +163,56 @@ default to "off" and say so, which it now does.
 
 ---
 
-## 4. Deliberately not implemented
+## 4. Who installs the storage driver (it is not us)
+
+A short but important boundary, because it caused real confusion:
+
+**A CSI driver is not part of the DolphinDB operator, and must not be bundled with
+it.** A `StorageClass` only *declares* a provisioner — it is an order, not a
+kitchen. `ebs.csi.aws.com` is the AWS EBS CSI driver: a cluster-level component the
+cluster administrator installs once per cluster, in the same tier as the CNI
+(`aws-node`) or CoreDNS.
+
+Why it cannot live in a database operator:
+
+| Requirement | Why it rules out bundling |
+| :--- | :--- |
+| Privileged pods with `hostPath` mounts (`/dev`, `/var/lib/kubelet`) | cluster infrastructure privilege, not an application's |
+| IAM permission to call `ec2:CreateVolume` / `AttachVolume` / `DeleteVolume` | needs IRSA or instance-profile credentials for the *node* |
+| One per cluster, not one per database | a singleton; two operators installing it would fight |
+| Different per cloud and per Kubernetes version | EBS / Azure Disk / GCE PD all differ |
+
+This matches every other database operator: CloudNativePG, Percona Everest and
+KubeDB all *document* storage prerequisites and none of them ship a CSI driver.
+
+**So what does the operator do about it?** Detect and report. That is what
+`/api/platform` and the wizard's usage validation are for: they turn "every PVC is
+Pending and nothing explains why" into "this class cannot work, here is why".
+
+**What the operator does own** is the PVC: `ddbnode_controller` creates the claims
+with the requested `storageClassName`, mounts them, and reports binding state on
+each `DDBNode` (`status.volumes[].bound`).
+
+### On this project specifically
+
+The documented EKS path to the EBS CSI driver needs **IRSA**, and the account SCP
+denies `iam:*OpenIDConnectProvider*`, so the add-on cannot be wired up the normal
+way. Two consequences:
+
+* `ebs-gp3-sc` and `gp2` are unusable here, and the wizard says so;
+* `local-path` (`rancher.io/local-path`) is the working option. Its limitation is
+  stated in the wizard: data lives on one node's disk, so replacing that node loses
+  it.
+
+A degraded alternative exists — attach `AmazonEBSCSIDriverPolicy` to the **node
+instance role** and let the driver use the instance profile instead of IRSA. It
+works, but it grants every pod on those nodes (with IMDS access) the ability to
+create and delete EBS volumes, which is a privilege-escalation path. Use it for an
+evaluation, not for production.
+
+---
+
+## 5. Deliberately not implemented
 
 * **`storageClass: ""` (no persistence)** is not offered. Every DolphinDB node
   needs a data volume; presenting a "no storage" option would produce a cluster
@@ -179,7 +228,7 @@ default to "off" and say so, which it now does.
 
 ---
 
-## 5. Files
+## 6. Files
 
 ```
 internal/dashboard/platform.go                    new — /api/platform, availability checks
