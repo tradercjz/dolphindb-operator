@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -41,6 +42,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/healthz/ready", s.handleReady)
 	mux.HandleFunc("/healthz/master", s.handleMaster)
 	mux.HandleFunc("/state/master", s.handleSetMaster)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.Port)
 	server := &http.Server{
@@ -197,6 +199,22 @@ func (s *Server) handleSetMaster(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprintf(w, "master set to %v", master)
+}
+
+// handleMetrics proxies Prometheus metrics from local DolphinDB process
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	url := fmt.Sprintf("http://127.0.0.1:%d/metrics", s.DDBPort)
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to query local DDB metrics: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // MarkTerminating signals prestop shutdown

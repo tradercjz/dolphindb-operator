@@ -712,6 +712,11 @@ func (s *Server) handleClusterSubRoutes(w http.ResponseWriter, r *http.Request) 
 			s.toggleClusterExpose(w, r, namespace, name)
 			return
 		}
+	case "metrics":
+		if r.Method == http.MethodGet {
+			s.getClusterMetrics(w, r, namespace, name)
+			return
+		}
 	default:
 		errorResponse(w, http.StatusNotFound, "Action not found")
 		return
@@ -1074,9 +1079,222 @@ func (s *Server) handleNodeSubRoutes(w http.ResponseWriter, r *http.Request) {
 			s.unexposeNodeService(w, r, namespace, name)
 			return
 		}
+	case "metrics":
+		if r.Method == http.MethodGet {
+			s.getNodeMetrics(w, r, namespace, name)
+			return
+		}
 	}
 
 	errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+}
+
+func (s *Server) getNodeMetrics(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	node := &v1alpha1.DDBNode{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, node); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("DDBNode %s/%s not found", namespace, name))
+		return
+	}
+
+	pod := &corev1.Pod{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, pod); err != nil || pod.Status.PodIP == "" {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Pod %s/%s not ready or has no IP", namespace, name))
+		return
+	}
+
+	targetURL := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, node.Spec.Port)
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		errorResponse(w, http.StatusBadGateway, fmt.Sprintf("Failed to fetch metrics from %s: %v", targetURL, err))
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to read metrics response: %v", err))
+		return
+	}
+
+	rawText := string(bodyBytes)
+	if r.URL.Query().Get("format") == "json" {
+		parsed := parsePrometheusText(rawText)
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"node":      name,
+			"alias":     node.Spec.Alias,
+			"role":      node.Spec.Role,
+			"cluster":   node.Spec.ClusterName,
+			"targetUrl": targetURL,
+			"metrics":   parsed,
+			"raw":       rawText,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(bodyBytes)
+}
+
+func (s *Server) getClusterMetrics(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	ddbNodeList := &v1alpha1.DDBNodeList{}
+	if err := s.client.List(ctx, ddbNodeList, client.InNamespace(namespace)); err != nil {
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var targetNodes []v1alpha1.DDBNode
+	for _, n := range ddbNodeList.Items {
+		if n.Spec.ClusterName == name {
+			targetNodes = append(targetNodes, n)
+		}
+	}
+
+	type NodeMetricItem struct {
+		Node    string             `json:"node"`
+		Alias   string             `json:"alias"`
+		Role    string             `json:"role"`
+		Status  string             `json:"status"`
+		Metrics map[string]float64 `json:"metrics,omitempty"`
+		Error   string             `json:"error,omitempty"`
+	}
+
+	results := make([]NodeMetricItem, len(targetNodes))
+	var wg sync.WaitGroup
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+
+	for i := range targetNodes {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			n := targetNodes[idx]
+			item := NodeMetricItem{
+				Node:   n.Name,
+				Alias:  n.Spec.Alias,
+				Role:   string(n.Spec.Role),
+				Status: string(n.Status.Phase),
+			}
+
+			pod := &corev1.Pod{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: n.Name}, pod); err != nil || pod.Status.PodIP == "" {
+				item.Error = "Pod not ready or no IP"
+				results[idx] = item
+				return
+			}
+
+			targetURL := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, n.Spec.Port)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+			if err != nil {
+				item.Error = err.Error()
+				results[idx] = item
+				return
+			}
+
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				item.Error = err.Error()
+				results[idx] = item
+				return
+			}
+			defer resp.Body.Close()
+
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				item.Error = err.Error()
+				results[idx] = item
+				return
+			}
+
+			item.Metrics = parsePrometheusText(string(b))
+			results[idx] = item
+		}(i)
+	}
+
+	wg.Wait()
+
+	if r.URL.Query().Get("format") == "prometheus" {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		var out strings.Builder
+		for _, item := range results {
+			if item.Metrics != nil {
+				out.WriteString(fmt.Sprintf("# Metrics for node %s (%s, role=%s)\n", item.Node, item.Alias, item.Role))
+				for k, v := range item.Metrics {
+					out.WriteString(fmt.Sprintf("%s{cluster=\"%s\",node=\"%s\",alias=\"%s\",role=\"%s\"} %f\n", k, name, item.Node, item.Alias, item.Role, v))
+					snake := camelToSnake(k)
+					out.WriteString(fmt.Sprintf("dolphindb_metric_%s{dolphindb_io_dolphindb_name=\"%s\",pod=\"%s\",dolphindb_io_component_type=\"%s\"} %f\n", snake, name, item.Node, getLegacyComponentType(v1alpha1.NodeRole(item.Role)), v))
+				}
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(out.String()))
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"cluster":   name,
+		"namespace": namespace,
+		"nodes":     results,
+	})
+}
+
+func parsePrometheusText(text string) map[string]float64 {
+	result := make(map[string]float64)
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			key := parts[0]
+			if idx := strings.Index(key, "{"); idx > 0 {
+				key = key[:idx]
+			}
+			val, err := strconv.ParseFloat(parts[1], 64)
+			if err == nil {
+				result[key] = val
+			}
+		}
+	}
+	return result
+}
+
+func camelToSnake(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r + ('a' - 'A'))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func getLegacyComponentType(role v1alpha1.NodeRole) string {
+	switch role {
+	case v1alpha1.NodeRoleController:
+		return "Controllernode"
+	case v1alpha1.NodeRoleComputeNode:
+		return "Computenode"
+	case v1alpha1.NodeRoleSingle:
+		return "Standalone"
+	default:
+		return "Datanode"
+	}
 }
 
 func (s *Server) getNodeLogs(w http.ResponseWriter, r *http.Request, namespace, name string) {
