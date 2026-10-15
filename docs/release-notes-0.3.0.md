@@ -284,7 +284,64 @@ to Secret-based licensing.
 
 ---
 
-## 4. Helm chart fixes
+## 4. Cluster exposure: which components, and how many load balancers
+
+A cluster published a *broken* link by default. The CRD defaulted
+`networking.serviceType` to `NodePort`, so every cluster got
+`http://16.176.229.160:32074` - a public address in a URL that the node security
+group then silently dropped, because the operator never opens that group. The
+dashboard offered a "打开 web 终端" button for it.
+
+Exposure is now per component, and the default exposes nothing:
+
+```yaml
+spec:
+  networking:
+    expose:
+      controller: true    # 8900 - Web console + management API
+      datanode: true      # 8901 - where DFS reads/writes run
+      computenode: false  # 8902 - stateless query compute
+```
+
+**Why per component, and why it cannot be a single load balancer.** A Kubernetes
+Service targets exactly one pod set. The three components are different pods on
+different ports, so they cannot share a Service - and under the in-tree cloud
+provider they cannot share a load balancer either. Exposing everything therefore
+costs three NLBs, roughly US$48/month in fixed cost alone.
+
+**Why the controller alone is not enough** - measured, not assumed, against the
+same cluster:
+
+| Entry point | Operation | Result |
+| :--- | :--- | :--- |
+| controller LB (8900) | Web console | `HTTP 200` |
+| controller LB (8900) | DFS operation | rejected: `The current node isn't a data node and can't run function [database]` |
+| data node LB (8901) | DFS query | `rows=9, total=45` |
+
+The DolphinDB documentation agrees: the controller holds metadata and heartbeats,
+while data nodes execute DFS reads and writes.
+
+**Defaults**
+
+| Platform | Default |
+| :--- | :--- |
+| Managed cloud (EKS/GKE/AKS) | nothing exposed (`ClusterIP`) |
+| Bare metal | all components `NodePort` - historical behaviour preserved |
+
+**Honest reachability.** `ResolveEndpoint` used to treat a public node address as
+proof the endpoint works. On a cloud it is not: the security group decides. An
+endpoint now carries an explicit `reachable` flag and, for a NodePort on a cloud,
+`reachable: false` plus an explanation.
+
+* A single load balancer *is* possible with an in-cluster TCP proxy (one Service
+  targeting a small nginx/Envoy `stream` deployment listening on 8900/8901/8902).
+  It trades a load balancer for a component to operate. Not implemented.
+* The AWS Load Balancer Controller could attach several Services to one NLB, but
+  it needs IRSA, which the SCP blocks.
+
+---
+
+## 5. Helm chart fixes
 
 | Fix | Detail |
 | :--- | :--- |
@@ -294,7 +351,7 @@ to Secret-based licensing.
 
 ---
 
-## 5. Verification
+## 6. Verification
 
 Performed on EKS 1.34 / `ap-southeast-2` / 2 × `m7i-flex.large`.
 
@@ -334,7 +391,7 @@ ddb-min-cluster   cluster     Ready   1            2
 
 ---
 
-## 6. Upgrade notes
+## 7. Upgrade notes
 
 **Breaking change — Deployment selectors.** The operator and dashboard
 Deployments no longer share a pod selector. `spec.selector` is immutable, so
@@ -374,7 +431,7 @@ kubectl apply -f config/crd/bases/
 
 ---
 
-## 7. Known limitations
+## 8. Known limitations
 
 * **TLS** — exposure does not terminate TLS. Front the port with an Ingress
   controller or an ALB + ACM certificate if TLS is required.
@@ -392,7 +449,7 @@ kubectl apply -f config/crd/bases/
 
 ---
 
-## 8. Files changed
+## 9. Files changed
 
 ```
 internal/exposure/              new — cloud-aware exposure (14 unit tests)
@@ -410,6 +467,7 @@ internal/dashboard/ui/index.html        pending state, LB mode, auto-polling
 internal/config/renderer.go             cache engine defaults
 internal/controller/dolphindbcluster_controller.go  hostname, licence opt-in, fingerprint clear, credentials
 internal/controller/tls.go              TLS orchestration (certificate, publicName, protocol annotation)
+internal/controller/exposure_plan.go    per-component exposure resolution
 internal/controller/ddbnode_controller.go  TLS volume, keys install, -enableHTTPS flags, certificate roll
 internal/controller/ddbbackup_controller.go     credentials
 internal/controller/ddboperation_controller.go  credentials
@@ -420,5 +478,5 @@ deploy/helm/dolphindb-operator/{Chart.yaml,values.yaml,templates/*}
 README.md
 ```
 
-Test suite: 78 assertions across 9 packages. `gofmt`, `go vet`, `go test ./...`
+Test suite: 86 assertions across 9 packages. `gofmt`, `go vet`, `go test ./...`
 and `helm lint` all clean.

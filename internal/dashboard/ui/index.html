@@ -3368,91 +3368,81 @@
       // never inferred. Inferring it from a possibly-empty accessURL made an
       // exposed cluster look unexposed, and the resulting "enable" click then
       // toggled the exposure *off* (deleting the cloud load balancer).
+      // Access banner: one row per component.
+      //
+      // A cluster's controller, data nodes and compute nodes are different pod
+      // sets on different ports, and each exposed one is its own cloud load
+      // balancer. A single cluster-wide badge cannot express that, and it is what
+      // made an unreachable NodePort look healthy.
       const accessBanner = document.getElementById('topology-access-banner');
-      const modeLabel = detail.exposureMode === 'LoadBalancer'
-        ? `LoadBalancer · ${detail.exposureScheme === 'internal' ? '内部' : '公网'}`
-        : (detail.exposureMode === 'NodePort' ? 'NodePort' : 'ClusterIP');
-      // Native HTTPS is terminated by DolphinDB itself on the same port, so the
-      // scheme is reported by the API rather than inferred from the LB.
-      const protoLabel = detail.exposureTLS ? ' · HTTPS' : '';
-      const selfSignedHint = (detail.exposureTLS && detail.tlsManaged)
-        ? '<div class="topology-hero-meta"><span style="color: var(--warning-text, #8d6e00);">⚠ 使用的是套件自动签发的自签名证书，浏览器会提示不安全。导入该证书为受信任机构即可消除告警。</span></div>'
+      const COMPONENTS = {
+        controller:  { label: '控制节点', port: 8900, note: 'Web 控制台 / 管理 API' },
+        datanode:    { label: '数据节点', port: 8901, note: 'DFS 读写实际执行处' },
+        computenode: { label: '计算节点', port: 8902, note: '无状态查询计算' },
+      };
+      const rows = (detail.components || []).filter(x => COMPONENTS[x.component]);
+
+      const renderExposeRow = (comp) => {
+        const meta = COMPONENTS[comp.component];
+        let stateBadge, addrCell, action;
+        if (!comp.exposed) {
+          stateBadge = '<span class="badge badge-neutral">未暴露</span>';
+          addrCell = '<span style="color: var(--text-muted);">仅集群内 ClusterIP</span>';
+          action = `<button class="btn btn-secondary btn-sm" onclick="setClusterExposure('${ns}','${cn}',true,'${comp.component}')">对外开启</button>`;
+        } else if (comp.pending) {
+          stateBadge = `<span class="badge badge-neutral">${comp.serviceType} 创建中…</span>`;
+          addrCell = `<span style="color: var(--text-muted);">${comp.message || '等待云端分配地址'}</span>`;
+          action = `<button class="btn btn-secondary btn-sm" style="color: var(--danger-text);" onclick="setClusterExposure('${ns}','${cn}',false,'${comp.component}')">取消</button>`;
+        } else {
+          const bad = comp.reachable === false;
+          stateBadge = `<span class="badge ${bad ? 'badge-neutral' : 'badge-success'}">${comp.serviceType}${comp.tls ? ' · HTTPS' : ''}</span>`;
+          const warn = bad
+            ? `<div style="font-size: 10px; color: var(--danger-text); margin-top: 2px;">⚠ ${comp.message || '该地址当前不可达'}</div>`
+            : '';
+          addrCell = comp.url
+            ? `<div style="font-family: var(--font-mono); font-size: 10px;">${comp.url}</div>${warn}`
+            : `<span style="color: var(--text-muted);">${comp.message || '等待地址'}</span>`;
+          action = `<div style="display: flex; gap: 6px; justify-content: flex-end;">
+              ${comp.url && !bad ? `<a href="${comp.url}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 10px;">打开 ↗</a>` : ''}
+              <button class="btn btn-secondary btn-sm" style="color: var(--danger-text);" onclick="setClusterExposure('${ns}','${cn}',false,'${comp.component}')">关闭</button>
+            </div>`;
+        }
+        return `<tr style="border-top: 1px solid var(--border-subtle, #e5e7eb);">
+            <td style="padding: 8px 10px 8px 0; white-space: nowrap;">
+              <div style="font-size: 12px; font-weight: 600;">${meta.label}</div>
+              <div style="font-size: 10px; color: var(--text-muted);">:${meta.port} · ${meta.note}</div>
+            </td>
+            <td style="padding: 8px 10px; white-space: nowrap;">${stateBadge}</td>
+            <td style="padding: 8px 10px; word-break: break-all;">${addrCell}</td>
+            <td style="padding: 8px 0 8px 10px; text-align: right; white-space: nowrap;">${action}</td>
+          </tr>`;
+      };
+
+      const anyExposed = rows.some(r => r.exposed);
+      const tlsHint = detail.exposureTLS
+        ? (detail.tlsManaged
+            ? '<div class="topology-hero-meta"><span style="color: var(--warning-text, #8d6e00);">⚠ 使用套件自动签发的自签名证书，浏览器会提示不安全；导入该证书为受信任机构即可消除告警。</span></div>'
+            : '<div class="topology-hero-meta"><span>使用你提供的证书</span></div>')
         : '';
 
-      if (detail.exposurePending) {
-        accessBanner.innerHTML = `
-          <div class="topology-hero" style="border-style: dashed; background: var(--bg-subtle);">
-            <div class="topology-hero-info">
-              <h3>
-                <span class="badge badge-neutral">${modeLabel}${protoLabel} 创建中…</span>
-                正在向云端申请外部入口
-              </h3>
-              <div class="topology-hero-meta">
-                <span>${detail.exposureMessage || '云负载均衡通常需要 3-5 分钟才能就绪'}</span>
-                <span>•</span>
-                <span>页面会自动刷新，无需重复点击</span>
-              </div>
-              ${selfSignedHint}
+      accessBanner.innerHTML = `
+        <div class="topology-hero" ${anyExposed ? '' : 'style="border-style: dashed; background: var(--bg-subtle);"'}>
+          <div class="topology-hero-info" style="width: 100%;">
+            <h3>
+              <span class="badge ${anyExposed ? 'badge-success' : 'badge-neutral'}">${anyExposed ? '已对外暴露' : 'ClusterIP（仅集群内）'}</span>
+              外部访问 · 每个暴露的组件各自占用一个云负载均衡
+            </h3>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 6px;">
+              <tbody>${rows.map(renderExposeRow).join('')}</tbody>
+            </table>
+            <div class="topology-hero-meta" style="margin-top: 6px;">
+              <span>控制节点只能做管理，DFS 读写必须连数据节点或计算节点；按需只开必要的组件可以省下负载均衡费用。</span>
             </div>
-            <button class="btn btn-secondary" onclick="setClusterExposure('${ns}', '${cn}', false)">
-              取消开启
-            </button>
+            ${tlsHint}
           </div>
-        `;
-        scheduleClusterExposurePoll(ns, cn);
-      } else if (detail.accessURL) {
-        const offLabel = detail.exposureMode === 'LoadBalancer'
-          ? '关闭外部访问（释放负载均衡）'
-          : '切换为 ClusterIP 内部访问';
-        accessBanner.innerHTML = `
-          <div class="topology-hero">
-            <div class="topology-hero-info">
-              <h3>
-                <span class="badge badge-success" style="padding: 4px 10px; font-size: 12px;">${modeLabel}${protoLabel} 外部访问已就绪</span>
-                DolphinDB Web 交互式管理终端
-              </h3>
-              <div class="topology-hero-meta">
-                <span>外部直连地址: <code style="font-size: 13px; color: var(--primary); font-weight: 700;">${detail.accessURL}</code></span>
-                <span>•</span>
-                <span>协议: ${detail.exposureTLS ? 'HTTPS / WSS（传输已加密）' : 'HTTP REST / WebSocket'}</span>
-              </div>
-              ${selfSignedHint}
-              ${detail.exposureMessage ? `<div class="topology-hero-meta"><span style="color: var(--danger-text);">⚠ ${detail.exposureMessage}</span></div>` : ''}
-            </div>
-            <div style="display: flex; gap: 10px;">
-              <a href="${detail.accessURL}" target="_blank" class="btn btn-primary" style="padding: 10px 20px; font-size: 13px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                在新窗口打开 Web 终端 ↗
-              </a>
-              <button class="btn btn-secondary" onclick="setClusterExposure('${ns}', '${cn}', false)">
-                ${offLabel}
-              </button>
-            </div>
-          </div>
-        `;
-      } else {
-        const hint = detail.exposureMessage
-          ? detail.exposureMessage
-          : '从集群外部浏览器无法直接访问 Web 终端';
-        const enableLabel = '一键开启外部访问（云端自动创建负载均衡）';
-        accessBanner.innerHTML = `
-          <div class="topology-hero" style="border-style: dashed; background: var(--bg-subtle);">
-            <div class="topology-hero-info">
-              <h3>
-                <span class="badge badge-neutral">ClusterIP (仅集群内私有)</span>
-                当前集群尚未对外开放
-              </h3>
-              <div class="topology-hero-meta">
-                <span>${hint}</span>
-              </div>
-            </div>
-            <button class="btn btn-primary" onclick="setClusterExposure('${ns}', '${cn}', true)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-              ${enableLabel}
-            </button>
-          </div>
-        `;
-      }
+        </div>
+      `;
+      if (rows.some(r => r.pending)) scheduleClusterExposurePoll(ns, cn);
 
       // Title
       document.getElementById('topology-title').innerHTML = `
@@ -3678,12 +3668,12 @@
     // setClusterExposure requests an explicit desired state. The API also accepts
     // an omitted `enabled` (legacy toggle) but the UI never relies on that: a
     // blind toggle turns an exposed cluster off.
-    async function setClusterExposure(namespace, clusterName, enabled) {
+    async function setClusterExposure(namespace, clusterName, enabled, component) {
       try {
         const res = await fetch(`/api/clusters/${namespace}/${clusterName}/expose`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled }),
+          body: JSON.stringify({ enabled, component: component || 'all' }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -3691,9 +3681,9 @@
           return;
         }
         if (enabled) {
-          showToast(`${data.providerName || '云端'} 正在创建 ${data.serviceType} 入口，通常需要 3-5 分钟…`, 'success');
+          showToast(`${data.providerName || '云端'} 正在为「${component || '全部组件'}」创建 ${data.serviceType} 入口，通常需要 3-5 分钟…`, 'success');
         } else {
-          showToast('已关闭外部访问', 'success');
+          showToast(`已关闭「${component || '全部组件'}」的外部访问`, 'success');
         }
         await fetchClusterDetail(namespace, clusterName);
         fetchDashboardData();

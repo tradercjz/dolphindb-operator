@@ -193,3 +193,44 @@ encryption. If you do the latter, also upload the same certificate into a
   public.
 * Consider `spec.security.strictPermissionInspection: true` (the default) and
   keep `enableShellFunction` off.
+
+---
+
+## 7. Current decision and future work
+
+**Decided for now:** ship the self-signed path (§2, §3) and stop there. It needs
+no domain, no ACM and no IRSA, it encrypts the wire, and the certificate can be
+imported so that a browser stops warning. The operator was verified end to end on
+EKS: TLS handshake, HTTPS Web UI, HTTPS query execution, and
+`Verify return code: 0 (ok)` when the issued certificate is used as the trust
+anchor.
+
+**Accepted gaps.** These are known and deliberate, not oversights:
+
+| Gap | Detail |
+| :--- | :--- |
+| TLS is not *enforced* | `enableHTTPS=true` makes DolphinDB *also* serve HTTPS on the port; it still accepts plaintext HTTP on the same port. Verified: identical response bodies over `http://` and `https://`. There is no DolphinDB configuration to reject plaintext. |
+| TLS 1.2 only | DolphinDB's TLS stack does not negotiate TLS 1.3 (verified: `tls1_3` fails). TLS 1.2 with `ECDHE-RSA-AES256-GCM-SHA384` is currently still acceptable — AEAD, forward secrecy — but it is not the newest. |
+| Trust is per client | Every machine that should not see a warning has to import the certificate. Fine for a few operators, not for a public audience. |
+
+**Future work, in rough order of value:**
+
+1. **Bring your own certificate.** The plumbing already exists:
+   `spec.security.tls.secretName` accepts any `kubernetes.io/tls` Secret, the
+   operator verifies it, hashes it so a rotation rolls the nodes, and leaves the
+   contents alone. What is missing is the *acquisition* workflow — nothing in the
+   product obtains a certificate for you. Planned: documented ACM-export and
+   Let's Encrypt (ACME DNS-01) recipes, and optional cert-manager integration so a
+   `Certificate` resource feeds that Secret automatically.
+2. **Enforce TLS-only.** Terminate TLS in a thin in-cluster proxy (the pattern the
+   DolphinDB documentation itself describes for nginx) and expose only port 443,
+   so plaintext requests are rejected. Side benefit: such a proxy speaks TLS 1.3,
+   which closes the second gap above. Cost: one more component to run.
+3. **ACM + load balancer termination** once a domain exists — the better
+   operating model, because the certificate is free, auto-renewing and trusted
+   without any client-side import. See §5.
+4. **TLS for data and compute nodes.** They are deliberately excluded today
+   (DolphinDB documents that they take the certificate from the proxy node in
+   front of them). If direct, encrypted access to a data node is needed, this
+   becomes relevant — alongside `enableRpcSSL` for inter-node traffic, which
+   requires every node to have `enableHTTPS=true`.

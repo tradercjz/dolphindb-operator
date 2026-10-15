@@ -191,10 +191,10 @@ func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, 
 }
 
 func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
-	svcType := corev1.ServiceTypeClusterIP
-	if cluster.Spec.Networking.ServiceType != "" {
-		svcType = cluster.Spec.Networking.ServiceType
-	}
+	// Exposure is resolved per component: an exposed component needs its own Service
+	// and therefore its own cloud load balancer.
+	plan := resolveExposure(cluster, r.provider(ctx))
+	svcType := plan.Controller
 
 	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
 		port := int32(8848)
@@ -242,7 +242,7 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 		dnPorts := []corev1.ServicePort{
 			{Name: "dn-port", Port: dnPort, TargetPort: intstr.FromInt(int(dnPort))},
 		}
-		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-dn", cluster.Name), svcType, dnSelector, dnPorts); err != nil {
+		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-dn", cluster.Name), plan.DataNode, dnSelector, dnPorts); err != nil {
 			return err
 		}
 	}
@@ -260,7 +260,7 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 		cnPorts := []corev1.ServicePort{
 			{Name: "cn-port", Port: cnPort, TargetPort: intstr.FromInt(int(cnPort))},
 		}
-		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-cn", cluster.Name), svcType, cnSelector, cnPorts); err != nil {
+		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-cn", cluster.Name), plan.ComputeNode, cnSelector, cnPorts); err != nil {
 			return err
 		}
 	}
@@ -293,7 +293,7 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 
 		// Sync custom annotations (e.g. Alibaba Cloud SLB / AWS NLB annotations) and
 		// the exposure protocol, which changes when native HTTPS is toggled.
-		for k, v := range accessServiceAnnotations(cluster) {
+		for k, v := range accessServiceAnnotations(cluster, r.provider(ctx)) {
 			if svc.Annotations == nil {
 				svc.Annotations = make(map[string]string)
 			}
@@ -344,7 +344,7 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 		return err
 	}
 
-	svcAnnotations := accessServiceAnnotations(cluster)
+	svcAnnotations := accessServiceAnnotations(cluster, r.provider(ctx))
 
 	newSvc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{

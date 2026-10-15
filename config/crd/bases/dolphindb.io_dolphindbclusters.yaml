@@ -625,6 +625,30 @@ spec:
                     description: Annotations allows passing custom annotations to
                       external Services (e.g. Alibaba Cloud SLB / AWS NLB annotations)
                     type: object
+                  expose:
+                    description: |-
+                      Expose selects which components get an external entry point.
+
+                      Each selected component needs its own Service, and therefore its own cloud
+                      load balancer: a Kubernetes Service can only target one pod set, so a single
+                      load balancer cannot serve controllers and data nodes at once.
+                    properties:
+                      computenode:
+                        description: ComputeNode exposes port 8902, the stateless
+                          query tier.
+                        type: boolean
+                      controller:
+                        description: |-
+                          Controller exposes port 8900: the Web console and the management API.
+                          A controller holds cluster metadata and heartbeats; it cannot run DFS
+                          operations itself, so this is the *management* entry point.
+                        type: boolean
+                      datanode:
+                        description: |-
+                          DataNode exposes port 8901, where DFS reads and writes actually execute.
+                          Needed for real data work: a controller rejects database()/loadTable().
+                        type: boolean
+                    type: object
                   exposureMode:
                     default: NodePortDirect
                     description: ExposureMode defines the external exposure strategy
@@ -638,8 +662,14 @@ spec:
                       for Web UI redirect
                     type: string
                   serviceType:
-                    default: NodePort
-                    description: ServiceType defines K8s service type
+                    description: |-
+                      ServiceType is the Kubernetes Service type used for the components selected by
+                      `expose`.
+
+                      Leave it empty to let the operator decide. The old default was NodePort, which
+                      on a cloud produced an access URL that looked public but was firewalled off by
+                      the node security group - the operator never opens that group, so the link was
+                      dead on arrival.
                     type: string
                 type: object
               preloadModules:

@@ -856,6 +856,15 @@ type ClusterExposeRequest struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	// Scheme is "internet-facing" (default) or "internal".
 	Scheme string `json:"scheme,omitempty"`
+	// Component selects which component to act on: "controller", "datanode",
+	// "computenode", or "all".
+	//
+	// A cluster exposes them independently because they are different pod sets on
+	// different ports, and each exposed one becomes its own cloud load balancer:
+	// the Web console lives on the controller, while DFS reads and writes only run
+	// on data or compute nodes. Exposing "all" on a cloud therefore costs three load
+	// balancers.
+	Component string `json:"component,omitempty"`
 }
 
 func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, namespace, name string) {
@@ -881,17 +890,43 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 		exposedType = corev1.ServiceTypeLoadBalancer
 	}
 
+	// Current per-component selection. A cluster created before per-component
+	// exposure existed has no `expose` block; fall back to its cluster-wide
+	// ServiceType so a toggle does not silently drop an existing exposure.
+	state := map[string]bool{"controller": false, "datanode": false, "computenode": false}
+	if e := cluster.Spec.Networking.Expose; e != nil {
+		state["controller"], state["datanode"], state["computenode"] = e.Controller, e.DataNode, e.ComputeNode
+	} else if t := cluster.Spec.Networking.ServiceType; t != "" && t != corev1.ServiceTypeClusterIP {
+		state["controller"], state["datanode"], state["computenode"] = true, true, true
+	}
+
+	targets := []string{"controller", "datanode", "computenode"}
+	if req.Component != "" && req.Component != "all" {
+		if _, ok := state[req.Component]; !ok {
+			errorResponse(w, http.StatusBadRequest, fmt.Sprintf("unknown component %q: expected controller, datanode, computenode or all", req.Component))
+			return
+		}
+		targets = []string{req.Component}
+	}
+
 	// Default to toggling only when the caller did not state its intent.
-	wantExposed := cluster.Spec.Networking.ServiceType != exposedType
+	wantExposed := !state[targets[0]]
 	if req.Enabled != nil {
 		wantExposed = *req.Enabled
 	}
+	for _, t := range targets {
+		state[t] = wantExposed
+	}
 
-	switch {
-	case !wantExposed:
-		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeClusterIP
-		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureClusterIP
-	default:
+	cluster.Spec.Networking.Expose = &v1alpha1.ExposeSpec{
+		Controller:  state["controller"],
+		DataNode:    state["datanode"],
+		ComputeNode: state["computenode"],
+	}
+
+	if wantExposed {
+		// State the type explicitly. Without this a cluster still carrying the old
+		// NodePort default would keep publishing unreachable NodePort URLs.
 		cluster.Spec.Networking.ServiceType = exposedType
 		if exposedType == corev1.ServiceTypeLoadBalancer {
 			cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureGateway
@@ -905,6 +940,9 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 		} else {
 			cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureNodePortDirect
 		}
+	} else if !cluster.Spec.Networking.Expose.Any() {
+		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeClusterIP
+		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureClusterIP
 	}
 
 	if err := s.client.Update(ctx, cluster); err != nil {
@@ -926,6 +964,8 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 		"providerName": provider.DisplayName(),
 		"serviceType":  cluster.Spec.Networking.ServiceType,
 		"enabled":      wantExposed,
+		"component":    req.Component,
+		"exposed":      cluster.Spec.Networking.Expose.Names(),
 		"message":      "networking updated; the controller will reconcile the access services",
 	})
 }
@@ -952,6 +992,38 @@ type ClusterDetail struct {
 	// certificate is operator-issued (and therefore untrusted by browsers).
 	TLSEnabled bool `json:"tlsEnabled,omitempty"`
 	TLSManaged bool `json:"tlsManaged,omitempty"`
+
+	// Components describes every Access Service individually. A cluster has up to
+	// three (controller, data nodes, compute nodes) on different ports and different
+	// pod sets, and each exposed one is a separate cloud load balancer, so the UI
+	// needs per-component state rather than a single cluster-wide URL.
+	Components []ComponentExposure `json:"components,omitempty"`
+}
+
+// ComponentExposure is the external reachability of one cluster component.
+type ComponentExposure struct {
+	// Component is controller, datanode or computenode.
+	Component string `json:"component"`
+	// ServiceName is the Kubernetes Service backing this component.
+	ServiceName string `json:"serviceName"`
+	// ServiceType is ClusterIP, NodePort or LoadBalancer.
+	ServiceType string `json:"serviceType"`
+	// Exposed is true when the component has a non-ClusterIP entry point.
+	Exposed bool `json:"exposed"`
+	// URL is the external address, when one is known.
+	URL string `json:"url,omitempty"`
+	// Port is the exposed port (the NodePort for NodePort exposure).
+	Port int32 `json:"port,omitempty"`
+	// Pending is true while the cloud provisions the load balancer.
+	Pending bool `json:"pending,omitempty"`
+	// Reachable is false when the address is known not to work, for example a
+	// NodePort on a cloud whose security group has not been opened. Always
+	// serialised so the UI can tell "false" from "not reported".
+	Reachable bool `json:"reachable"`
+	// Message explains a pending or unreachable endpoint.
+	Message string `json:"message,omitempty"`
+	// TLS is true when the endpoint speaks HTTPS.
+	TLS bool `json:"tls,omitempty"`
 }
 
 // anyNode picks a deterministic node from the map. NodePort is reachable through
@@ -1041,6 +1113,39 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 		// exposure *off*.
 		clusterEndpoint = exposure.ResolveEndpoint(nil, anyNode(k8sNodeMap), clusterSvc)
 		clusterAccessURL = clusterEndpoint.URL
+	}
+
+	// Per-component view. Each component is a different pod set on a different port,
+	// so each exposed one is its own Service and its own cloud load balancer.
+	components := make([]ComponentExposure, 0, 3)
+	for _, comp := range []struct {
+		name    string
+		svcName string
+	}{
+		{"controller", name},
+		{"datanode", name + "-dn"},
+		{"computenode", name + "-cn"},
+	} {
+		svc, ok := svcMap[comp.svcName]
+		if !ok {
+			continue
+		}
+		entry := ComponentExposure{
+			Component:   comp.name,
+			ServiceName: comp.svcName,
+			ServiceType: string(svc.Spec.Type),
+			Exposed:     svc.Spec.Type != corev1.ServiceTypeClusterIP,
+		}
+		if entry.Exposed {
+			ep := exposure.ResolveEndpoint(nil, anyNode(k8sNodeMap), svc)
+			entry.URL = ep.URL
+			entry.Port = ep.Port
+			entry.Pending = ep.Pending
+			entry.Reachable = ep.Reachable
+			entry.Message = ep.Message
+			entry.TLS = ep.TLS
+		}
+		components = append(components, entry)
 	}
 
 	// Fetch DDBNodes
@@ -1269,6 +1374,7 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 		ExposureTLS:     clusterEndpoint.TLS,
 		TLSEnabled:      cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled,
 		TLSManaged:      cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled && cluster.Spec.Security.TLS.SecretName == "",
+		Components:      components,
 	})
 }
 

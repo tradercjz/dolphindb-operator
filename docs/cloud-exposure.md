@@ -110,6 +110,85 @@ a warning message** rather than being silently presented as working.
 
 ## 3. Using it
 
+### Which components to expose (clusters)
+
+For a **cluster** the picture is different from standalone, and the important
+constraint is this: **a Kubernetes Service can only target one pod set.** The
+controller, the data nodes and the compute nodes listen on different ports
+(8900 / 8901 / 8902) and are different pods, so they cannot share a Service — and
+under the in-tree cloud provider they cannot share a load balancer either.
+
+It is also not enough to expose only the controller. Per the DolphinDB
+documentation the controller holds cluster metadata and heartbeats, while DFS
+reads and writes execute on **data nodes**, and the stateless query tier is the
+**compute nodes**. A controller answers with
+`The current node isn't a data node and can't run function [database]`.
+
+So exposure is selected per component:
+
+```yaml
+spec:
+  networking:
+    expose:
+      controller: true    # 8900 - Web console + management API
+      datanode: true      # 8901 - where DFS reads/writes run
+      computenode: false  # 8902 - stateless query compute
+    serviceType: LoadBalancer   # optional; defaults to LoadBalancer on a cloud
+```
+
+**Cost.** Each exposed component is its own load balancer (an NLB is roughly
+US$0.0225/hour ≈ US$16/month, plus LCU). Exposing all three is ~US$48/month in
+fixed cost alone. Practical guidance:
+
+| Goal | Expose | Load balancers |
+| :--- | :--- | :--- |
+| Manage only (Web console) | `controller` | 1 |
+| Real data work | `controller` + `datanode` | 2 |
+| Data work through a dedicated compute tier | `controller` + `computenode` | 2 |
+| Everything | all three | 3 |
+
+The most common setup is **controller + one data node**: one entry point for the
+console, one for queries. Note that a Service selects *all* pods of a component,
+so one data-node load balancer fronting two replicas already gives you
+distribution and failover — there is no need to expose each data node
+separately.
+
+> **Not available here:** the AWS Load Balancer Controller can attach several
+> Kubernetes Services to a single NLB (target groups), which would give one load
+> balancer for all three components. It requires IRSA, which the account SCP
+> blocks, so under the in-tree provider it is one load balancer per exposed
+> component.
+>
+> A single load balancer *is* possible with an in-cluster TCP proxy: publish one
+> Service that targets a small nginx/Envoy `stream` deployment, give it listeners
+> on 8900/8901/8902, and forward each port to the corresponding component Service.
+> That trades one load balancer for a component to run and operate. Not built.
+
+### Default behaviour
+
+| Platform | Default | Why |
+| :--- | :--- | :--- |
+| Managed cloud (EKS/GKE/AKS) | **nothing exposed** (`ClusterIP`) | every exposed component costs a load balancer, and a NodePort is firewalled off by the node security group |
+| Bare metal | all components `NodePort` | unchanged historical behaviour, where the operator has no privileged knowledge of the firewall |
+
+### NodePort reachability is reported honestly
+
+A NodePort on a cloud used to be reported as a working URL (`http://<public-ip>:32074`)
+because the node address is public. The node security group then silently dropped
+the traffic — the operator never opens that group — so the link was dead while
+looking healthy.
+
+Endpoints now carry a `reachable` flag. For a NodePort on a managed cloud it is
+`false` and the message says why, so a UI can refuse to offer a dead link:
+
+```json
+{
+  "mode": "NodePort", "url": "http://16.176.229.160:32074",
+  "reachable": false,
+  "message": "a NodePort on a managed cloud is only reachable once the node security group allows this port, which this operator does not manage; expose the component with a LoadBalancer instead"
+}
+```
+
 ### From the dashboard
 
 Click **+ 暴露端口** on a node card. The dashboard:
@@ -144,16 +223,24 @@ curl http://<dashboard>/api/nodes/<ns>/<node>/expose
 # Tear down
 curl -X DELETE http://<dashboard>/api/nodes/<ns>/<node>/expose
 
-# Cluster level: state the intent explicitly
-curl -X POST -H 'Content-Type: application/json' -d '{"enabled":true}' \
+# Cluster level: state the intent and the component explicitly
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"component":"controller"}' \
   http://<dashboard>/api/clusters/<ns>/<cluster>/expose
-curl -X POST -H 'Content-Type: application/json' -d '{"enabled":false}' \
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"component":"datanode"}' \
+  http://<dashboard>/api/clusters/<ns>/<cluster>/expose
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"enabled":false,"component":"all"}' \
   http://<dashboard>/api/clusters/<ns>/<cluster>/expose
 ```
 
 > `enabled` may be omitted, in which case the call toggles. That behaviour is kept
 > only for backwards compatibility: a blind toggle turns an *exposed* cluster
 > **off**, deleting its load balancer. Always prefer an explicit `enabled`.
+>
+> `component` may be omitted, in which case the call applies to all three
+> components — on a cloud that means three load balancers. Prefer naming one.
 
 Request fields:
 

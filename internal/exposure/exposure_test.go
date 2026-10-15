@@ -1,6 +1,7 @@
 package exposure
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -156,8 +157,16 @@ func TestBuildServiceNodePortKeepsRequestedPort(t *testing.T) {
 	if svc.Spec.Ports[0].NodePort != 31723 {
 		t.Fatalf("nodePort = %d", svc.Spec.Ports[0].NodePort)
 	}
-	if len(svc.Annotations) != 0 {
-		t.Errorf("nodeport mode should not carry LB annotations, got %v", svc.Annotations)
+	// NodePort must not request a cloud load balancer...
+	for k := range svc.Annotations {
+		if strings.HasPrefix(k, "service.beta.kubernetes.io/") {
+			t.Errorf("nodeport mode must not carry load balancer annotations, got %v", svc.Annotations)
+		}
+	}
+	// ...but it does record the platform, so address resolution can tell the truth
+	// about whether the port is actually reachable.
+	if got := svc.Annotations[AnnotationProvider]; got == "" {
+		t.Error("the provider annotation should always be set")
 	}
 }
 
@@ -310,5 +319,49 @@ func TestIsPrivateIP(t *testing.T) {
 		if IsPrivateIP(addr) {
 			t.Errorf("%s should not be private", addr)
 		}
+	}
+}
+
+// Regression test: a NodePort on a cloud produced a URL such as
+// http://16.176.229.160:32074 that looked healthy - the address is public - while
+// the node security group silently blocked the port. The endpoint must now say so.
+func TestResolveEndpointNodePortOnCloudIsReportedUnreachable(t *testing.T) {
+	svc := BuildService(testNode(), Options{Mode: ModeNodePort, NodePort: 32074, Provider: ProviderAWS})
+	k8sNode := &corev1.Node{
+		Status: corev1.NodeStatus{
+			Addresses: []corev1.NodeAddress{
+				{Type: corev1.NodeInternalIP, Address: "172.31.2.254"},
+				{Type: corev1.NodeExternalIP, Address: "16.176.229.160"},
+			},
+		},
+	}
+	ep := ResolveEndpoint(testNode(), k8sNode, svc)
+	if ep.Reachable {
+		t.Fatal("a NodePort on a managed cloud must not be reported as reachable")
+	}
+	if ep.Message == "" {
+		t.Fatal("expected an explanation of why it is unreachable")
+	}
+	// The URL is still reported, so a UI can show what it *would* be.
+	if ep.URL != "http://16.176.229.160:32074" {
+		t.Fatalf("URL = %q", ep.URL)
+	}
+}
+
+// On bare metal the operator has no privileged knowledge of the firewall, so a
+// public address is reported as reachable as before.
+func TestResolveEndpointNodePortOnBareMetalStaysReachable(t *testing.T) {
+	svc := BuildService(testNode(), Options{Mode: ModeNodePort, NodePort: 31723, Provider: ProviderBare})
+	k8sNode := &corev1.Node{
+		Status: corev1.NodeStatus{
+			Addresses: []corev1.NodeAddress{{Type: corev1.NodeExternalIP, Address: "203.0.113.10"}},
+		},
+	}
+	ep := ResolveEndpoint(testNode(), k8sNode, svc)
+	if !ep.Reachable {
+		t.Fatalf("bare metal NodePort should be reachable, message=%q", ep.Message)
+	}
+	if ep.Message != "" {
+		t.Errorf("unexpected warning: %q", ep.Message)
 	}
 }

@@ -116,6 +116,12 @@ const (
 	// this the endpoint would always be advertised as http://, which is wrong - and
 	// actively misleading - once native HTTPS is on.
 	AnnotationProtocol = "dolphindb.io/exposure-protocol"
+
+	// AnnotationProvider records which cloud the Service was published on. It lets
+	// address resolution tell the truth about NodePort reachability: a public node
+	// address is *not* enough on a cloud, because the node security group has to
+	// allow the port as well and the operator never manages that group.
+	AnnotationProvider = "dolphindb.io/exposure-provider"
 )
 
 // DetectProvider infers the cloud provider from node.spec.providerID, which every
@@ -270,6 +276,9 @@ func BuildService(node *v1alpha1.DDBNode, opts Options) *corev1.Service {
 	if opts.TLS {
 		annotations[AnnotationProtocol] = "https"
 	}
+	if opts.Provider != "" {
+		annotations[AnnotationProvider] = string(opts.Provider)
+	}
 	// User supplied annotations win over the defaults, so an operator that *does*
 	// run the cloud load balancer controller can opt into the modern "external"
 	// flavour without us guessing.
@@ -344,6 +353,10 @@ type Endpoint struct {
 	Provider Provider `json:"provider,omitempty"`
 	// TLS is true when the endpoint speaks HTTPS.
 	TLS bool `json:"tls,omitempty"`
+	// Reachable is false when the address is known but is known *not* to work, for
+	// example a NodePort on a cloud whose security group has not been opened. It is
+	// always serialised, so a consumer can tell "false" from "not reported".
+	Reachable bool `json:"reachable"`
 	// Pending is true while the cloud is still provisioning the load balancer.
 	Pending bool `json:"pending,omitempty"`
 	// Message explains a pending or unreachable endpoint to the user.
@@ -357,11 +370,11 @@ type Endpoint struct {
 // private address is only used as a last resort and always carries a warning.
 func ResolveEndpoint(node *v1alpha1.DDBNode, k8sNode *corev1.Node, svc *corev1.Service) Endpoint {
 	if svc == nil {
-		return Endpoint{Mode: ModeClusterIP, Message: "node is not exposed outside the cluster"}
+		return Endpoint{Mode: ModeClusterIP, Reachable: true, Message: "node is not exposed outside the cluster"}
 	}
 
 	mode := Mode(svc.Spec.Type)
-	ep := Endpoint{Mode: mode}
+	ep := Endpoint{Mode: mode, Reachable: true}
 	if len(svc.Spec.Ports) == 0 {
 		ep.Message = "exposure service has no ports"
 		return ep
@@ -392,6 +405,7 @@ func ResolveEndpoint(node *v1alpha1.DDBNode, k8sNode *corev1.Node, svc *corev1.S
 		ep.Address = addr
 		ep.Port = svcPort.Port
 		ep.URL = fmt.Sprintf("%s://%s:%d", urlScheme, addr, svcPort.Port)
+		ep.Reachable = true
 
 	case ModeNodePort:
 		ep.Port = svcPort.NodePort
@@ -408,6 +422,24 @@ func ResolveEndpoint(node *v1alpha1.DDBNode, k8sNode *corev1.Node, svc *corev1.S
 		}
 		ep.Address = addr
 		ep.URL = fmt.Sprintf("%s://%s:%d", urlScheme, addr, ep.Port)
+		switch {
+		case !public:
+			ep.Message = "node has no external address; open the node security group for this " +
+				"NodePort, or expose the component with a LoadBalancer instead"
+		default:
+			// A public node address is necessary but not sufficient: the node security
+			// group must also allow the port, and the operator does not manage it.
+			// Reporting the URL as healthy here is what made a NodePort cluster look
+			// exposed while the link was actually firewalled off.
+			if p := Provider(svc.Annotations[AnnotationProvider]); p.SupportsLoadBalancer() {
+				ep.Reachable = false
+				ep.Message = "a NodePort on a managed cloud is only reachable once the node " +
+					"security group allows this port, which this operator does not manage; " +
+					"expose the component with a LoadBalancer instead"
+			} else {
+				ep.Reachable = true
+			}
+		}
 		if !public {
 			ep.Message = "node has no external address; open the node security group for this " +
 				"NodePort, or expose the node with a LoadBalancer instead"

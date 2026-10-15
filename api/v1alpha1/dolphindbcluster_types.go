@@ -184,15 +184,69 @@ const (
 	ExposureClusterIP      ExposureMode = "ClusterIP"
 )
 
+// ExposeSpec selects which cluster components are reachable from outside.
+//
+// Defaults come from the platform: on a managed cloud nothing is exposed until it
+// is asked for, because every exposed component costs a load balancer, whereas on
+// bare metal the traditional NodePort behaviour is preserved.
+type ExposeSpec struct {
+	// Controller exposes port 8900: the Web console and the management API.
+	// A controller holds cluster metadata and heartbeats; it cannot run DFS
+	// operations itself, so this is the *management* entry point.
+	Controller bool `json:"controller,omitempty"`
+
+	// DataNode exposes port 8901, where DFS reads and writes actually execute.
+	// Needed for real data work: a controller rejects database()/loadTable().
+	DataNode bool `json:"datanode,omitempty"`
+
+	// ComputeNode exposes port 8902, the stateless query tier.
+	ComputeNode bool `json:"computenode,omitempty"`
+}
+
+// Any reports whether at least one component is selected.
+func (e *ExposeSpec) Any() bool {
+	return e != nil && (e.Controller || e.DataNode || e.ComputeNode)
+}
+
+// Names lists the selected components, for messages and status.
+func (e *ExposeSpec) Names() []string {
+	if e == nil {
+		return nil
+	}
+	var out []string
+	if e.Controller {
+		out = append(out, "controller")
+	}
+	if e.DataNode {
+		out = append(out, "datanode")
+	}
+	if e.ComputeNode {
+		out = append(out, "computenode")
+	}
+	return out
+}
+
 // NetworkingSpec defines external access and publicName mapping
 type NetworkingSpec struct {
 	// ExposureMode defines the external exposure strategy
 	// +kubebuilder:default="NodePortDirect"
 	ExposureMode ExposureMode `json:"exposureMode,omitempty"`
 
-	// ServiceType defines K8s service type
-	// +kubebuilder:default="NodePort"
+	// ServiceType is the Kubernetes Service type used for the components selected by
+	// `expose`.
+	//
+	// Leave it empty to let the operator decide. The old default was NodePort, which
+	// on a cloud produced an access URL that looked public but was firewalled off by
+	// the node security group - the operator never opens that group, so the link was
+	// dead on arrival.
 	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
+
+	// Expose selects which components get an external entry point.
+	//
+	// Each selected component needs its own Service, and therefore its own cloud
+	// load balancer: a Kubernetes Service can only target one pod set, so a single
+	// load balancer cannot serve controllers and data nodes at once.
+	Expose *ExposeSpec `json:"expose,omitempty"`
 
 	// PublicIP or domain to inject into publicName config for Web UI redirect
 	PublicIP string `json:"publicIP,omitempty"`

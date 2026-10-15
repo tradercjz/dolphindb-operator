@@ -229,13 +229,18 @@ func tlsHashFor(node *v1alpha1.DDBNode) string {
 // The exposure protocol is included because a cloud load balancer forwards TCP
 // untouched: whether the endpoint is http:// or https:// is decided entirely by
 // DolphinDB's own enableHTTPS setting, and the dashboard needs to know.
-func accessServiceAnnotations(cluster *v1alpha1.DolphinDBCluster) map[string]string {
+func accessServiceAnnotations(cluster *v1alpha1.DolphinDBCluster, provider exposure.Provider) map[string]string {
 	out := map[string]string{}
 	for k, v := range cluster.Spec.Networking.Annotations {
 		out[k] = v
 	}
 	if tlsEnabled(cluster) {
 		out[exposure.AnnotationProtocol] = "https"
+	}
+	// Lets address resolution tell the truth about NodePort reachability: on a
+	// cloud the node security group has to allow the port as well.
+	if provider != "" {
+		out[exposure.AnnotationProvider] = string(provider)
 	}
 	return out
 }
