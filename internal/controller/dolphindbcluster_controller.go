@@ -142,11 +142,25 @@ func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, 
 		}
 		ports = append(ports, corev1.ServicePort{Name: "ddb-port", Port: port, TargetPort: intstr.FromInt(int(port))})
 	} else {
+		ctlPort := int32(8900)
+		if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+			ctlPort = cluster.Spec.Controller.Port
+		}
+		dnPort := int32(8848)
+		if cluster.Spec.DataNode != nil && cluster.Spec.DataNode.Port > 0 {
+			dnPort = cluster.Spec.DataNode.Port
+		}
 		ports = append(ports,
-			corev1.ServicePort{Name: "ctl-port", Port: 8900, TargetPort: intstr.FromInt(8900)},
-			corev1.ServicePort{Name: "dn-port", Port: 8901, TargetPort: intstr.FromInt(8901)},
-			corev1.ServicePort{Name: "cn-port", Port: 8902, TargetPort: intstr.FromInt(8902)},
+			corev1.ServicePort{Name: "ctl-port", Port: ctlPort, TargetPort: intstr.FromInt(int(ctlPort))},
+			corev1.ServicePort{Name: "dn-port", Port: dnPort, TargetPort: intstr.FromInt(int(dnPort))},
 		)
+		if cluster.Spec.ComputeNode != nil && cluster.Spec.ComputeNode.Replicas > 0 {
+			cnPort := int32(8902)
+			if cluster.Spec.ComputeNode.Port > 0 {
+				cnPort = cluster.Spec.ComputeNode.Port
+			}
+			ports = append(ports, corev1.ServicePort{Name: "cn-port", Port: cnPort, TargetPort: intstr.FromInt(int(cnPort))})
+		}
 	}
 
 	newSvc := &corev1.Service{
@@ -175,48 +189,138 @@ func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, 
 }
 
 func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
-	svcName := cluster.Name
+	svcType := corev1.ServiceTypeClusterIP
+	if cluster.Spec.Networking.ServiceType != "" {
+		svcType = cluster.Spec.Networking.ServiceType
+	}
+
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		port := int32(8848)
+		if cluster.Spec.Standalone != nil && cluster.Spec.Standalone.Port != 0 {
+			port = cluster.Spec.Standalone.Port
+		}
+		selector := map[string]string{
+			"app.kubernetes.io/instance": cluster.Name,
+		}
+		ports := []corev1.ServicePort{
+			{Name: "ddb-port", Port: port, TargetPort: intstr.FromInt(int(port))},
+		}
+		return r.reconcileSingleAccessService(ctx, cluster, cluster.Name, svcType, selector, ports)
+	}
+
+	// 1. Primary Access Service (<clusterName>): Routes to Controller pods (Web UI and management API)
+	ctlPort := int32(8900)
+	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+		ctlPort = cluster.Spec.Controller.Port
+	}
+	ctlSelector := map[string]string{
+		"app.kubernetes.io/instance":  cluster.Name,
+		"app.kubernetes.io/component": "controller",
+	}
+	ctlPorts := []corev1.ServicePort{
+		{Name: "ctl-port", Port: ctlPort, TargetPort: intstr.FromInt(int(ctlPort))},
+	}
+	if err := r.reconcileSingleAccessService(ctx, cluster, cluster.Name, svcType, ctlSelector, ctlPorts); err != nil {
+		return err
+	}
+
+	// 2. DataNode Group Service (<clusterName>-dn): Routes to DataNode pods (for external data queries/ingestion)
+	if cluster.Spec.DataNode != nil && cluster.Spec.DataNode.Replicas > 0 {
+		dnPort := int32(8848)
+		if cluster.Spec.DataNode.Port > 0 {
+			dnPort = cluster.Spec.DataNode.Port
+		}
+		dnSelector := map[string]string{
+			"app.kubernetes.io/instance":  cluster.Name,
+			"app.kubernetes.io/component": "datanode",
+		}
+		dnPorts := []corev1.ServicePort{
+			{Name: "dn-port", Port: dnPort, TargetPort: intstr.FromInt(int(dnPort))},
+		}
+		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-dn", cluster.Name), svcType, dnSelector, dnPorts); err != nil {
+			return err
+		}
+	}
+
+	// 3. ComputeNode Group Service (<clusterName>-cn): Routes to ComputeNode pods
+	if cluster.Spec.ComputeNode != nil && cluster.Spec.ComputeNode.Replicas > 0 {
+		cnPort := int32(8902)
+		if cluster.Spec.ComputeNode.Port > 0 {
+			cnPort = cluster.Spec.ComputeNode.Port
+		}
+		cnSelector := map[string]string{
+			"app.kubernetes.io/instance":  cluster.Name,
+			"app.kubernetes.io/component": "computenode",
+		}
+		cnPorts := []corev1.ServicePort{
+			{Name: "cn-port", Port: cnPort, TargetPort: intstr.FromInt(int(cnPort))},
+		}
+		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-cn", cluster.Name), svcType, cnSelector, cnPorts); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
+	ctx context.Context,
+	cluster *v1alpha1.DolphinDBCluster,
+	svcName string,
+	svcType corev1.ServiceType,
+	selector map[string]string,
+	desiredPorts []corev1.ServicePort,
+) error {
 	svc := &corev1.Service{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: svcName}, svc)
 	if err == nil {
-		svcType := corev1.ServiceTypeClusterIP
-		if cluster.Spec.Networking.ServiceType != "" {
-			svcType = cluster.Spec.Networking.ServiceType
-		}
+		needsUpdate := false
+
 		if svc.Spec.Type != svcType {
 			svc.Spec.Type = svcType
+			needsUpdate = true
+		}
+
+		if !mapsEqual(svc.Spec.Selector, selector) {
+			svc.Spec.Selector = selector
+			needsUpdate = true
+		}
+
+		portsMismatch := len(svc.Spec.Ports) != len(desiredPorts)
+		if !portsMismatch {
+			for i, dp := range desiredPorts {
+				sp := svc.Spec.Ports[i]
+				if sp.Name != dp.Name || sp.Port != dp.Port || sp.TargetPort != dp.TargetPort {
+					portsMismatch = true
+					break
+				}
+			}
+		}
+
+		if portsMismatch {
+			updatedPorts := make([]corev1.ServicePort, len(desiredPorts))
+			for i, dp := range desiredPorts {
+				updatedPorts[i] = dp
+				if svcType == corev1.ServiceTypeNodePort {
+					for _, sp := range svc.Spec.Ports {
+						if (sp.Name == dp.Name || sp.Port == dp.Port) && sp.NodePort > 0 {
+							updatedPorts[i].NodePort = sp.NodePort
+							break
+						}
+					}
+				}
+			}
+			svc.Spec.Ports = updatedPorts
+			needsUpdate = true
+		}
+
+		if needsUpdate {
 			return r.Update(ctx, svc)
 		}
 		return nil
 	}
 	if !errors.IsNotFound(err) {
 		return err
-	}
-
-	svcType := corev1.ServiceTypeClusterIP
-	if cluster.Spec.Networking.ServiceType != "" {
-		svcType = cluster.Spec.Networking.ServiceType
-	}
-
-	var ports []corev1.ServicePort
-	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
-		port := int32(8848)
-		if cluster.Spec.Standalone != nil && cluster.Spec.Standalone.Port != 0 {
-			port = cluster.Spec.Standalone.Port
-		}
-		ports = append(ports, corev1.ServicePort{Name: "ddb-port", Port: port, TargetPort: intstr.FromInt(int(port))})
-	} else {
-		ports = append(ports,
-			corev1.ServicePort{Name: "ctl-port", Port: 8900, TargetPort: intstr.FromInt(8900)},
-			corev1.ServicePort{Name: "dn-port", Port: 8901, TargetPort: intstr.FromInt(8901)},
-		)
-		if cluster.Spec.ComputeNode != nil && cluster.Spec.ComputeNode.Replicas > 0 {
-			cnPort := int32(8902)
-			if cluster.Spec.ComputeNode.Port > 0 {
-				cnPort = cluster.Spec.ComputeNode.Port
-			}
-			ports = append(ports, corev1.ServicePort{Name: "cn-port", Port: cnPort, TargetPort: intstr.FromInt(int(cnPort))})
-		}
 	}
 
 	newSvc := &corev1.Service{
@@ -229,11 +333,9 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 			},
 		},
 		Spec: corev1.ServiceSpec{
-			Type: svcType,
-			Selector: map[string]string{
-				"app.kubernetes.io/instance": cluster.Name,
-			},
-			Ports: ports,
+			Type:     svcType,
+			Selector: selector,
+			Ports:    desiredPorts,
 		},
 	}
 
@@ -241,6 +343,18 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 		return err
 	}
 	return r.Create(ctx, newSvc)
+}
+
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *DolphinDBClusterReconciler) ensureConfigMap(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {

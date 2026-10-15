@@ -827,11 +827,21 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
-	// Also directly update K8s service if exists
+	// Also directly update K8s services if exist
 	svc := &corev1.Service{}
 	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, svc); err == nil {
 		svc.Spec.Type = cluster.Spec.Networking.ServiceType
 		_ = s.client.Update(ctx, svc)
+	}
+	dnSvc := &corev1.Service{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name + "-dn"}, dnSvc); err == nil {
+		dnSvc.Spec.Type = cluster.Spec.Networking.ServiceType
+		_ = s.client.Update(ctx, dnSvc)
+	}
+	cnSvc := &corev1.Service{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name + "-cn"}, cnSvc); err == nil {
+		cnSvc.Spec.Type = cluster.Spec.Networking.ServiceType
+		_ = s.client.Update(ctx, cnSvc)
 	}
 
 	jsonResponse(w, http.StatusOK, cluster)
@@ -931,19 +941,27 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 				}
 			}
 		}
-		// 2. Check cluster-level service <cluster.Name>
+		// 2. Check component-level services (<cluster.Name>-dn, <cluster.Name>-cn) or cluster-level service (<cluster.Name>)
 		if nodePort == 0 {
-			if clusterSvc, exists := svcMap[n.Spec.ClusterName]; exists && clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
-				if n.Spec.Role == v1alpha1.NodeRoleSingle {
-					for _, p := range clusterSvc.Spec.Ports {
-						if p.Port == n.Spec.Port && p.NodePort > 0 {
-							nodePort = p.NodePort
-							break
-						}
+			compSvcName := n.Spec.ClusterName
+			switch n.Spec.Role {
+			case v1alpha1.NodeRoleDataNode:
+				compSvcName = n.Spec.ClusterName + "-dn"
+			case v1alpha1.NodeRoleComputeNode:
+				compSvcName = n.Spec.ClusterName + "-cn"
+			}
+			if compSvc, exists := svcMap[compSvcName]; exists && compSvc.Spec.Type == corev1.ServiceTypeNodePort {
+				for _, p := range compSvc.Spec.Ports {
+					if p.NodePort > 0 {
+						nodePort = p.NodePort
+						break
 					}
-				} else if n.Spec.Role == v1alpha1.NodeRoleController {
+				}
+			}
+			if nodePort == 0 {
+				if clusterSvc, exists := svcMap[n.Spec.ClusterName]; exists && clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
 					for _, p := range clusterSvc.Spec.Ports {
-						if (p.Name == "ctl-port" || p.Port == 8900) && p.NodePort > 0 {
+						if p.NodePort > 0 {
 							nodePort = p.NodePort
 							break
 						}
