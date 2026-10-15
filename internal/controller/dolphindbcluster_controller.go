@@ -89,6 +89,13 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		logger.Error(err, "failed to reconcile dynamic config")
 	}
 
+	// 0.4 Reverse-sync configuration modifications made from Web UI / Controller to K8s ConfigMap & CR
+	if changed, err := r.reconcileWebUIConfigSync(ctx, cluster); err != nil {
+		logger.Error(err, "failed to reverse-sync Web UI configuration")
+	} else if changed {
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// 1. Ensure Headless Service for stable DNS
 	if err := r.ensureHeadlessService(ctx, cluster); err != nil {
 		return ctrl.Result{}, err
@@ -109,8 +116,11 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	// 5. Update Cluster Status & Conditions
-	return ctrl.Result{}, r.updateClusterStatus(ctx, cluster)
+	// 5. Update Cluster Status & Conditions (schedule periodic recheck every 30s to detect Web UI modifications)
+	if err := r.updateClusterStatus(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
 func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
@@ -983,6 +993,76 @@ func (r *DolphinDBClusterReconciler) reconcileDynamicConfig(ctx context.Context,
 	cluster.Annotations[lastAppliedKey] = string(newBytes)
 	_ = r.Update(ctx, cluster)
 	return false, nil
+}
+
+func (r *DolphinDBClusterReconciler) reconcileWebUIConfigSync(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, error) {
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone || cluster.Status.Phase != v1alpha1.PhaseReady {
+		return false, nil
+	}
+
+	cli := r.getDDBClient(cluster)
+	if cli == nil {
+		return false, nil
+	}
+
+	liveConfigs, err := cli.GetClusterNodesConfigs(ctx)
+	if err != nil {
+		return false, nil
+	}
+
+	if cluster.Spec.DataNode == nil {
+		return false, nil
+	}
+	if cluster.Spec.DataNode.Config == nil {
+		cluster.Spec.DataNode.Config = make(map[string]string)
+	}
+
+	updated := false
+	for k, v := range liveConfigs {
+		if isSystemManagedKey(k) {
+			continue
+		}
+		curVal, exists := cluster.Spec.DataNode.Config[k]
+		if !exists || curVal != v {
+			log.FromContext(ctx).Info("Detected Web UI cluster configuration change",
+				"key", k, "old", curVal, "new", v)
+			cluster.Spec.DataNode.Config[k] = v
+			updated = true
+		}
+	}
+
+	if !updated {
+		return false, nil
+	}
+
+	// Update ConfigMap so new config is immediately written to ddb-config-source
+	if err := r.ensureConfigMap(ctx, cluster); err != nil {
+		return false, err
+	}
+
+	// Update annotation to remember applied config
+	newBytes, _ := json.Marshal(cluster.Spec.DataNode.Config)
+	if cluster.Annotations == nil {
+		cluster.Annotations = make(map[string]string)
+	}
+	cluster.Annotations["dolphindb.io/last-applied-datanode-config"] = string(newBytes)
+
+	log.FromContext(ctx).Info("Persisted Web UI configuration changes to K8s CR and ConfigMap",
+		"cluster", cluster.Name)
+	return true, r.Update(ctx, cluster)
+}
+
+func isSystemManagedKey(k string) bool {
+	switch k {
+	case "sites", "lanCluster", "dataSync", "mode", "clusterName",
+		"streamingHAMode", "strictPermissionInspection",
+		"newValuePartitionPolicy", "enableChunkGranularityConfig":
+		return true
+	}
+	if strings.Contains(k, ".volumes") || strings.Contains(k, ".redoLogDir") || strings.Contains(k, ".chunkMetaDir") {
+		return true
+	}
+	return false
 }
 
 func (r *DolphinDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {

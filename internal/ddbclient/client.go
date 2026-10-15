@@ -134,6 +134,52 @@ func (c *Client) SetDynamicConfig(ctx context.Context, key, val string) error {
 	return err
 }
 
+type configVectorItem struct {
+	Name  string   `json:"name"`
+	Form  string   `json:"form"`
+	Type  string   `json:"type"`
+	Value []string `json:"value"`
+}
+
+// GetClusterNodesConfigs queries the controller for active cluster node configuration
+func (c *Client) GetClusterNodesConfigs(ctx context.Context) (map[string]string, error) {
+	raw, err := c.ExecuteScript(ctx, "loadClusterNodesConfigs()")
+	if err != nil {
+		return nil, err
+	}
+	return parseConfigVector(raw)
+}
+
+// GetControllerConfigs queries the controller for its active configuration
+func (c *Client) GetControllerConfigs(ctx context.Context) (map[string]string, error) {
+	raw, err := c.ExecuteScript(ctx, "loadControllerConfigs()")
+	if err != nil {
+		return nil, err
+	}
+	return parseConfigVector(raw)
+}
+
+func parseConfigVector(raw string) (map[string]string, error) {
+	var items []configVectorItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil, err
+	}
+	res := make(map[string]string)
+	if len(items) > 0 {
+		for _, line := range items[0].Value {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				res[strings.TrimSpace(parts[0])] = strings.Trim(strings.TrimSpace(parts[1]), "\"")
+			}
+		}
+	}
+	return res, nil
+}
+
 // NodePerf summarizes a node's performance from getClusterPerf
 type NodePerf struct {
 	Name  string

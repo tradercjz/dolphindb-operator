@@ -55,3 +55,25 @@ func TestHasActiveRecoveryTasks(t *testing.T) {
 		t.Errorf("expected active=false, got true")
 	}
 }
+
+func TestGetClusterNodesConfigs(t *testing.T) {
+	mockResponse := `[{"name":"","form":"vector","type":"string","size":"4","value":["maxConnections=4096","workerNum=8","dataSync=1","newValuePartitionPolicy=add"]}]`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{"sessionID":"123","resultCode":"0","msg":"","object":` + mockResponse + `}`
+		w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	cli := NewClient(ts.URL, "admin", "123456")
+	cfgs, err := cli.GetClusterNodesConfigs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfgs["maxConnections"] != "4096" || cfgs["workerNum"] != "8" || cfgs["dataSync"] != "1" {
+		t.Errorf("unexpected parsed configs: %+v", cfgs)
+	}
+}
+

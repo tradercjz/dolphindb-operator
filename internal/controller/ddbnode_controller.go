@@ -362,24 +362,41 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 	var volumes []corev1.Volume
 	var ddbMounts []corev1.VolumeMount
 
-	// Mount ConfigMap
-	cfgVolName := "ddb-config"
+	// Mount ConfigMap via an emptyDir staging so that DolphinDB process has full write access
+	// (enabling Web UI "saveClusterNodesConfigs" to write cluster.cfg without Read-only filesystem error)
+	cfgSrcVolName := "ddb-config-source"
+	cfgWorkVolName := "ddb-config"
 	cmName := fmt.Sprintf("%s-config", node.Spec.ClusterName)
 	if node.Spec.ConfigVolumeName != "" {
 		cmName = node.Spec.ConfigVolumeName
 	}
-	volumes = append(volumes, corev1.Volume{
-		Name: cfgVolName,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+	volumes = append(volumes,
+		corev1.Volume{
+			Name: cfgSrcVolName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+				},
 			},
 		},
-	})
-	ddbMounts = append(ddbMounts, corev1.VolumeMount{
-		Name:      cfgVolName,
-		MountPath: "/data/ddb/server/config",
-	})
+		corev1.Volume{
+			Name: cfgWorkVolName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+	)
+	ddbMounts = append(ddbMounts,
+		corev1.VolumeMount{
+			Name:      cfgSrcVolName,
+			MountPath: "/data/ddb/config-source",
+			ReadOnly:  true,
+		},
+		corev1.VolumeMount{
+			Name:      cfgWorkVolName,
+			MountPath: "/data/ddb/server/config",
+		},
+	)
 
 	// Mount License: check Secret first (supports per-node <nodeName>.lic or dolphindb.lic), fallback to host passthrough
 	secretName := node.Spec.LicenseSecretName
@@ -717,7 +734,12 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Name:           "dolphindb",
 					Image:          node.Spec.Image,
 					WorkingDir:     "/data/ddb/server",
-					Command:        []string{"/data/ddb/server/dolphindb"},
+					Command: []string{
+						"/bin/sh",
+						"-c",
+						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; exec /data/ddb/server/dolphindb "$@"`,
+						"--",
+					},
 					Args:           args,
 					Resources:      node.Spec.Resources,
 					VolumeMounts:   ddbMounts,
