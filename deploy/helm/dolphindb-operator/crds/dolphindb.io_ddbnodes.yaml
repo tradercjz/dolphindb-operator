@@ -78,6 +78,8 @@ spec:
                 - Disabled
                 - Preferred
                 - Required
+                - ZonePreferred
+                - ZoneRequired
                 type: string
               clusterName:
                 description: ClusterName references the parent DolphinDBCluster
@@ -101,6 +103,14 @@ spec:
                   hostname:
                     description: Hostname manual override if not using host node name
                     type: string
+                  licensePath:
+                    description: LicensePath optional host license file path (defaults
+                      to /home/jzchen/dolphindb.lic)
+                    type: string
+                  machineIdSecretName:
+                    description: MachineIdSecretName specifies the secret containing
+                      machine-id key to mount into /etc/machine-id
+                    type: string
                   mountDMI:
                     default: false
                     description: MountDMI mounts host /sys/class/dmi/id for system
@@ -122,6 +132,11 @@ spec:
                     description: UseHostName sets container hostname to host node
                       name
                     type: boolean
+                  virtualMachineId:
+                    description: VirtualMachineId specifies a fixed 32-hex machine-id
+                      to inject into container /etc/machine-id (for cloud VMs/drift
+                      resistance)
+                    type: string
                 type: object
               hostname:
                 description: Hostname override if pinned
@@ -229,6 +244,12 @@ spec:
                     default: 100Gi
                     description: DataVolumeSize size of each data volume
                     type: string
+                  existingClaims:
+                    description: ExistingClaims specifies names of pre-existing PVCs
+                      to adopt
+                    items:
+                      type: string
+                    type: array
                   metaVolumeSize:
                     default: 20Gi
                     description: MetaVolumeSize for redo logs, chunk metadata and

@@ -180,6 +180,8 @@ spec:
                     - Disabled
                     - Preferred
                     - Required
+                    - ZonePreferred
+                    - ZoneRequired
                     type: string
                   config:
                     additionalProperties:
@@ -328,6 +330,8 @@ spec:
                     - Disabled
                     - Preferred
                     - Required
+                    - ZonePreferred
+                    - ZoneRequired
                     type: string
                   config:
                     additionalProperties:
@@ -517,6 +521,10 @@ spec:
                         description: LicensePath optional host license file path (defaults
                           to /home/jzchen/dolphindb.lic)
                         type: string
+                      machineIdSecretName:
+                        description: MachineIdSecretName specifies the secret containing
+                          machine-id key to mount into /etc/machine-id
+                        type: string
                       mountDMI:
                         default: false
                         description: MountDMI mounts host /sys/class/dmi/id for system
@@ -539,6 +547,11 @@ spec:
                         description: UseHostName sets container hostname to host node
                           name
                         type: boolean
+                      virtualMachineId:
+                        description: VirtualMachineId specifies a fixed 32-hex machine-id
+                          to inject into container /etc/machine-id (for cloud VMs/drift
+                          resistance)
+                        type: string
                     type: object
                   mode:
                     default: machineFingerprint
@@ -568,6 +581,12 @@ spec:
               networking:
                 description: Networking external access configuration
                 properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations allows passing custom annotations to
+                      external Services (e.g. Alibaba Cloud SLB / AWS NLB annotations)
+                    type: object
                   exposureMode:
                     default: NodePortDirect
                     description: ExposureMode defines the external exposure strategy

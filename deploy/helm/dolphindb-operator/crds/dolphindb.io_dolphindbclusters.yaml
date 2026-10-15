@@ -152,6 +152,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
@@ -174,6 +180,8 @@ spec:
                     - Disabled
                     - Preferred
                     - Required
+                    - ZonePreferred
+                    - ZoneRequired
                     type: string
                   config:
                     additionalProperties:
@@ -191,6 +199,14 @@ spec:
                       description: NodeBinding maps an indexed instance to a specific
                         physical node
                       properties:
+                        alias:
+                          description: Alias is the DolphinDB node alias override
+                            (e.g. node0, controller0)
+                          type: string
+                        claimName:
+                          description: ClaimName specifies an existing PVC to adopt
+                            for this replica
+                          type: string
                         hostname:
                           description: Hostname override for license fingerprint
                           type: string
@@ -286,6 +302,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
@@ -308,6 +330,8 @@ spec:
                     - Disabled
                     - Preferred
                     - Required
+                    - ZonePreferred
+                    - ZoneRequired
                     type: string
                   config:
                     additionalProperties:
@@ -326,6 +350,14 @@ spec:
                       description: NodeBinding maps an indexed instance to a specific
                         physical node
                       properties:
+                        alias:
+                          description: Alias is the DolphinDB node alias override
+                            (e.g. node0, controller0)
+                          type: string
+                        claimName:
+                          description: ClaimName specifies an existing PVC to adopt
+                            for this replica
+                          type: string
                         hostname:
                           description: Hostname override for license fingerprint
                           type: string
@@ -420,6 +452,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata
@@ -479,6 +517,14 @@ spec:
                         description: Hostname manual override if not using host node
                           name
                         type: string
+                      licensePath:
+                        description: LicensePath optional host license file path (defaults
+                          to /home/jzchen/dolphindb.lic)
+                        type: string
+                      machineIdSecretName:
+                        description: MachineIdSecretName specifies the secret containing
+                          machine-id key to mount into /etc/machine-id
+                        type: string
                       mountDMI:
                         default: false
                         description: MountDMI mounts host /sys/class/dmi/id for system
@@ -501,6 +547,11 @@ spec:
                         description: UseHostName sets container hostname to host node
                           name
                         type: boolean
+                      virtualMachineId:
+                        description: VirtualMachineId specifies a fixed 32-hex machine-id
+                          to inject into container /etc/machine-id (for cloud VMs/drift
+                          resistance)
+                        type: string
                     type: object
                   mode:
                     default: machineFingerprint
@@ -530,6 +581,12 @@ spec:
               networking:
                 description: Networking external access configuration
                 properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations allows passing custom annotations to
+                      external Services (e.g. Alibaba Cloud SLB / AWS NLB annotations)
+                    type: object
                   exposureMode:
                     default: NodePortDirect
                     description: ExposureMode defines the external exposure strategy
@@ -718,6 +775,12 @@ spec:
                         default: 100Gi
                         description: DataVolumeSize size of each data volume
                         type: string
+                      existingClaims:
+                        description: ExistingClaims specifies names of pre-existing
+                          PVCs to adopt
+                        items:
+                          type: string
+                        type: array
                       metaVolumeSize:
                         default: 20Gi
                         description: MetaVolumeSize for redo logs, chunk metadata

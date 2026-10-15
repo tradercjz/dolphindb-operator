@@ -1,0 +1,78 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-ack-ha
+  namespace: dolphindb
+spec:
+  version: "3.00.5"
+  mode: "cluster"
+  imageRepository: "dolphindb"
+  
+  # 1. 跨可用区 (Multi-AZ) Raft 高可用控制器
+  controller:
+    replicas: 3
+    port: 8900
+    antiAffinity: "ZoneRequired" # 强制打散到 3 个不同可用区 (Zone)，防单机房故障
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+    storage:
+      storageClassName: "alicloud-disk-topology" # 阿里云极速 ESSD 云盘驱动
+      size: "40Gi"
+    config:
+      dfsReplicationFactor: "2"
+      dfsReplicaReliabilityLevel: "1"
+      dataSync: "1"
+
+  # 2. 分布式数据存储节点 (挂载阿里云 ESSD PL1/PL2 高性能云盘)
+  datanode:
+    replicas: 3
+    port: 8848
+    antiAffinity: "ZonePreferred" # 优先跨可用区分布
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+    storage:
+      storageClassName: "alicloud-disk-topology"
+      metaVolumeSize: "40Gi"
+      dataVolumeCount: 1
+      dataVolumeSize: "500Gi" # 支持在线热扩容 (VolumeExpansion)
+    config:
+      chunkCacheEngineMemSize: "8"
+      TSDBCacheEngineSize: "4"
+      newValuePartitionPolicy: "add"
+
+  # 3. 弹性计算节点池 (可配合阿里云 ACK 弹性伸缩组 / Spot 抢占式竞价实例)
+  computenode:
+    replicas: 2
+    port: 8902
+    computeGroup: "analytics"
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+
+  # 4. 商业 License 配置 (采用容器虚拟注入，彻底杜绝换云机授权失效)
+  license:
+    mode: "secret"
+    secretName: "dolphindb-license" # Secret 内包含 dolphindb.lic 与 machine-id 键值
+    autoReload: true
+
+  # 5. 网络与接入层配置 (自动向阿里云 CCM 索取内网高性能 SLB)
+  networking:
+    serviceType: "LoadBalancer"
+    annotations:
+      # 声明式调用阿里云 Cloud Controller Manager 创建专有网络内网 SLB
+      service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: "intranet"
+      service.beta.kubernetes.io/alibaba-cloud-loadbalancer-spec: "slb.s3.large"

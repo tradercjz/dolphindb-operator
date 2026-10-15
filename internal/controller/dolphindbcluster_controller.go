@@ -289,6 +289,19 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 			needsUpdate = true
 		}
 
+		// Sync custom annotations (e.g. Alibaba Cloud SLB / AWS NLB annotations)
+		if len(cluster.Spec.Networking.Annotations) > 0 {
+			if svc.Annotations == nil {
+				svc.Annotations = make(map[string]string)
+			}
+			for k, v := range cluster.Spec.Networking.Annotations {
+				if svc.Annotations[k] != v {
+					svc.Annotations[k] = v
+					needsUpdate = true
+				}
+			}
+		}
+
 		portsMismatch := len(svc.Spec.Ports) != len(desiredPorts)
 		if !portsMismatch {
 			for i, dp := range desiredPorts {
@@ -326,10 +339,19 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 		return err
 	}
 
+	var svcAnnotations map[string]string
+	if len(cluster.Spec.Networking.Annotations) > 0 {
+		svcAnnotations = make(map[string]string)
+		for k, v := range cluster.Spec.Networking.Annotations {
+			svcAnnotations[k] = v
+		}
+	}
+
 	newSvc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svcName,
-			Namespace: cluster.Namespace,
+			Name:        svcName,
+			Namespace:   cluster.Namespace,
+			Annotations: svcAnnotations,
 			Labels: map[string]string{
 				"app.kubernetes.io/name":     "dolphindb",
 				"app.kubernetes.io/instance": cluster.Name,

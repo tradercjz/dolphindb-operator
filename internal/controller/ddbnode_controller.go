@@ -251,10 +251,10 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 	if err == nil {
 		// Detect if pod spec has diverged on hardware fingerprint or node placement
 		needsRecreate := false
-		if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.MountMachineId {
+		if node.Spec.Fingerprint != nil && (node.Spec.Fingerprint.MountMachineId || node.Spec.Fingerprint.MachineIdSecretName != "" || node.Spec.Fingerprint.VirtualMachineId != "") {
 			hasMachineId := false
 			for _, v := range pod.Spec.Volumes {
-				if v.Name == "host-machine-id" {
+				if v.Name == "host-machine-id" || v.Name == "secret-machine-id" {
 					hasMachineId = true
 					break
 				}
@@ -603,7 +603,39 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 	if podNodeName == "" && node.Spec.Fingerprint != nil && node.Spec.Fingerprint.NodeName != "" {
 		podNodeName = node.Spec.Fingerprint.NodeName
 	}
-	if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.MountMachineId {
+	midMounted := false
+	midSecretName := secretName
+	if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.MachineIdSecretName != "" {
+		midSecretName = node.Spec.Fingerprint.MachineIdSecretName
+	}
+	if midSecretName != "" {
+		sec := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: midSecretName}, sec); err == nil && sec.Data != nil {
+			if len(sec.Data["machine-id"]) > 0 {
+				midVolName := "secret-machine-id"
+				volumes = append(volumes, corev1.Volume{
+					Name: midVolName,
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: midSecretName,
+							Items: []corev1.KeyToPath{
+								{Key: "machine-id", Path: "machine-id"},
+							},
+						},
+					},
+				})
+				ddbMounts = append(ddbMounts, corev1.VolumeMount{
+					Name:      midVolName,
+					MountPath: "/etc/machine-id",
+					SubPath:   "machine-id",
+					ReadOnly:  true,
+				})
+				midMounted = true
+			}
+		}
+	}
+
+	if !midMounted && node.Spec.Fingerprint != nil && node.Spec.Fingerprint.MountMachineId {
 		midVolName := "host-machine-id"
 		volumes = append(volumes, corev1.Volume{
 			Name: midVolName,
@@ -890,6 +922,46 @@ func buildPodAntiAffinity(node *v1alpha1.DDBNode) *corev1.Affinity {
 				Values:   []string{string(node.Spec.Role)},
 			},
 		},
+	}
+
+	if mode == v1alpha1.AntiAffinityZoneRequired {
+		return &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{
+						LabelSelector: labelSelector,
+						TopologyKey:   "topology.kubernetes.io/zone",
+					},
+					{
+						LabelSelector: labelSelector,
+						TopologyKey:   "kubernetes.io/hostname",
+					},
+				},
+			},
+		}
+	}
+
+	if mode == v1alpha1.AntiAffinityZonePreferred {
+		return &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+					{
+						Weight: 100,
+						PodAffinityTerm: corev1.PodAffinityTerm{
+							LabelSelector: labelSelector,
+							TopologyKey:   "topology.kubernetes.io/zone",
+						},
+					},
+					{
+						Weight: 50,
+						PodAffinityTerm: corev1.PodAffinityTerm{
+							LabelSelector: labelSelector,
+							TopologyKey:   "kubernetes.io/hostname",
+						},
+					},
+				},
+			},
+		}
 	}
 
 	if mode == v1alpha1.AntiAffinityRequired {

@@ -25,13 +25,15 @@ const (
 )
 
 // AntiAffinityMode defines pod anti-affinity strength
-// +kubebuilder:validation:Enum=Disabled;Preferred;Required
+// +kubebuilder:validation:Enum=Disabled;Preferred;Required;ZonePreferred;ZoneRequired
 type AntiAffinityMode string
 
 const (
-	AntiAffinityDisabled  AntiAffinityMode = "Disabled"
-	AntiAffinityPreferred AntiAffinityMode = "Preferred"
-	AntiAffinityRequired  AntiAffinityMode = "Required"
+	AntiAffinityDisabled      AntiAffinityMode = "Disabled"
+	AntiAffinityPreferred     AntiAffinityMode = "Preferred"
+	AntiAffinityRequired      AntiAffinityMode = "Required"
+	AntiAffinityZonePreferred AntiAffinityMode = "ZonePreferred"
+	AntiAffinityZoneRequired  AntiAffinityMode = "ZoneRequired"
 )
 
 // MachineFingerprintSpec defines hardware fingerprint passthrough settings
@@ -43,6 +45,12 @@ type MachineFingerprintSpec struct {
 	// MountMachineId mounts host /etc/machine-id to container
 	// +kubebuilder:default=true
 	MountMachineId bool `json:"mountMachineId,omitempty"`
+
+	// VirtualMachineId specifies a fixed 32-hex machine-id to inject into container /etc/machine-id (for cloud VMs/drift resistance)
+	VirtualMachineId string `json:"virtualMachineId,omitempty"`
+
+	// MachineIdSecretName specifies the secret containing machine-id key to mount into /etc/machine-id
+	MachineIdSecretName string `json:"machineIdSecretName,omitempty"`
 
 	// MountHostEtc mounts host /etc to container /dolphindb/etc
 	// +kubebuilder:default=true
@@ -124,6 +132,9 @@ type NetworkingSpec struct {
 
 	// PublicIP or domain to inject into publicName config for Web UI redirect
 	PublicIP string `json:"publicIP,omitempty"`
+
+	// Annotations allows passing custom annotations to external Services (e.g. Alibaba Cloud SLB / AWS NLB annotations)
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // StreamingHASpec defines streaming replication and Raft groups
