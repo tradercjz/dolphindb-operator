@@ -844,8 +844,27 @@ func (s *Server) updateClusterConfig(w http.ResponseWriter, r *http.Request, nam
 	jsonResponse(w, http.StatusOK, cluster)
 }
 
+// ClusterExposeRequest is the body of POST /api/clusters/{ns}/{name}/expose.
+type ClusterExposeRequest struct {
+	// Enabled requests an explicit desired state. When it is omitted the endpoint
+	// toggles, which is kept only for backwards compatibility.
+	//
+	// A blind toggle is dangerous here: a caller that believes the cluster is not
+	// exposed - for example because a stale response reported an empty accessURL -
+	// would switch an already-exposed cluster *off*, deleting the cloud load
+	// balancer and producing a brand new DNS name on the next click.
+	Enabled *bool `json:"enabled,omitempty"`
+	// Scheme is "internet-facing" (default) or "internal".
+	Scheme string `json:"scheme,omitempty"`
+}
+
 func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, namespace, name string) {
 	ctx := r.Context()
+	var req ClusterExposeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
 	cluster := &v1alpha1.DolphinDBCluster{}
 	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
 		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found: %v", namespace, name, err))
@@ -853,29 +872,35 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	// On a managed cloud prefer a load balancer: the control plane provisions it
-	// and wires the security groups, so clicking "expose" produces a reachable
-	// address with no manual security group work and no IRSA. Bare metal keeps
-	// the NodePort behaviour because nothing would fulfil a LoadBalancer there.
+	// and wires the security groups, so exposing produces a reachable address with
+	// no manual security group work and no IRSA. Bare metal keeps the NodePort
+	// behaviour because nothing would fulfil a LoadBalancer there.
 	provider := s.detectProvider(ctx)
 	exposedType := corev1.ServiceTypeNodePort
 	if provider.SupportsLoadBalancer() {
 		exposedType = corev1.ServiceTypeLoadBalancer
 	}
 
-	if cluster.Spec.Networking.ServiceType == exposedType {
+	// Default to toggling only when the caller did not state its intent.
+	wantExposed := cluster.Spec.Networking.ServiceType != exposedType
+	if req.Enabled != nil {
+		wantExposed = *req.Enabled
+	}
+
+	switch {
+	case !wantExposed:
 		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeClusterIP
 		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureClusterIP
-	} else {
+	default:
 		cluster.Spec.Networking.ServiceType = exposedType
 		if exposedType == corev1.ServiceTypeLoadBalancer {
 			cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureGateway
 			if cluster.Spec.Networking.Annotations == nil {
 				cluster.Spec.Networking.Annotations = map[string]string{}
 			}
-			for k, v := range exposure.DefaultAnnotations(provider, exposure.SchemeInternetFacing) {
-				if _, exists := cluster.Spec.Networking.Annotations[k]; !exists {
-					cluster.Spec.Networking.Annotations[k] = v
-				}
+			scheme := exposure.ParseScheme(req.Scheme, exposure.SchemeInternetFacing)
+			for k, v := range exposure.DefaultAnnotations(provider, scheme) {
+				cluster.Spec.Networking.Annotations[k] = v
 			}
 		} else {
 			cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureNodePortDirect
@@ -900,6 +925,7 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 		"provider":     provider,
 		"providerName": provider.DisplayName(),
 		"serviceType":  cluster.Spec.Networking.ServiceType,
+		"enabled":      wantExposed,
 		"message":      "networking updated; the controller will reconcile the access services",
 	})
 }
@@ -912,6 +938,29 @@ type ClusterDetail struct {
 	Backups     []v1alpha1.DDBBackup      `json:"backups"`
 	ServiceType string                    `json:"serviceType,omitempty"`
 	AccessURL   string                    `json:"accessURL,omitempty"`
+
+	// Exposure fields describe the cluster-level entry point (as opposed to the
+	// per-node ones in NodeInfo) so the UI can render the same states for both:
+	// a real address, a pending cloud load balancer, or an unreachable NodePort.
+	ExposureMode    exposure.Mode   `json:"exposureMode,omitempty"`
+	ExposureScheme  exposure.Scheme `json:"exposureScheme,omitempty"`
+	ExposurePending bool            `json:"exposurePending,omitempty"`
+	ExposureMessage string          `json:"exposureMessage,omitempty"`
+}
+
+// anyNode picks a deterministic node from the map. NodePort is reachable through
+// any node because kube-proxy forwards it, so the choice only matters for
+// reproducibility.
+func anyNode(m map[string]*corev1.Node) *corev1.Node {
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return nil
+	}
+	return m[names[0]]
 }
 
 type NodeInfo struct {
@@ -971,29 +1020,17 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 
 	clusterSvcType := "ClusterIP"
 	var clusterAccessURL string
+	var clusterEndpoint exposure.Endpoint
 	if clusterSvc, exists := svcMap[name]; exists {
 		clusterSvcType = string(clusterSvc.Spec.Type)
-		if clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
-			var ctlNodePort int32
-			for _, p := range clusterSvc.Spec.Ports {
-				if p.NodePort > 0 {
-					ctlNodePort = p.NodePort
-					break
-				}
-			}
-			if ctlNodePort > 0 {
-				hostIP := "192.168.100.44"
-				if cluster.Spec.Networking.PublicIP != "" {
-					hostIP = cluster.Spec.Networking.PublicIP
-				} else if r != nil && r.Host != "" {
-					h, _, err := net.SplitHostPort(r.Host)
-					if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
-						hostIP = h
-					}
-				}
-				clusterAccessURL = fmt.Sprintf("http://%s:%d", hostIP, ctlNodePort)
-			}
-		}
+		// Resolve the cluster entry point the same cloud-aware way as a per-node
+		// exposure. Previously this only ran for NodePort and derived the address
+		// from the request Host or a hardcoded IP, so a LoadBalancer produced an
+		// empty accessURL - which made the UI report "ClusterIP, not exposed" for a
+		// cluster that was in fact exposed, and offer a toggle that then turned the
+		// exposure *off*.
+		clusterEndpoint = exposure.ResolveEndpoint(nil, anyNode(k8sNodeMap), clusterSvc)
+		clusterAccessURL = clusterEndpoint.URL
 	}
 
 	// Fetch DDBNodes
@@ -1208,12 +1245,16 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 	})
 
 	jsonResponse(w, http.StatusOK, ClusterDetail{
-		Cluster:     *cluster,
-		Nodes:       nodes,
-		Operations:  clusterOps,
-		Backups:     clusterBackups,
-		ServiceType: clusterSvcType,
-		AccessURL:   clusterAccessURL,
+		Cluster:         *cluster,
+		Nodes:           nodes,
+		Operations:      clusterOps,
+		Backups:         clusterBackups,
+		ServiceType:     clusterSvcType,
+		AccessURL:       clusterAccessURL,
+		ExposureMode:    clusterEndpoint.Mode,
+		ExposureScheme:  clusterEndpoint.Scheme,
+		ExposurePending: clusterEndpoint.Pending,
+		ExposureMessage: clusterEndpoint.Message,
 	})
 }
 

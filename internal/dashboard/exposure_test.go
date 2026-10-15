@@ -308,3 +308,158 @@ func TestUnexposeDeletesService(t *testing.T) {
 		t.Fatal("service should have been deleted")
 	}
 }
+
+// ---------------------------- cluster-level exposure ----------------------------
+
+func standaloneClusterCR() *v1alpha1.DolphinDBCluster {
+	return &v1alpha1.DolphinDBCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "ddb-min", Namespace: "dolphindb-system"},
+		Spec: v1alpha1.DolphinDBClusterSpec{
+			Mode:       v1alpha1.ModeStandalone,
+			Version:    "3.00.5",
+			Standalone: &v1alpha1.StandaloneSpec{Port: 8848},
+			Networking: v1alpha1.NetworkingSpec{
+				ServiceType:  corev1.ServiceTypeLoadBalancer,
+				ExposureMode: v1alpha1.ExposureGateway,
+			},
+		},
+	}
+}
+
+func lbService(name string, ready bool) *corev1.Service {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "dolphindb-system"},
+		Spec: corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeLoadBalancer,
+			Selector: map[string]string{"app.kubernetes.io/instance": name},
+			Ports:    []corev1.ServicePort{{Name: "ddb-port", Port: 8848}},
+		},
+	}
+	if ready {
+		svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{
+			{Hostname: "a4a6d7b4fcfb14b01a863a78b5694ce1-886b29f6972a8073.elb.ap-southeast-2.amazonaws.com"},
+		}
+	}
+	return svc
+}
+
+func callClusterDetail(t *testing.T, srv *Server) map[string]interface{} {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/clusters/dolphindb-system/ddb-min", nil)
+	w := httptest.NewRecorder()
+	srv.getClusterDetail(w, req, "dolphindb-system", "ddb-min")
+	out := map[string]interface{}{}
+	resp := w.Result()
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return out
+}
+
+// Regression test: the cluster-level accessURL was only computed for NodePort, so
+// a cluster exposed through a cloud load balancer reported an empty accessURL.
+// The UI then claimed the cluster was ClusterIP-only and offered an "enable"
+// button that actually toggled the exposure off.
+func TestClusterDetailReportsLoadBalancerAccessURL(t *testing.T) {
+	srv := newExposureServer(t, awsWorkerNode(), standaloneClusterCR(), lbService("ddb-min", true))
+
+	body := callClusterDetail(t, srv)
+
+	want := "http://a4a6d7b4fcfb14b01a863a78b5694ce1-886b29f6972a8073.elb.ap-southeast-2.amazonaws.com:8848"
+	if body["accessURL"] != want {
+		t.Fatalf("accessURL = %v, want %v", body["accessURL"], want)
+	}
+	if body["serviceType"] != "LoadBalancer" {
+		t.Errorf("serviceType = %v", body["serviceType"])
+	}
+	if body["exposureMode"] != string(exposure.ModeLoadBalancer) {
+		t.Errorf("exposureMode = %v", body["exposureMode"])
+	}
+	if body["exposurePending"] == true {
+		t.Error("a provisioned load balancer must not be reported as pending")
+	}
+}
+
+func TestClusterDetailReportsPendingLoadBalancer(t *testing.T) {
+	srv := newExposureServer(t, awsWorkerNode(), standaloneClusterCR(), lbService("ddb-min", false))
+
+	body := callClusterDetail(t, srv)
+
+	if v, ok := body["accessURL"]; ok && v != "" {
+		t.Errorf("no address should be advertised yet, got %v", v)
+	}
+	if body["exposurePending"] != true {
+		t.Errorf("expected exposurePending=true, got %v", body["exposurePending"])
+	}
+	if msg, _ := body["exposureMessage"].(string); msg == "" {
+		t.Error("pending state should explain itself")
+	}
+}
+
+func callClusterExpose(t *testing.T, srv *Server, body string) (int, map[string]interface{}) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/clusters/dolphindb-system/ddb-min/expose", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.handleClusterSubRoutes(w, req)
+	out := map[string]interface{}{}
+	resp := w.Result()
+	defer resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+// Regression test: with an explicit desired state, asking to enable an already
+// exposed cluster must be a no-op rather than turning it off (which would delete
+// the cloud load balancer).
+func TestClusterExposeIsIdempotentWhenEnabledExplicitly(t *testing.T) {
+	cluster := standaloneClusterCR()
+	srv := newExposureServer(t, awsWorkerNode(), cluster)
+
+	code, body := callClusterExpose(t, srv, `{"enabled":true}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (%v)", code, body)
+	}
+	if body["enabled"] != true {
+		t.Fatalf("enabled = %v, want true", body["enabled"])
+	}
+
+	stored := &v1alpha1.DolphinDBCluster{}
+	if err := srv.client.Get(context.Background(), client.ObjectKey{Namespace: "dolphindb-system", Name: "ddb-min"}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Spec.Networking.ServiceType != corev1.ServiceTypeLoadBalancer {
+		t.Fatalf("service type = %q, want it left as LoadBalancer", stored.Spec.Networking.ServiceType)
+	}
+
+	// Second identical request must not flip it off.
+	if _, body = callClusterExpose(t, srv, `{"enabled":true}`); body["enabled"] != true {
+		t.Fatalf("second enable returned enabled=%v", body["enabled"])
+	}
+	if err := srv.client.Get(context.Background(), client.ObjectKey{Namespace: "dolphindb-system", Name: "ddb-min"}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Spec.Networking.ServiceType != corev1.ServiceTypeLoadBalancer {
+		t.Fatalf("second enable changed the type to %q", stored.Spec.Networking.ServiceType)
+	}
+}
+
+func TestClusterExposeCanBeDisabledExplicitly(t *testing.T) {
+	srv := newExposureServer(t, awsWorkerNode(), standaloneClusterCR())
+
+	code, body := callClusterExpose(t, srv, `{"enabled":false}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	if body["enabled"] != false {
+		t.Fatalf("enabled = %v", body["enabled"])
+	}
+	stored := &v1alpha1.DolphinDBCluster{}
+	if err := srv.client.Get(context.Background(), client.ObjectKey{Namespace: "dolphindb-system", Name: "ddb-min"}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Spec.Networking.ServiceType != corev1.ServiceTypeClusterIP {
+		t.Fatalf("service type = %q, want ClusterIP", stored.Spec.Networking.ServiceType)
+	}
+}

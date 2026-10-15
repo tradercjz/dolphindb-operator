@@ -125,6 +125,11 @@ Click **+ 暴露端口** on a node card. The dashboard:
 **关闭外网** deletes the Service; Kubernetes garbage collection removes it, and
 the cloud releases the load balancer automatically.
 
+The cluster-level banner works the same way and is driven by the reported state
+(`accessURL`, `exposureMode`, `exposurePending`), not by inference - a cluster
+that is exposed says so, and the button then releases the load balancer instead of
+silently toggling it off.
+
 ### From the REST API
 
 ```bash
@@ -138,7 +143,17 @@ curl http://<dashboard>/api/nodes/<ns>/<node>/expose
 
 # Tear down
 curl -X DELETE http://<dashboard>/api/nodes/<ns>/<node>/expose
+
+# Cluster level: state the intent explicitly
+curl -X POST -H 'Content-Type: application/json' -d '{"enabled":true}' \
+  http://<dashboard>/api/clusters/<ns>/<cluster>/expose
+curl -X POST -H 'Content-Type: application/json' -d '{"enabled":false}' \
+  http://<dashboard>/api/clusters/<ns>/<cluster>/expose
 ```
+
+> `enabled` may be omitted, in which case the call toggles. That behaviour is kept
+> only for backwards compatibility: a blind toggle turns an *exposed* cluster
+> **off**, deleting its load balancer. Always prefer an explicit `enabled`.
 
 Request fields:
 
@@ -256,7 +271,9 @@ kubectl auth can-i list nodes \
 
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| **URL opens in the browser but never loads, or connection times out** | The load balancer is still `provisioning`. An NLB can take **3-5 minutes** after the Service appears, and the DNS name points at a non-routable placeholder (`198.18.x.x`) until then | Wait, then re-resolve DNS. Verify with `aws elbv2 describe-load-balancers --query "LoadBalancers[].State.Code"` — it must read `active`. The UI polls automatically |
+| **The dashboard shows "not exposed" for a cluster that is exposed, and clicking the button makes it worse** | The cluster-level `accessURL` was previously only computed for NodePort, so a load-balanced cluster reported an empty URL. The UI then offered a toggle that switched the exposure *off* | Fixed: the cluster entry point is resolved through the same cloud-aware path, `ClusterDetail` reports `exposureMode`/`exposurePending`, and the API takes an explicit `{"enabled": ...}` instead of only toggling |
+| **URL opens in the browser but never loads, or connection times out** | The load balancer is still `provisioning`. An NLB can take **3-5 minutes** after the Service appears, and the DNS name points at a non-routable placeholder (`198.18.x.x`) until then | Wait, then re-resolve DNS. Verify with `aws elbv2 describe-load-balancers --query "LoadBalancers[].State.Code"` - it must read `active`. The UI polls automatically |
+| **The link changes every time I click** | The load balancer is being deleted and recreated, so the DNS name changes | Make sure nothing but the CR drives the Service type; see "exactly one writer" above |
 | Load balancer created and immediately deleted, repeatedly | Two writers updating the same Service | Fixed by making the CR the only write path; see "exactly one writer" above. If you see `SyncLoadBalancerFailed`, check for anything else mutating the Service (e.g. an external GitOps controller) |
 | `pending: true` for many minutes | Cloud still provisioning, or the service controller cannot allocate | `kubectl describe svc <node>-ext` and look for `EnsuringLoadBalancer` events |
 | `provider: "bare-metal"` on EKS | Operator cannot list nodes | Fix the `nodes` ClusterRole rule |

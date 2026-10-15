@@ -94,6 +94,37 @@ load balancer kept being deleted and recreated.
 `DeletingLoadBalancer` and zero `SyncLoadBalancerFailed` events, one load
 balancer for the whole lifecycle.
 
+### Cluster-level entry point, and a toggle that turned exposure off
+
+The cloud-aware address resolution was first applied only to the **per-node**
+endpoint. The **cluster-level** `accessURL` still ran the old code path, which
+handled `NodePort` alone and derived the host from the request `Host` header or a
+hardcoded fallback IP. A cluster exposed through a load balancer therefore
+reported `serviceType: LoadBalancer` with an **empty** `accessURL`.
+
+The dashboard inferred "not exposed" from that empty URL, so it showed
+*"ClusterIP (仅集群内私有)"* with a **一键开启** button. The API implemented that
+button as a blind toggle, so clicking it on an already-exposed cluster set
+`serviceType` back to `ClusterIP` - which deletes the cloud load balancer. The
+next click recreated it, with a different DNS name. The user could never open the
+link because it kept changing.
+
+**Fixed** in three places:
+
+1. `clusterAccessURL` is resolved through `exposure.ResolveEndpoint`, the same
+   cloud-aware path as per-node exposure, and `ClusterDetail` now carries
+   `exposureMode` / `exposureScheme` / `exposurePending` / `exposureMessage`.
+2. `POST /api/clusters/{ns}/{name}/expose` accepts an explicit desired state
+   (`{"enabled": true|false, "scheme": "..."}`). The old toggle remains for
+   backwards compatibility but the UI never relies on it.
+3. The banner and buttons are rendered from the reported state: a real address
+   with its mode, a **pending** state with automatic polling while the cloud
+   provisions, or an explicit *not exposed* state.
+
+Verified on EKS: two consecutive `{"enabled": true}` calls left the load
+balancer's `CreatedTime` unchanged, and the public URL served `HTTP 200` with a
+live DolphinDB query.
+
 ---
 
 ## 2. Managed-Kubernetes compatibility fixes
@@ -321,5 +352,5 @@ deploy/helm/dolphindb-operator/{Chart.yaml,values.yaml,templates/*}
 README.md
 ```
 
-Test suite: 64 assertions across 8 packages. `gofmt`, `go vet`, `go test ./...`
+Test suite: 68 assertions across 8 packages. `gofmt`, `go vet`, `go test ./...`
 and `helm lint` all clean.
