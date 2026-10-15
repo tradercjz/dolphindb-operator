@@ -76,4 +76,3 @@ func TestGetClusterNodesConfigs(t *testing.T) {
 		t.Errorf("unexpected parsed configs: %+v", cfgs)
 	}
 }
-

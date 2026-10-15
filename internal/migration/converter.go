@@ -296,7 +296,7 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 			StepID:               "flush_cache",
 			Title:                "步骤 1：业务停写与强制刷盘 (Checkpoint & Flush Cache)",
 			Description:          "向旧集群数据库节点下发刷盘指令，确保内存中的 OLAP 和 TSDB 脏数据块全部落盘到底层 PVC 存储中，保证事务零丢失。",
-			Command:              fmt.Sprintf("curl -s http://<DDB_NODE_IP>:8848/execute -d 'expr=flushOLAPCache();flushTSDBCache()'", ),
+			Command:              fmt.Sprintf("curl -s http://<DDB_NODE_IP>:8848/execute -d 'expr=flushOLAPCache();flushTSDBCache()'"),
 			Status:               "pending",
 			RequiresConfirmation: true,
 		},

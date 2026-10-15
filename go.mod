@@ -1,6 +1,6 @@
 module dolphindb.io/operator
 
-go 1.25.6
+go 1.23
 
 require (
 	github.com/prometheus/client_golang v1.16.0
@@ -9,6 +9,7 @@ require (
 	k8s.io/apimachinery v0.30.2
 	k8s.io/client-go v0.30.2
 	sigs.k8s.io/controller-runtime v0.18.4
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -65,5 +66,4 @@ require (
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )

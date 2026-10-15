@@ -108,24 +108,24 @@ type StorageSummary struct {
 
 // AssessmentReport is the pre-flight compatibility evaluation
 type AssessmentReport struct {
-	HealthScore          int                 `json:"healthScore"` // 0-100
-	RiskLevel            string              `json:"riskLevel"`   // LOW, MEDIUM, HIGH
-	Findings             []PreflightFinding  `json:"findings"`
-	ResourceComparison   ResourceComparison  `json:"resourceComparison"`
-	StorageSummary       StorageSummary      `json:"storageSummary"`
-	CustomConfigs        map[string]string   `json:"customConfigs"`
-	RecommendedStrategy  string              `json:"recommendedStrategy"` // BlueGreen or InPlace
-	RecommendationReason string              `json:"recommendationReason"`
+	HealthScore          int                `json:"healthScore"` // 0-100
+	RiskLevel            string             `json:"riskLevel"`   // LOW, MEDIUM, HIGH
+	Findings             []PreflightFinding `json:"findings"`
+	ResourceComparison   ResourceComparison `json:"resourceComparison"`
+	StorageSummary       StorageSummary     `json:"storageSummary"`
+	CustomConfigs        map[string]string  `json:"customConfigs"`
+	RecommendedStrategy  string             `json:"recommendedStrategy"` // BlueGreen or InPlace
+	RecommendationReason string             `json:"recommendationReason"`
 }
 
 // ConversionOptions specifies parameters for converting to the new CRD
 type ConversionOptions struct {
-	TargetMode      string   `json:"targetMode"` // "blue-green" or "in-place"
-	TargetVersion   string   `json:"targetVersion"`
-	NewClusterName  string   `json:"newClusterName"`
-	TargetNamespace string   `json:"targetNamespace"`
-	UseSecretLicense bool    `json:"useSecretLicense"`
-	ExistingPVCs    []string `json:"existingPVCs"`
+	TargetMode       string   `json:"targetMode"` // "blue-green" or "in-place"
+	TargetVersion    string   `json:"targetVersion"`
+	NewClusterName   string   `json:"newClusterName"`
+	TargetNamespace  string   `json:"targetNamespace"`
+	UseSecretLicense bool     `json:"useSecretLicense"`
+	ExistingPVCs     []string `json:"existingPVCs"`
 }
 
 // AdoptionStep is an actionable step for in-place migration
@@ -141,12 +141,12 @@ type AdoptionStep struct {
 
 // ConversionResult contains the generated artifacts and scripts
 type ConversionResult struct {
-	TargetMode    string                     `json:"targetMode"`
-	TargetCluster v1alpha1.DolphinDBCluster  `json:"targetCluster"`
-	TargetYAML    string                     `json:"targetYaml"`
-	SyncScript    string                     `json:"syncScript"`
-	AdoptionSteps []AdoptionStep             `json:"adoptionSteps"`
-	WarningNotes  []string                   `json:"warningNotes"`
+	TargetMode    string                    `json:"targetMode"`
+	TargetCluster v1alpha1.DolphinDBCluster `json:"targetCluster"`
+	TargetYAML    string                    `json:"targetYaml"`
+	SyncScript    string                    `json:"syncScript"`
+	AdoptionSteps []AdoptionStep            `json:"adoptionSteps"`
+	WarningNotes  []string                  `json:"warningNotes"`
 }
 
 // StepResult represents the outcome of an automated execution step

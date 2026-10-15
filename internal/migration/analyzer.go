@@ -258,10 +258,10 @@ func evaluateCompatibility(detail *LegacyClusterDetail, totalQty resource.Quanti
 	// Container & Resource Footprint
 	if legacySidecars {
 		findings = append(findings, PreflightFinding{
-			Category: "Architecture",
-			Severity: SeverityInfo,
-			Title:    "旧版多副容器架构 (4 Sidecars / Pod)",
-			Detail:   "旧版 Pod 注入了 exporter, cleaner, promtail 3 个常驻副容器，带来约 500MB+ 的额外内存底噪开销。",
+			Category:       "Architecture",
+			Severity:       SeverityInfo,
+			Title:          "旧版多副容器架构 (4 Sidecars / Pod)",
+			Detail:         "旧版 Pod 注入了 exporter, cleaner, promtail 3 个常驻副容器，带来约 500MB+ 的额外内存底噪开销。",
 			Recommendation: "新版采用一体化设计（单容器 + 轻量 ddb-agent < 15MB），升级后每个数据库节点可释放约 480MB 内存，极大降低宿主机资源浪费。",
 		})
 	}
@@ -289,10 +289,10 @@ func evaluateCompatibility(detail *LegacyClusterDetail, totalQty resource.Quanti
 			cfgSummary = append(cfgSummary, fmt.Sprintf("%s=%s", k, v))
 		}
 		findings = append(findings, PreflightFinding{
-			Category: "Config",
-			Severity: SeverityInfo,
-			Title:    fmt.Sprintf("已自动捕获 %d 项历史定制参数", len(detail.CustomConfigs)),
-			Detail:   fmt.Sprintf("从原 ConfigMap 中提取到定制参数: %s", strings.Join(cfgSummary, ", ")),
+			Category:       "Config",
+			Severity:       SeverityInfo,
+			Title:          fmt.Sprintf("已自动捕获 %d 项历史定制参数", len(detail.CustomConfigs)),
+			Detail:         fmt.Sprintf("从原 ConfigMap 中提取到定制参数: %s", strings.Join(cfgSummary, ", ")),
 			Recommendation: "转换新版 CRD 时，工具链已将上述参数自动注入新版 `spec.extraConfig` / `cluster.cfg`，确保业务调优参数不发生漂移。",
 		})
 	}
@@ -307,10 +307,10 @@ func evaluateCompatibility(detail *LegacyClusterDetail, totalQty resource.Quanti
 	if len(exposedPorts) > 0 {
 		score -= 5
 		findings = append(findings, PreflightFinding{
-			Category: "Networking",
-			Severity: SeverityWarning,
-			Title:    "外部 NodePort 端口映射变更提示",
-			Detail:   fmt.Sprintf("旧集群当前通过动态 NodePort 暴露服务: %s。硬编码旧端口的客户端访问脚本可能受影响。", strings.Join(exposedPorts, ", ")),
+			Category:       "Networking",
+			Severity:       SeverityWarning,
+			Title:          "外部 NodePort 端口映射变更提示",
+			Detail:         fmt.Sprintf("旧集群当前通过动态 NodePort 暴露服务: %s。硬编码旧端口的客户端访问脚本可能受影响。", strings.Join(exposedPorts, ", ")),
 			Recommendation: "升级后推荐接入统一规划的 Service 或保留相同的 NodePort，并同步检查上游客户端连接配置。",
 		})
 	}

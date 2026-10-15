@@ -2167,25 +2167,25 @@ func (s *Server) handleRestoreSubRoutes(w http.ResponseWriter, r *http.Request) 
 
 // LicenseInfo represents detailed license status for a cluster
 type LicenseInfo struct {
-	ClusterName      string            `json:"clusterName"`
-	Namespace        string            `json:"namespace"`
-	Mode             string            `json:"mode"`
-	Version          string            `json:"version"`
-	LicenseMode      string            `json:"licenseMode"`
-	SecretName       string            `json:"secretName"`
-	Expiration       string            `json:"expiration"`
-	DaysRemaining    int               `json:"daysRemaining"`
-	Status           string            `json:"status"` // "active", "expiring_soon", "expired", "unknown"
-	ClientName       string            `json:"clientName"`
-	Authorization    string            `json:"authorization"`
-	MaxNodes         string            `json:"maxNodes"`
-	MaxCoresPerNode  string            `json:"maxCoresPerNode"`
-	MaxMemoryPerNode string            `json:"maxMemoryPerNode"`
-	Modules          string            `json:"modules"`
-	ModuleList       []string          `json:"moduleList"`
-	ProductKey       string            `json:"productKey"`
-	Available        bool              `json:"available"`
-	Message          string            `json:"message,omitempty"`
+	ClusterName      string   `json:"clusterName"`
+	Namespace        string   `json:"namespace"`
+	Mode             string   `json:"mode"`
+	Version          string   `json:"version"`
+	LicenseMode      string   `json:"licenseMode"`
+	SecretName       string   `json:"secretName"`
+	Expiration       string   `json:"expiration"`
+	DaysRemaining    int      `json:"daysRemaining"`
+	Status           string   `json:"status"` // "active", "expiring_soon", "expired", "unknown"
+	ClientName       string   `json:"clientName"`
+	Authorization    string   `json:"authorization"`
+	MaxNodes         string   `json:"maxNodes"`
+	MaxCoresPerNode  string   `json:"maxCoresPerNode"`
+	MaxMemoryPerNode string   `json:"maxMemoryPerNode"`
+	Modules          string   `json:"modules"`
+	ModuleList       []string `json:"moduleList"`
+	ProductKey       string   `json:"productKey"`
+	Available        bool     `json:"available"`
+	Message          string   `json:"message,omitempty"`
 }
 
 type NodeFingerprint struct {

@@ -825,9 +825,9 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			Volumes:                       volumes,
 			Containers: []corev1.Container{
 				{
-					Name:           "dolphindb",
-					Image:          node.Spec.Image,
-					WorkingDir:     "/data/ddb/server",
+					Name:       "dolphindb",
+					Image:      node.Spec.Image,
+					WorkingDir: "/data/ddb/server",
 					Command: []string{
 						"/bin/sh",
 						"-c",
@@ -1105,5 +1105,3 @@ func slicesEqual(a, b []string) bool {
 	}
 	return true
 }
-
-
