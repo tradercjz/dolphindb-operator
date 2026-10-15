@@ -383,7 +383,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 
 	// Mount License: check Secret first (supports per-node <nodeName>.lic or dolphindb.lic), fallback to host passthrough
 	secretName := node.Spec.LicenseSecretName
-	if secretName == "" && node.Spec.Fingerprint != nil {
+	if secretName == "" && (node.Spec.Fingerprint == nil || !node.Spec.Fingerprint.AutoPassthrough) {
 		secretName = "dolphindb-license"
 	}
 	hasSecretLicense := false

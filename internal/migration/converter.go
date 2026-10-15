@@ -64,7 +64,7 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 			ImageRepository: "dolphindb",
 			License: v1alpha1.LicenseSpec{
 				Mode:       v1alpha1.LicenseModeMachineFingerprint,
-				SecretName: "dolphindb-license",
+				SecretName: "",
 				AutoReload: true,
 				MachineFingerprint: &v1alpha1.MachineFingerprintSpec{
 					AutoPassthrough: true,
@@ -169,7 +169,7 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 			// In-place migration preserves legacy node aliases and path layouts
 			dnConfig["volumes"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/storage"
 			dnConfig["redoLogDir"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/redolog"
-			dnConfig["chunkMetaDir"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/storage/CHUNK_METADATA"
+			dnConfig["chunkMetaDir"] = "/data/ddb/server/clusterDemo/data/<ALIAS>/storage"
 			if dnConfig["maxMemSize"] == "" {
 				dnConfig["maxMemSize"] = "4"
 			}
@@ -374,12 +374,16 @@ func buildResources(cpuStr, memStr string) corev1.ResourceRequirements {
 
 	if memStr != "" {
 		if q, err := resource.ParseQuantity(memStr); err == nil {
-			limits[corev1.ResourceMemory] = q
-			requests[corev1.ResourceMemory] = resource.MustParse("1Gi")
+			if q.Cmp(resource.MustParse("8Gi")) < 0 {
+				limits[corev1.ResourceMemory] = resource.MustParse("8Gi")
+			} else {
+				limits[corev1.ResourceMemory] = q
+			}
+			requests[corev1.ResourceMemory] = resource.MustParse("2Gi")
 		}
 	} else {
-		limits[corev1.ResourceMemory] = resource.MustParse("4Gi")
-		requests[corev1.ResourceMemory] = resource.MustParse("1Gi")
+		limits[corev1.ResourceMemory] = resource.MustParse("8Gi")
+		requests[corev1.ResourceMemory] = resource.MustParse("2Gi")
 	}
 
 	return corev1.ResourceRequirements{
