@@ -350,6 +350,15 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 				}
 			}
 		}
+		// The node home directory must be on persistent storage. A pod created before
+		// that guarantee existed keeps its redo log on the container's ephemeral
+		// layer and will lose acknowledged writes when it is recreated, so replace it.
+		if !podHasPersistentHome(node, pod) {
+			log.FromContext(ctx).Info("Recreating pod: DolphinDB home directory is not on persistent storage",
+				"pod", pod.Name, "home", homeMountPath(node), "role", string(node.Spec.Role))
+			needsRecreate = true
+		}
+
 		// A reissued certificate has to reach the node, which means replacing the pod:
 		// the mounted Secret updates on its own, but DolphinDB only reads the files in
 		// its keys directory at startup.
@@ -521,8 +530,26 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		})
 	}
 
-	// Mount ACL public key for DataNode and ComputeNode in cluster mode
-	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+	// Mount ACL public key for DataNode and ComputeNode in cluster mode.
+	//
+	// DolphinDB reads these from `<HOME_DIR>/<NodeAlias>/keys` (see the node startup
+	// documentation). The operator used to mount the Secret at `<home>/keys`, one
+	// level short, so data nodes never actually received the controller's key and
+	// inter-node messages could not be decrypted:
+	//
+	//	ChunkNode failed to initialize: RemoteRun[ctl-0] Failed to decrypt the given
+	//	message by RSA private key.
+	//
+	// The material is staged read-only and copied into place by the entrypoint, the
+	// same way the TLS certificate is handled: mounting a Secret over the keys
+	// directory would also hide server.crt and block DolphinDB's own writes.
+	aclInstall := ""
+	// Every cluster-mode node needs the keys, the controller included: DolphinDB
+	// treats a lone public key as a missing pair and generates a fresh one, so a
+	// data node that only received the public key ended up with its own keypair and
+	// could not decrypt the controller's messages. The operator therefore publishes
+	// one shared pair to all of them.
+	if node.Spec.Role != v1alpha1.NodeRoleSingle {
 		aclSecName := fmt.Sprintf("%s-acl-keys", node.Spec.ClusterName)
 		aclVolName := "ddb-acl-key"
 		volumes = append(volumes, corev1.Volume{
@@ -535,20 +562,34 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		})
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      aclVolName,
-			MountPath: "/data/ddb/server/data/keys",
+			MountPath: "/data/ddb/acl-keys",
+			ReadOnly:  true,
 		})
-		ddbMounts = append(ddbMounts, corev1.VolumeMount{
-			Name:      aclVolName,
-			MountPath: fmt.Sprintf("/data/ddb/server/data/%s/keys", node.Spec.Alias),
-		})
-		ddbMounts = append(ddbMounts, corev1.VolumeMount{
-			Name:      aclVolName,
-			MountPath: fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s/keys", node.Spec.Alias),
-		})
+		home := homeMountPath(node)
+		aclDirs := []string{
+			home + "/" + node.Spec.Alias + "/keys",
+			home + "/keys",
+		}
+		aclInstall = fmt.Sprintf(
+			`if [ -d /data/ddb/acl-keys ]; then for d in %s; do mkdir -p "$d" && cp -f /data/ddb/acl-keys/*.key "$d"/ 2>/dev/null; done; fi; `,
+			shellQuoteAll(aclDirs))
 	}
 
 	// Mount PVCs
+	//
+	// `homeMounted` tracks whether the node's home directory has been put on
+	// persistent storage yet. The previous code used `i == 0` for that decision,
+	// where `i` indexes the *whole* PVC list - and that list always starts with the
+	// meta volume. So for a data node the test never fired and its home directory
+	// ended up on the container's ephemeral layer.
+	//
+	// That was not cosmetic. DolphinDB keeps its redo log and recover log under
+	// `<home>/log`, so a recreated pod lost every write that had been acknowledged
+	// but not yet checkpointed. Reproduced: six rows written, pod deleted and
+	// recreated, two rows left, with
+	//	[startup::redoLogReplay] The log dir [...] is empty. No need to check redo log.
 	hasLogMount := false
+	homeMounted := false
 	for i, pvc := range pvcs {
 		volName := fmt.Sprintf("vol-%d", i)
 		volumes = append(volumes, corev1.Volume{
@@ -576,6 +617,16 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Name:      volName,
 					MountPath: "/var/lib/dolphindb/meta",
 				})
+				// Controllers and compute nodes are given no data volume, so their home
+				// directory - which holds the redo and recover logs - has to live on the
+				// meta volume instead.
+				if !homeMounted && (node.Spec.Role == v1alpha1.NodeRoleController || node.Spec.Role == v1alpha1.NodeRoleComputeNode) {
+					ddbMounts = append(ddbMounts, corev1.VolumeMount{
+						Name:      volName,
+						MountPath: homeMountPath(node),
+					})
+					homeMounted = true
+				}
 			}
 		} else if strings.HasPrefix(pvc.Name, "data-") {
 			if node.Spec.Role == v1alpha1.NodeRoleSingle || node.Spec.Role == v1alpha1.NodeRoleController {
@@ -591,6 +642,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Name:      volName,
 					MountPath: "/var/lib/dolphindb/data/vol-0",
 				})
+				homeMounted = true
 			} else {
 				volIdx := fmt.Sprintf("%d", i)
 				parts := strings.Split(pvc.Name, "-")
@@ -599,7 +651,9 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 						volIdx = parts[1]
 					}
 				}
-				if i == 0 {
+				// The first data volume also carries the node home, so the redo log
+				// survives the pod being recreated.
+				if !homeMounted {
 					ddbMounts = append(ddbMounts, corev1.VolumeMount{
 						Name:      volName,
 						MountPath: "/data/ddb/server/data",
@@ -608,6 +662,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 						Name:      volName,
 						MountPath: "/data/ddb/server/clusterDemo/data",
 					})
+					homeMounted = true
 				}
 				ddbMounts = append(ddbMounts, corev1.VolumeMount{
 					Name:      volName,
@@ -884,7 +939,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Command: []string{
 						"/bin/sh",
 						"-c",
-						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; ` + tlsInstall + `exec /data/ddb/server/dolphindb "$@"`,
+						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; ` + tlsInstall + aclInstall + `exec /data/ddb/server/dolphindb "$@"`,
 						"--",
 					},
 					Args:           args,

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"dolphindb.io/operator/api/v1alpha1"
 )
 
@@ -49,6 +51,41 @@ func SanitizeHostname(name string) string {
 		out = strings.Trim(out[:63], "-")
 	}
 	return out
+}
+
+// homeMountPath is where the node's persistent home directory has to be mounted.
+// It matches the `-home` value buildContainerArgs passes to DolphinDB.
+func homeMountPath(node *v1alpha1.DDBNode) string {
+	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+		return "/data/ddb/server/clusterDemo/data"
+	}
+	return "/data/ddb/server/data"
+}
+
+// podHasPersistentHome reports whether the pod's DolphinDB home directory is
+// backed by a PersistentVolumeClaim.
+//
+// This is a correctness check, not an optimisation. DolphinDB writes its redo log
+// and recover log under `<home>/log`; if the home is on the container's ephemeral
+// layer, recreating the pod discards every write that was acknowledged but not yet
+// checkpointed. A pod that predates the fix therefore has to be replaced.
+func podHasPersistentHome(node *v1alpha1.DDBNode, pod *corev1.Pod) bool {
+	if node == nil || pod == nil || len(pod.Spec.Containers) == 0 {
+		return false
+	}
+	pvcVolumes := map[string]bool{}
+	for _, v := range pod.Spec.Volumes {
+		if v.PersistentVolumeClaim != nil {
+			pvcVolumes[v.Name] = true
+		}
+	}
+	want := homeMountPath(node)
+	for _, m := range pod.Spec.Containers[0].VolumeMounts {
+		if m.MountPath == want && pvcVolumes[m.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 // nodeHomeDir is the DolphinDB `-home` directory for a node. It is shared by the

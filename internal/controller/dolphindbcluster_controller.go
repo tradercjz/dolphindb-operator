@@ -1,11 +1,13 @@
 package controller
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -1045,79 +1047,47 @@ func rolePrefix(role v1alpha1.NodeRole) string {
 	}
 }
 
+// syncAclPublicKey publishes the cluster's shared ACL keypair.
+//
+// DolphinDB uses this RSA pair for inter-node message encryption and keeps it at
+// `<HOME_DIR>/<NodeAlias>/keys` (aclPublic.key + aclPrivate.key). Two behaviours
+// matter, both measured on a live cluster:
+//
+//   - a node that finds only ONE of the two files treats the pair as missing and
+//     generates its own, silently replacing whatever it was given. Handing data
+//     nodes just the controller's public key therefore produced
+//     `Failed to decrypt the given message by RSA private key` and the data nodes
+//     never started;
+//   - the controller regenerates its pair whenever its home directory is recreated,
+//     which invalidates anything that was distributed beforehand.
+//
+// So the operator owns one pair for the whole cluster and publishes both halves.
+// Every node installs it at start-up; nothing depends on which node generated what.
 func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
-	ctlPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
-	ctlPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err != nil {
-		return err
-	}
-	if ctlPod.Status.Phase != corev1.PodRunning || ctlPod.Status.PodIP == "" {
-		return fmt.Errorf("controller pod not running yet")
-	}
-
-	ctlPort := int32(8900)
-	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
-		ctlPort = cluster.Spec.Controller.Port
-	}
-
-	url := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
-	adminUser, adminPass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
-	payload := map[string]interface{}{
-		"functionName": "executeCode",
-		"params": []map[string]string{
-			{
-				"name":  "script",
-				"form":  "scalar",
-				"type":  "string",
-				"value": credentials.LoginScript(adminUser, adminPass) + ` concat(funcByName("getAclPublicKey")())`,
-			},
-		},
-	}
-	bodyBytes, _ := json.Marshal(payload)
-
-	clientHttp := &http.Client{
-		Transport: &http.Transport{
-			Proxy:             nil,
-			DisableKeepAlives: true,
-		},
-		Timeout: 5 * time.Second,
-	}
-	resp, err := clientHttp.Post(url, "application/json", bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var ddbResp struct {
-		ResultCode string `json:"resultCode"`
-		Msg        string `json:"msg"`
-		Object     []struct {
-			Value string `json:"value"`
-		} `json:"object"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&ddbResp); err != nil {
-		return err
-	}
-	if ddbResp.ResultCode != "0" || len(ddbResp.Object) == 0 || ddbResp.Object[0].Value == "" {
-		return fmt.Errorf("failed to get acl public key: %s", ddbResp.Msg)
-	}
-
-	keyData := []byte(ddbResp.Object[0].Value)
 	secretName := fmt.Sprintf("%s-acl-keys", cluster.Name)
+
 	existingSec := &corev1.Secret{}
-	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, existingSec)
-	if err == nil {
-		if bytes.Equal(existingSec.Data["aclPublic.key"], keyData) {
-			return nil
-		}
-		if existingSec.Data == nil {
-			existingSec.Data = make(map[string][]byte)
-		}
-		existingSec.Data["aclPublic.key"] = keyData
-		return r.Update(ctx, existingSec)
+	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, existingSec)
+	if err == nil && len(existingSec.Data["aclPrivate.key"]) > 0 && len(existingSec.Data["aclPublic.key"]) > 0 {
+		return nil // already published
 	}
-	if !errors.IsNotFound(err) {
+	if err != nil && !errors.IsNotFound(err) {
 		return err
+	}
+
+	keyPEM, pubPEM, genErr := generateACLKeyPair()
+	if genErr != nil {
+		return genErr
+	}
+
+	data := map[string][]byte{"aclPrivate.key": keyPEM, "aclPublic.key": pubPEM}
+	if err == nil {
+		if existingSec.Data == nil {
+			existingSec.Data = map[string][]byte{}
+		}
+		existingSec.Data["aclPrivate.key"] = keyPEM
+		existingSec.Data["aclPublic.key"] = pubPEM
+		return r.Update(ctx, existingSec)
 	}
 
 	newSec := &corev1.Secret{
@@ -1125,18 +1095,33 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 			Name:      secretName,
 			Namespace: cluster.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name":     "dolphindb",
-				"app.kubernetes.io/instance": cluster.Name,
+				"app.kubernetes.io/name":      "dolphindb",
+				"app.kubernetes.io/instance":  cluster.Name,
+				"app.kubernetes.io/component": "acl-keys",
 			},
 		},
-		Data: map[string][]byte{
-			"aclPublic.key": keyData,
-		},
+		Data: data,
 	}
 	if err := ctrl.SetControllerReference(cluster, newSec, r.Scheme); err != nil {
 		return err
 	}
 	return r.Create(ctx, newSec)
+}
+
+// generateACLKeyPair returns an RSA keypair in the PEM encodings DolphinDB writes
+// and reads: PKCS#1 ("RSA PRIVATE KEY") and PKIX ("PUBLIC KEY").
+func generateACLKeyPair() (keyPEM, pubPEM []byte, err error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyDER := x509.MarshalPKCS1PrivateKey(key)
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}), nil
 }
 
 func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBCluster) *ddbclient.Client {

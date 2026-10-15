@@ -82,3 +82,14 @@ func quote(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// ChangePwdScript rotates the current session's password.
+//
+// DolphinDB keeps the admin password in the node's ACL metadata, which lives in its
+// home directory. While that directory was ephemeral, every pod restart silently
+// reset the account to the factory default, and every operator call that needs
+// authentication started failing with
+// `login("admin", "…") => The user name or password is incorrect`.
+func ChangePwdScript(oldPwd, newPwd string) string {
+	return "changePwd(" + quote(oldPwd) + ", " + quote(newPwd) + ");"
+}
