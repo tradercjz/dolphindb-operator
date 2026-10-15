@@ -338,6 +338,34 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 			}
 			return pod, nil
 		}
+		// Dynamically reconcile mutable labels & annotations (e.g., Prometheus scraping, legacy Grafana labels)
+		updated := false
+		if pod.Labels == nil {
+			pod.Labels = make(map[string]string)
+		}
+		if pod.Labels["dolphindb.io/dolphindb.name"] != node.Spec.ClusterName {
+			pod.Labels["dolphindb.io/dolphindb.name"] = node.Spec.ClusterName
+			updated = true
+		}
+		compType := getLegacyComponentType(node.Spec.Role)
+		if pod.Labels["dolphindb.io/component.type"] != compType {
+			pod.Labels["dolphindb.io/component.type"] = compType
+			updated = true
+		}
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+		if pod.Annotations["prometheus.io/scrape"] != "true" {
+			pod.Annotations["prometheus.io/scrape"] = "true"
+			pod.Annotations["prometheus.io/port"] = strconv.Itoa(int(node.Spec.Port))
+			pod.Annotations["prometheus.io/path"] = "/metrics"
+			updated = true
+		}
+		if updated {
+			if err := r.Update(ctx, pod); err != nil {
+				return nil, err
+			}
+		}
 		return pod, nil
 	}
 	if !errors.IsNotFound(err) {
@@ -708,7 +736,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 	}
 
 	graceSeconds := int64(30)
-
+	compType := getLegacyComponentType(node.Spec.Role)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
@@ -718,6 +746,13 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 				"app.kubernetes.io/instance":  node.Spec.ClusterName,
 				"app.kubernetes.io/component": string(node.Spec.Role),
 				"dolphindb.io/node-alias":     node.Spec.Alias,
+				"dolphindb.io/dolphindb.name": node.Spec.ClusterName,
+				"dolphindb.io/component.type": compType,
+			},
+			Annotations: map[string]string{
+				"prometheus.io/scrape": "true",
+				"prometheus.io/port":   strconv.Itoa(int(node.Spec.Port)),
+				"prometheus.io/path":   "/metrics",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -875,4 +910,18 @@ func buildPodAntiAffinity(node *v1alpha1.DDBNode) *corev1.Affinity {
 		},
 	}
 }
+
+func getLegacyComponentType(role v1alpha1.NodeRole) string {
+	switch role {
+	case v1alpha1.NodeRoleController:
+		return "Controllernode"
+	case v1alpha1.NodeRoleComputeNode:
+		return "Computenode"
+	case v1alpha1.NodeRoleSingle:
+		return "Standalone"
+	default:
+		return "Datanode"
+	}
+}
+
 
