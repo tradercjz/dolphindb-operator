@@ -217,6 +217,9 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 		"app.kubernetes.io/instance":  cluster.Name,
 		"app.kubernetes.io/component": "controller",
 	}
+	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Replicas > 1 {
+		ctlSelector["dolphindb.io/leader"] = "true"
+	}
 	ctlPorts := []corev1.ServicePort{
 		{Name: "ctl-port", Port: ctlPort, TargetPort: intstr.FromInt(int(ctlPort))},
 	}
@@ -794,9 +797,6 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 		case v1alpha1.NodeRoleController:
 			if isNodeReady {
 				ctlReady++
-				if masterName == "" {
-					masterName = n.Name
-				}
 			}
 		case v1alpha1.NodeRoleDataNode:
 			if isNodeReady {
@@ -811,6 +811,72 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 				dnReady++
 			}
 		}
+	}
+
+	// Detect Leader Controller in HA cluster and maintain dolphindb.io/leader label on pods
+	if cluster.Spec.Mode == v1alpha1.ModeCluster && cluster.Spec.Controller != nil {
+		if cluster.Spec.Controller.Replicas > 1 {
+			var leaderAlias string
+			for i := int32(0); i < cluster.Spec.Controller.Replicas; i++ {
+				ctlPodName := fmt.Sprintf("%s-ctl-%d", cluster.Name, i)
+				ctlPod := &corev1.Pod{}
+				if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err == nil {
+					if ctlPod.Status.Phase == corev1.PodRunning && ctlPod.Status.PodIP != "" {
+						ctlPort := int32(8900)
+						if cluster.Spec.Controller.Port > 0 {
+							ctlPort = cluster.Spec.Controller.Port
+						}
+						c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort), "admin", "123456")
+						alias, err := c.GetLeaderControllerAlias(ctx)
+						if err == nil && alias != "" {
+							leaderAlias = alias
+							break
+						}
+					}
+				}
+			}
+
+			for _, n := range nodeList.Items {
+				if n.Spec.Role == v1alpha1.NodeRoleController {
+					isLeader := (leaderAlias != "" && n.Spec.Alias == leaderAlias)
+					if leaderAlias == "" && n.Spec.Index == 0 {
+						isLeader = true
+					}
+					if isLeader {
+						masterName = n.Name
+					}
+					pod := &corev1.Pod{}
+					if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: n.Name}, pod); err == nil {
+						desiredLeaderLabel := "false"
+						if isLeader {
+							desiredLeaderLabel = "true"
+						}
+						if pod.Labels == nil {
+							pod.Labels = make(map[string]string)
+						}
+						if pod.Labels["dolphindb.io/leader"] != desiredLeaderLabel {
+							pod.Labels["dolphindb.io/leader"] = desiredLeaderLabel
+							_ = r.Update(ctx, pod)
+						}
+					}
+				}
+			}
+		} else {
+			ctlPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
+			masterName = ctlPodName
+			pod := &corev1.Pod{}
+			if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, pod); err == nil {
+				if pod.Labels == nil {
+					pod.Labels = make(map[string]string)
+				}
+				if pod.Labels["dolphindb.io/leader"] != "true" {
+					pod.Labels["dolphindb.io/leader"] = "true"
+					_ = r.Update(ctx, pod)
+				}
+			}
+		}
+	} else if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		masterName = fmt.Sprintf("%s-single-0", cluster.Name)
 	}
 
 	desiredCtl := int32(0)

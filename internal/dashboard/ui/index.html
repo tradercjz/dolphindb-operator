@@ -3050,21 +3050,26 @@
 
         const roleBadge = `<span class="node-role-pill ${roleClass}">${n.role.toUpperCase()}</span>`;
 
-        // Check if Master
-        const isMaster = (selectedClusterDetail.cluster && selectedClusterDetail.cluster.status && selectedClusterDetail.cluster.status.masterNode === n.name);
+        // Check if Master / Leader
+        const isMaster = n.isLeader || (selectedClusterDetail.cluster && selectedClusterDetail.cluster.status && (selectedClusterDetail.cluster.status.masterController === n.name || selectedClusterDetail.cluster.status.masterNode === n.name));
+        const isFollowerController = n.role === 'controller' && !isMaster && (selectedClusterDetail.cluster?.spec?.controller?.replicas > 1);
         const leaderBadge = isMaster 
-          ? `<span class="badge badge-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>RAFT LEADER</span>`
-          : '';
+          ? `<span class="badge badge-cyan" title="当前 Raft 集群 Leader 节点"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>RAFT LEADER</span>`
+          : (isFollowerController ? `<span class="badge badge-secondary" style="font-size: 9px; opacity: 0.8;">FOLLOWER</span>` : '');
 
         let exposeBanner = '';
         if (n.externalURL) {
+          const openBtnText = isFollowerController ? '打开 Leader Web ↗' : '打开 Web ↗';
           exposeBanner = `
             <div style="margin-top: 6px; padding: 6px 10px; background: var(--success-bg); border: 1px solid var(--success-border); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
               <div>
-                <div style="font-size: 11px; font-weight: 600; color: var(--success-text);">NodePort: ${n.nodePort}</div>
+                <div style="font-size: 11px; font-weight: 600; color: var(--success-text);">
+                  NodePort: ${n.nodePort}
+                  ${isFollowerController ? '<span style="margin-left: 6px; font-size: 10px; font-weight: normal; color: var(--text-muted);">(自动路由至 Leader)</span>' : ''}
+                </div>
                 <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">${n.externalURL}</div>
               </div>
-              <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 10px;">打开 Web ↗</a>
+              <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 10px;">${openBtnText}</a>
             </div>
           `;
         }

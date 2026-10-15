@@ -248,6 +248,24 @@ func (c *Client) GetClusterPerf(ctx context.Context) ([]NodePerf, error) {
 	return res, nil
 }
 
+// GetLeaderControllerAlias queries the DolphinDB cluster to find the alias of the current controller Raft leader
+func (c *Client) GetLeaderControllerAlias(ctx context.Context) (string, error) {
+	script := "exec name from rpc(getControllerAlias(), getClusterPerf{true}) where mode == 2 and isLeader == 1"
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return "", err
+	}
+	var tables []struct {
+		Name  string   `json:"name"`
+		Form  string   `json:"form"`
+		Value []string `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &tables); err == nil && len(tables) > 0 && len(tables[0].Value) > 0 {
+		return tables[0].Value[0], nil
+	}
+	return "", fmt.Errorf("leader controller not found in response: %s", raw)
+}
+
 // ChunkReplicaInfo represents chunk placement on nodes
 type ChunkReplicaInfo struct {
 	ChunkID  string

@@ -316,6 +316,13 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 			svcMap[fmt.Sprintf("%s/%s", svcList.Items[i].Namespace, svcList.Items[i].Name)] = &svcList.Items[i]
 		}
 
+		nodeList := &v1alpha1.DDBNodeList{}
+		_ = s.client.List(ctx, nodeList, listOpts...)
+		nodeMap := make(map[string]*v1alpha1.DDBNode)
+		for i := range nodeList.Items {
+			nodeMap[fmt.Sprintf("%s/%s", nodeList.Items[i].Namespace, nodeList.Items[i].Name)] = &nodeList.Items[i]
+		}
+
 		summaries := make([]ClusterSummary, 0, len(clusterList.Items))
 		for _, c := range clusterList.Items {
 			ctlPort := int32(8900)
@@ -367,7 +374,12 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 					hIP := "192.168.100.44"
 					if c.Spec.Networking.PublicIP != "" {
 						hIP = c.Spec.Networking.PublicIP
-					} else if r != nil && r.Host != "" {
+					} else if c.Status.MasterController != "" {
+						if leaderNode, exists := nodeMap[fmt.Sprintf("%s/%s", c.Namespace, c.Status.MasterController)]; exists && leaderNode.Status.HostIP != "" {
+							hIP = leaderNode.Status.HostIP
+						}
+					}
+					if hIP == "192.168.100.44" && r != nil && r.Host != "" {
 						h, _, err := net.SplitHostPort(r.Host)
 						if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
 							hIP = h
@@ -869,6 +881,7 @@ type NodeInfo struct {
 	DDBState    int32             `json:"ddbState"`
 	NodePort    int32             `json:"nodePort,omitempty"`
 	ExternalURL string            `json:"externalURL,omitempty"`
+	IsLeader    bool              `json:"isLeader,omitempty"`
 }
 
 func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namespace, name string) {
@@ -918,6 +931,72 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 	// Fetch DDBNodes
 	ddbNodeList := &v1alpha1.DDBNodeList{}
 	_ = s.client.List(ctx, ddbNodeList, client.InNamespace(namespace))
+
+	// Find the leader controller for HA clusters
+	var leaderNode *v1alpha1.DDBNode
+	var leaderAlias string
+	isHACluster := cluster.Spec.Mode == v1alpha1.ModeCluster && cluster.Spec.Controller != nil && cluster.Spec.Controller.Replicas > 1
+
+	if isHACluster {
+		if cluster.Status.MasterController != "" {
+			for idx := range ddbNodeList.Items {
+				if ddbNodeList.Items[idx].Name == cluster.Status.MasterController {
+					leaderNode = &ddbNodeList.Items[idx]
+					leaderAlias = leaderNode.Spec.Alias
+					break
+				}
+			}
+		}
+		// If not found yet via status, query live controller directly
+		if leaderNode == nil {
+			for idx := range ddbNodeList.Items {
+				item := &ddbNodeList.Items[idx]
+				if item.Spec.ClusterName == name && item.Spec.Role == v1alpha1.NodeRoleController && item.Status.PodIP != "" && item.Status.Phase == v1alpha1.NodePhaseRunning {
+					c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", item.Status.PodIP, item.Spec.Port), "admin", "123456")
+					if alias, err := c.GetLeaderControllerAlias(ctx); err == nil && alias != "" {
+						leaderAlias = alias
+						for j := range ddbNodeList.Items {
+							if ddbNodeList.Items[j].Spec.Alias == alias {
+								leaderNode = &ddbNodeList.Items[j]
+								break
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	var leaderAccessURL string
+	if leaderNode != nil {
+		hIP := leaderNode.Status.HostIP
+		if hIP == "" && cluster.Spec.Networking.PublicIP != "" {
+			hIP = cluster.Spec.Networking.PublicIP
+		}
+		if hIP == "" && r != nil && r.Host != "" {
+			h, _, err := net.SplitHostPort(r.Host)
+			if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
+				hIP = h
+			}
+		}
+		if hIP == "" {
+			hIP = "192.168.100.44"
+		}
+		var leaderPort int32
+		if clusterSvc, exists := svcMap[cluster.Name]; exists && clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
+			for _, p := range clusterSvc.Spec.Ports {
+				if p.NodePort > 0 {
+					leaderPort = p.NodePort
+					break
+				}
+			}
+		}
+		if leaderPort > 0 {
+			leaderAccessURL = fmt.Sprintf("http://%s:%d", hIP, leaderPort)
+			clusterAccessURL = leaderAccessURL
+		}
+	}
 
 	nodes := make([]NodeInfo, 0, len(ddbNodeList.Items))
 	for _, n := range ddbNodeList.Items {
@@ -988,6 +1067,18 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			extURL = fmt.Sprintf("http://%s:%d", hIP, nodePort)
 		}
 
+		isLeader := false
+		if isHACluster {
+			if (leaderNode != nil && n.Name == leaderNode.Name) || (leaderAlias != "" && n.Spec.Alias == leaderAlias) {
+				isLeader = true
+			}
+			// As user requested: "高可用集群的控制节点的web，都修改为leader而不是本机的吧"
+			// For all controller nodes in HA cluster, point their web externalURL to the Leader!
+			if n.Spec.Role == v1alpha1.NodeRoleController && leaderAccessURL != "" {
+				extURL = leaderAccessURL
+			}
+		}
+
 		nodes = append(nodes, NodeInfo{
 			Name:        n.Name,
 			Role:        n.Spec.Role,
@@ -1000,6 +1091,7 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			DDBState:    n.Status.DDBState,
 			NodePort:    nodePort,
 			ExternalURL: extURL,
+			IsLeader:    isLeader,
 		})
 	}
 

@@ -737,18 +737,27 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 
 	graceSeconds := int64(30)
 	compType := getLegacyComponentType(node.Spec.Role)
+	podLabels := map[string]string{
+		"app.kubernetes.io/name":      "dolphindb",
+		"app.kubernetes.io/instance":  node.Spec.ClusterName,
+		"app.kubernetes.io/component": string(node.Spec.Role),
+		"dolphindb.io/node-alias":     node.Spec.Alias,
+		"dolphindb.io/dolphindb.name": node.Spec.ClusterName,
+		"dolphindb.io/component.type": compType,
+	}
+	if node.Spec.Role == v1alpha1.NodeRoleController {
+		if node.Spec.Index == 0 {
+			podLabels["dolphindb.io/leader"] = "true"
+		} else {
+			podLabels["dolphindb.io/leader"] = "false"
+		}
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
 			Namespace: node.Namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":      "dolphindb",
-				"app.kubernetes.io/instance":  node.Spec.ClusterName,
-				"app.kubernetes.io/component": string(node.Spec.Role),
-				"dolphindb.io/node-alias":     node.Spec.Alias,
-				"dolphindb.io/dolphindb.name": node.Spec.ClusterName,
-				"dolphindb.io/component.type": compType,
-			},
+			Labels:    podLabels,
 			Annotations: map[string]string{
 				"prometheus.io/scrape": "true",
 				"prometheus.io/port":   strconv.Itoa(int(node.Spec.Port)),
