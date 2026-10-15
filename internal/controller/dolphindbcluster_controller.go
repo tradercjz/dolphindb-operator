@@ -1002,13 +1002,16 @@ func (r *DolphinDBClusterReconciler) reconcileWebUIConfigSync(ctx context.Contex
 
 	cli := r.getDDBClient(cluster)
 	if cli == nil {
+		log.FromContext(ctx).Info("reconcileWebUIConfigSync: ddbclient is nil", "cluster", cluster.Name)
 		return false, nil
 	}
 
 	liveConfigs, err := cli.GetClusterNodesConfigs(ctx)
 	if err != nil {
+		log.FromContext(ctx).Error(err, "reconcileWebUIConfigSync: GetClusterNodesConfigs failed", "cluster", cluster.Name)
 		return false, nil
 	}
+	log.FromContext(ctx).Info("reconcileWebUIConfigSync: live configs fetched", "count", len(liveConfigs))
 
 	if cluster.Spec.DataNode == nil {
 		return false, nil
