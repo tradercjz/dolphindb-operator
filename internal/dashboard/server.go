@@ -248,18 +248,19 @@ type NodeGroupConfig struct {
 }
 
 type CreateClusterRequest struct {
-	YAML         string            `json:"yaml,omitempty"`
-	Name         string            `json:"name"`
-	Namespace    string            `json:"namespace"`
-	Mode         string            `json:"mode"`
-	Version      string            `json:"version"`
-	Image        string            `json:"image"`
-	StorageClass string            `json:"storageClass"`
-	Controller   *NodeGroupConfig  `json:"controller,omitempty"`
-	DataNode     *NodeGroupConfig  `json:"dataNode,omitempty"`
-	ComputeNode  *NodeGroupConfig  `json:"computeNode,omitempty"`
-	Standalone   *NodeGroupConfig  `json:"standalone,omitempty"`
-	Config       map[string]string `json:"config,omitempty"`
+	YAML         string                `json:"yaml,omitempty"`
+	Name         string                `json:"name"`
+	Namespace    string                `json:"namespace"`
+	Mode         string                `json:"mode"`
+	Version      string                `json:"version"`
+	Image        string                `json:"image"`
+	StorageClass string                `json:"storageClass"`
+	Controller   *NodeGroupConfig      `json:"controller,omitempty"`
+	DataNode     *NodeGroupConfig      `json:"dataNode,omitempty"`
+	ComputeNode  *NodeGroupConfig      `json:"computeNode,omitempty"`
+	Standalone   *NodeGroupConfig      `json:"standalone,omitempty"`
+	Logging      *v1alpha1.LoggingSpec `json:"logging,omitempty"`
+	Config       map[string]string     `json:"config,omitempty"`
 }
 
 func parseResources(cpuReq, cpuLim, memReq, memLim string) corev1.ResourceRequirements {
@@ -473,6 +474,30 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			}
+
+			defaultStdout := int32(2)
+			defaultMaxLogSize := int32(200)
+			defaultLogLevel := "INFO"
+			logging := &v1alpha1.LoggingSpec{
+				StdoutLog:  &defaultStdout,
+				MaxLogSize: defaultMaxLogSize,
+				LogLevel:   defaultLogLevel,
+			}
+			if req.Logging != nil {
+				if req.Logging.StdoutLog != nil {
+					logging.StdoutLog = req.Logging.StdoutLog
+				}
+				if req.Logging.LogFile != "" {
+					logging.LogFile = req.Logging.LogFile
+				}
+				if req.Logging.MaxLogSize > 0 {
+					logging.MaxLogSize = req.Logging.MaxLogSize
+				}
+				if req.Logging.LogLevel != "" {
+					logging.LogLevel = req.Logging.LogLevel
+				}
+			}
+			cluster.Spec.Logging = logging
 
 			scGlobal := req.StorageClass
 

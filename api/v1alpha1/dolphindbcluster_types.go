@@ -110,6 +110,29 @@ type SecuritySpec struct {
 	EnableShellFunction bool `json:"enableShellFunction,omitempty"`
 }
 
+// LoggingSpec defines runtime logging configuration
+type LoggingSpec struct {
+	// StdoutLog controls stdout vs file logging:
+	// 0: output to log file only (no stdout)
+	// 1: output to stdout only (no file)
+	// 2: output to both log file and stdout (dual write, default)
+	// +kubebuilder:default=2
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=2
+	StdoutLog *int32 `json:"stdoutLog,omitempty"`
+
+	// LogFile custom path for log file (defaults to /data/ddb/server/log/<alias>.log)
+	LogFile string `json:"logFile,omitempty"`
+
+	// MaxLogSize single log file size limit in MB before rotation (defaults to 200MB)
+	// +kubebuilder:default=200
+	MaxLogSize int32 `json:"maxLogSize,omitempty"`
+
+	// LogLevel logging severity: DEBUG, INFO, WARN, ERROR (defaults to INFO)
+	// +kubebuilder:default="INFO"
+	LogLevel string `json:"logLevel,omitempty"`
+}
+
 // ExposureMode defines how DolphinDB is exposed externally
 // +kubebuilder:validation:Enum=Gateway;NodePortDirect;ClusterIP
 type ExposureMode string
@@ -385,6 +408,9 @@ type DolphinDBClusterSpec struct {
 
 	// PreloadModules modules and plugins to preload at startup
 	PreloadModules []string `json:"preloadModules,omitempty"`
+
+	// Logging runtime logging configuration (defaults to dual write: stdoutLog=2)
+	Logging *LoggingSpec `json:"logging,omitempty"`
 
 	// Scheduling global node selection and tolerations
 	Scheduling SchedulingSpec `json:"scheduling,omitempty"`

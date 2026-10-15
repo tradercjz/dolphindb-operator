@@ -382,6 +382,30 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
+func loggingEqual(a, b *v1alpha1.LoggingSpec) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	aStdout := int32(2)
+	if a.StdoutLog != nil {
+		aStdout = *a.StdoutLog
+	}
+	bStdout := int32(2)
+	if b.StdoutLog != nil {
+		bStdout = *b.StdoutLog
+	}
+	if aStdout != bStdout {
+		return false
+	}
+	if a.LogFile != b.LogFile || a.MaxLogSize != b.MaxLogSize || a.LogLevel != b.LogLevel {
+		return false
+	}
+	return true
+}
+
 func (r *DolphinDBClusterReconciler) ensureConfigMap(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
 	cmName := fmt.Sprintf("%s-config", cluster.Name)
 	renderer := config.NewConfigRenderer(cluster)
@@ -613,6 +637,28 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		Sites:          expectedSites,
 	}
 
+	stdoutLogDefault := int32(2)
+	maxLogSizeDefault := int32(200)
+	logLevelDefault := "INFO"
+	if cluster.Spec.Logging != nil {
+		nodeSpec.Logging = cluster.Spec.Logging.DeepCopy()
+		if nodeSpec.Logging.StdoutLog == nil {
+			nodeSpec.Logging.StdoutLog = &stdoutLogDefault
+		}
+		if nodeSpec.Logging.MaxLogSize <= 0 {
+			nodeSpec.Logging.MaxLogSize = maxLogSizeDefault
+		}
+		if nodeSpec.Logging.LogLevel == "" {
+			nodeSpec.Logging.LogLevel = logLevelDefault
+		}
+	} else {
+		nodeSpec.Logging = &v1alpha1.LoggingSpec{
+			StdoutLog:  &stdoutLogDefault,
+			MaxLogSize: maxLogSizeDefault,
+			LogLevel:   logLevelDefault,
+		}
+	}
+
 	if cluster.Spec.License.SecretName != "" {
 		nodeSpec.LicenseSecretName = cluster.Spec.License.SecretName
 	}
@@ -771,6 +817,10 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		}
 		if existing.Spec.LicenseSecretName == "" && nodeSpec.LicenseSecretName != "" {
 			existing.Spec.LicenseSecretName = nodeSpec.LicenseSecretName
+			needsUpdate = true
+		}
+		if !loggingEqual(existing.Spec.Logging, nodeSpec.Logging) {
+			existing.Spec.Logging = nodeSpec.Logging.DeepCopy()
 			needsUpdate = true
 		}
 		if needsUpdate {

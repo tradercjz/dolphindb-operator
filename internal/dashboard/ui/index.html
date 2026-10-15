@@ -1994,6 +1994,32 @@
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label>日志输出模式 (stdoutLog - 进程日志流)</label>
+              <select id="wiz-stdout-log" class="form-control" onchange="updateWizardYAML()">
+                <option value="2" selected>双写模式 stdoutLog=2 (stdout + 本地存储文件，推荐)</option>
+                <option value="1">仅标准输出 stdoutLog=1 (仅输出至 stdout，无本地文件)</option>
+                <option value="0">仅本地存储 stdoutLog=0 (仅落盘至 /data/ddb/server/log，无 stdout)</option>
+              </select>
+            </div>
+            <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div>
+                <label>单日志上限 (MaxLogSize MB)</label>
+                <input type="number" id="wiz-max-log-size" class="form-control" value="200" min="10" max="2048" oninput="updateWizardYAML()">
+              </div>
+              <div>
+                <label>日志级别 (LogLevel)</label>
+                <select id="wiz-log-level" class="form-control" onchange="updateWizardYAML()">
+                  <option value="INFO" selected>INFO (标准信息)</option>
+                  <option value="DEBUG">DEBUG (详细调试)</option>
+                  <option value="WARN">WARN (警告)</option>
+                  <option value="ERROR">ERROR (错误)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <!-- Step 3: Specs Configuration -->
           <div style="margin-bottom: 8px; font-weight: 700; font-size: 13px; color: var(--text-main); margin-top: 20px;">
             3. 节点规格与拓扑资源配额
@@ -4464,6 +4490,15 @@ spec:
         memory: "${cnMem[1] ? cnMem[1].trim() : '4Gi'}"\n`;
         }
       }
+
+      const stdoutLog = parseInt(document.getElementById('wiz-stdout-log')?.value ?? '2', 10);
+      const maxLogSize = parseInt(document.getElementById('wiz-max-log-size')?.value ?? '200', 10);
+      const logLevel = document.getElementById('wiz-log-level')?.value ?? 'INFO';
+
+      yamlText += `  logging:
+    stdoutLog: ${stdoutLog}
+    maxLogSize: ${maxLogSize}
+    logLevel: "${logLevel}"\n`;
 
       yamlText += `  license:
     mode: "machineFingerprint"

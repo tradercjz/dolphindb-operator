@@ -571,6 +571,36 @@ spec:
                       (host:port) when mode is server
                     type: string
                 type: object
+              logging:
+                description: 'Logging runtime logging configuration (defaults to dual
+                  write: stdoutLog=2)'
+                properties:
+                  logFile:
+                    description: LogFile custom path for log file (defaults to /data/ddb/server/log/<alias>.log)
+                    type: string
+                  logLevel:
+                    default: INFO
+                    description: 'LogLevel logging severity: DEBUG, INFO, WARN, ERROR
+                      (defaults to INFO)'
+                    type: string
+                  maxLogSize:
+                    default: 200
+                    description: MaxLogSize single log file size limit in MB before
+                      rotation (defaults to 200MB)
+                    format: int32
+                    type: integer
+                  stdoutLog:
+                    default: 2
+                    description: |-
+                      StdoutLog controls stdout vs file logging:
+                      0: output to log file only (no stdout)
+                      1: output to stdout only (no file)
+                      2: output to both log file and stdout (dual write, default)
+                    format: int32
+                    maximum: 2
+                    minimum: 0
+                    type: integer
+                type: object
               mode:
                 default: cluster
                 description: 'Mode deployment mode: standalone or cluster'

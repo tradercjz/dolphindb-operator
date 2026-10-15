@@ -170,6 +170,25 @@ DolphinDB 商业 License 的授权机制校验三项要素：
 - 将宿主机真实名同步至 Pod `hostname`；
 - 透传 `/etc` 系统库，确保底层系统调用获取到的物理特征与商业授权文件完全吻合。
 
+### 2.4 零 Sidecar 进程日志流与存储双写机制 (Native Dual Logging)
+
+旧版 K8s 架构中，每个 Pod 都强行注入了 2 个专用于日志的辅助容器：
+- `promtail` 容器：负责 tail 抓取本地日志文件并推送至 Loki；
+- `cleaner` 容器：负责定时轮询并删除历史过期日志；
+
+这不仅导致每台物理机常态化空耗数百兆内存，更增加了容器生命周期的脆弱性。
+
+新版架构充分利用 DolphinDB 内核原生的 **`-stdoutLog 2` 双写机制** 与自动化存储编排：
+1. **双写并轨，实时与归档兼备**：
+   - **K8s 容器标准输出 (stdout)**：DolphinDB 将实时日志输出至 stdout，无需注入 Promtail Sidecar 即可被集群级 DaemonSet 采集器（Fluentbit / Vector / Prometheus）抓取，`kubectl logs <pod>` 开箱即用；
+   - **本地存储文件持久化 (Disk File)**：同时，DolphinDB 字节级完全一致地将日志写入 `/data/ddb/server/log/<alias>.log`。Operator 自动将其挂载到底层数据盘 PVC（通过 `subPath: "log"`）或继承的历史 `log-` PVC 中，Pod 销毁重建后历史日志永不丢失；
+2. **内核原生轮转，彻底淘汰 Cleaner 容器**：
+   - 通过启动参数 `-maxLogSize 200`（默认 200MB），DolphinDB 引擎自动对超额日志执行归档切割（如 `<alias>.log.1`），彻底消除了因依赖外部 Cleaner 脚本而引发的误删或磁盘暴满风险；
+3. **三种日志模式声明式可配 (`logging.stdoutLog`)**：
+   - `stdoutLog: 2`（默认推荐）：标准输出 + 磁盘文件双写，兼顾容器日志中心与现场离线快速排障；
+   - `stdoutLog: 1`：仅标准输出，容器内不落盘（适合纯算力无状态 ComputeNode）；
+   - `stdoutLog: 0`：仅落盘存储文件，标准输出静默（适合完全依托本地共享盘审计场景）。
+
 ---
 
 ## 三、 迁移实施前准备与环境体检 (Pre-Flight Checks)
@@ -432,7 +451,13 @@ spec:
       useHostName: true
       licensePath: "/home/jzchen/dolphindb.lic"
 
-  # 4. 接入与路由配置
+  # 4. 运行日志与采集输出配置 (零 Sidecar 原生双写模式)
+  logging:
+    stdoutLog: 2     # 0: 仅落盘文件; 1: 仅 stdout; 2: 双写模式 (标准输出 + 磁盘文件持久化，默认推荐)
+    maxLogSize: 200   # 单日志文件上限 (MB)，DolphinDB 内核自动滚动归档
+    logLevel: "INFO"  # 日志级别: DEBUG, INFO, WARN, ERROR
+
+  # 5. 接入与路由配置
   networking:
     exposureMode: "NodePortDirect"
     serviceType: "NodePort"

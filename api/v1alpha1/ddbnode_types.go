@@ -87,6 +87,9 @@ type DDBNodeSpec struct {
 	// LicenseSecretName name of secret containing dolphindb.lic
 	LicenseSecretName string `json:"licenseSecretName,omitempty"`
 
+	// Logging runtime logging configuration
+	Logging *LoggingSpec `json:"logging,omitempty"`
+
 	// Paused when true, container process is kept stopped without deleting PVCs
 	// +kubebuilder:default=false
 	Paused bool `json:"paused,omitempty"`

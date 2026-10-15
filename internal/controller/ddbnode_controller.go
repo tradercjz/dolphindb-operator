@@ -152,10 +152,16 @@ func (r *DDBNodeReconciler) createPVCIfNotExist(ctx context.Context, node *v1alp
 		qty = resource.MustParse("20Gi")
 	}
 
+	pvcAnnotations := make(map[string]string)
+	if node.Spec.NodeName != "" {
+		pvcAnnotations["volume.kubernetes.io/selected-node"] = node.Spec.NodeName
+	}
+
 	newPVC := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: node.Namespace,
+			Name:        name,
+			Namespace:   node.Namespace,
+			Annotations: pvcAnnotations,
 			Labels: map[string]string{
 				"app.kubernetes.io/name":      "dolphindb",
 				"app.kubernetes.io/instance":  node.Spec.ClusterName,
@@ -309,6 +315,25 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 		}
 		if pod.Labels != nil && node.Spec.Alias != "" && pod.Labels["dolphindb.io/node-alias"] != node.Spec.Alias {
 			needsRecreate = true
+		}
+		desiredArgs := r.buildContainerArgs(node)
+		if len(pod.Spec.Containers) > 0 {
+			if pod.Spec.Containers[0].Image != node.Spec.Image {
+				needsRecreate = true
+			}
+			if !slicesEqual(pod.Spec.Containers[0].Args, desiredArgs) {
+				needsRecreate = true
+			}
+			hasLogMountInPod := false
+			for _, vm := range pod.Spec.Containers[0].VolumeMounts {
+				if vm.MountPath == "/data/ddb/server/log" {
+					hasLogMountInPod = true
+					break
+				}
+			}
+			if len(pvcs) > 0 && !hasLogMountInPod {
+				needsRecreate = true
+			}
 		}
 		if len(pvcs) > 0 {
 			for _, expPVC := range pvcs {
@@ -512,6 +537,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 	}
 
 	// Mount PVCs
+	hasLogMount := false
 	for i, pvc := range pvcs {
 		volName := fmt.Sprintf("vol-%d", i)
 		volumes = append(volumes, corev1.Volume{
@@ -522,7 +548,13 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 				},
 			},
 		})
-		if strings.HasPrefix(pvc.Name, "meta-") {
+		if strings.HasPrefix(pvc.Name, "log-") || strings.Contains(pvc.Name, "-log-") {
+			ddbMounts = append(ddbMounts, corev1.VolumeMount{
+				Name:      volName,
+				MountPath: "/data/ddb/server/log",
+			})
+			hasLogMount = true
+		} else if strings.HasPrefix(pvc.Name, "meta-") {
 			if node.Spec.Role == v1alpha1.NodeRoleSingle {
 				ddbMounts = append(ddbMounts, corev1.VolumeMount{
 					Name:      volName,
@@ -579,6 +611,29 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			ddbMounts = append(ddbMounts, corev1.VolumeMount{
 				Name:      volName,
 				MountPath: mountPath,
+			})
+		}
+	}
+
+	// Ensure /data/ddb/server/log is mounted to persistent storage or emptyDir
+	if !hasLogMount {
+		if len(pvcs) > 0 {
+			ddbMounts = append(ddbMounts, corev1.VolumeMount{
+				Name:      "vol-0",
+				MountPath: "/data/ddb/server/log",
+				SubPath:   "log",
+			})
+		} else {
+			logVolName := "ddb-log"
+			volumes = append(volumes, corev1.Volume{
+				Name: logVolName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			})
+			ddbMounts = append(ddbMounts, corev1.VolumeMount{
+				Name:      logVolName,
+				MountPath: "/data/ddb/server/log",
 			})
 		}
 	}
@@ -685,43 +740,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 	}
 
 	// Build DolphinDB start command line
-	homeDir := "/data/ddb/server/data"
-	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
-		homeDir = fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s", node.Spec.Alias)
-	}
-	args := []string{
-		"-home", homeDir,
-		"-console", "0",
-		"-stdoutLog", "1",
-		"-mode", string(node.Spec.Role),
-		"-lanCluster", "0",
-	}
-	if (node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough) || node.Spec.LicenseSecretName != "" {
-		args = append(args, "-license", "/data/ddb/server/dolphindb.lic")
-	}
-	domain := fmt.Sprintf("%s.%s.svc.cluster.local", node.Name, node.Namespace)
-	args = append(args, "-localSite", fmt.Sprintf("%s:%d:%s", domain, node.Spec.Port, node.Spec.Alias))
-
-	if node.Spec.Role != v1alpha1.NodeRoleSingle {
-		if node.Spec.Role != v1alpha1.NodeRoleController {
-			ctlSite := node.Spec.ControllerSite
-			if ctlSite == "" {
-				ctlDomain := fmt.Sprintf("%s-ctl-0.%s.svc.cluster.local", node.Spec.ClusterName, node.Namespace)
-				ctlSite = fmt.Sprintf("%s:8900:%s-ctl-0", ctlDomain, node.Spec.ClusterName)
-			}
-			args = append(args, "-controllerSite", ctlSite)
-			if node.Spec.Sites != "" {
-				args = append(args, "-sites", node.Spec.Sites)
-			}
-		}
-		args = append(args, "-config", fmt.Sprintf("/data/ddb/server/config/%s.cfg", node.Spec.Role))
-		args = append(args, "-clusterConfig", "/data/ddb/server/config/cluster.cfg")
-		if node.Spec.Role == v1alpha1.NodeRoleController {
-			args = append(args, "-nodesFile", "/data/ddb/server/config/cluster.nodes")
-		}
-	} else {
-		args = append(args, "-config", "/data/ddb/server/config/dolphindb.cfg")
-	}
+	args := r.buildContainerArgs(node)
 
 	probeFunc := "isDataNodeInitialized()"
 	if node.Spec.Role != v1alpha1.NodeRoleDataNode {
@@ -1003,6 +1022,89 @@ func getLegacyComponentType(role v1alpha1.NodeRole) string {
 	default:
 		return "Datanode"
 	}
+}
+
+func (r *DDBNodeReconciler) buildContainerArgs(node *v1alpha1.DDBNode) []string {
+	homeDir := "/data/ddb/server/data"
+	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+		homeDir = fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s", node.Spec.Alias)
+	}
+
+	stdoutLog := int32(2)
+	maxLogSize := int32(200)
+	logFile := fmt.Sprintf("/data/ddb/server/log/%s.log", node.Spec.Alias)
+	logLevel := "INFO"
+
+	if node.Spec.Logging != nil {
+		if node.Spec.Logging.StdoutLog != nil {
+			stdoutLog = *node.Spec.Logging.StdoutLog
+		}
+		if node.Spec.Logging.LogFile != "" {
+			logFile = node.Spec.Logging.LogFile
+		}
+		if node.Spec.Logging.MaxLogSize > 0 {
+			maxLogSize = node.Spec.Logging.MaxLogSize
+		}
+		if node.Spec.Logging.LogLevel != "" {
+			logLevel = node.Spec.Logging.LogLevel
+		}
+	}
+
+	args := []string{
+		"-home", homeDir,
+		"-console", "0",
+		"-stdoutLog", strconv.Itoa(int(stdoutLog)),
+		"-mode", string(node.Spec.Role),
+		"-lanCluster", "0",
+	}
+
+	if stdoutLog != 1 {
+		args = append(args, "-logFile", logFile, "-maxLogSize", strconv.Itoa(int(maxLogSize)))
+	}
+	if logLevel != "" {
+		args = append(args, "-logLevel", logLevel)
+	}
+
+	if (node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough) || node.Spec.LicenseSecretName != "" {
+		args = append(args, "-license", "/data/ddb/server/dolphindb.lic")
+	}
+	domain := fmt.Sprintf("%s.%s.svc.cluster.local", node.Name, node.Namespace)
+	args = append(args, "-localSite", fmt.Sprintf("%s:%d:%s", domain, node.Spec.Port, node.Spec.Alias))
+
+	if node.Spec.Role != v1alpha1.NodeRoleSingle {
+		if node.Spec.Role != v1alpha1.NodeRoleController {
+			ctlSite := node.Spec.ControllerSite
+			if ctlSite == "" {
+				ctlDomain := fmt.Sprintf("%s-ctl-0.%s.svc.cluster.local", node.Spec.ClusterName, node.Namespace)
+				ctlSite = fmt.Sprintf("%s:8900:%s-ctl-0", ctlDomain, node.Spec.ClusterName)
+			}
+			args = append(args, "-controllerSite", ctlSite)
+			if node.Spec.Sites != "" {
+				args = append(args, "-sites", node.Spec.Sites)
+			}
+		}
+		args = append(args, "-config", fmt.Sprintf("/data/ddb/server/config/%s.cfg", node.Spec.Role))
+		args = append(args, "-clusterConfig", "/data/ddb/server/config/cluster.cfg")
+		if node.Spec.Role == v1alpha1.NodeRoleController {
+			args = append(args, "-nodesFile", "/data/ddb/server/config/cluster.nodes")
+		}
+	} else {
+		args = append(args, "-config", "/data/ddb/server/config/dolphindb.cfg")
+	}
+
+	return args
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 
