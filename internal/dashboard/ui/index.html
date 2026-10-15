@@ -3449,16 +3449,33 @@
           : (isFollowerController ? `<span class="badge badge-secondary" style="font-size: 9px; opacity: 0.8;">FOLLOWER</span>` : '');
 
         let exposeBanner = '';
-        if (n.externalURL) {
+        const expMode = (n.exposureMode || '').toLowerCase();
+        const isLB = expMode === 'loadbalancer';
+        if (n.exposurePending) {
+          // The cloud control plane is still provisioning the load balancer.
+          // Showing a link here would be a dead end, so show progress instead.
+          exposeBanner = `
+            <div style="margin-top: 6px; padding: 6px 10px; background: var(--warning-bg, #fff8e1); border: 1px solid var(--warning-border, #ffe082); border-radius: var(--radius-sm);">
+              <div style="font-size: 11px; font-weight: 600; color: var(--warning-text, #8d6e00);">
+                正在创建云负载均衡 (${n.exposureMode})…
+              </div>
+              <div style="font-size: 10px; color: var(--text-muted);">${n.exposureMessage || '等待云端分配入口地址'}</div>
+            </div>
+          `;
+        } else if (n.externalURL) {
           const openBtnText = isFollowerController ? '打开 Leader Web ↗' : '打开 Web ↗';
+          const modeLabel = isLB
+            ? `LoadBalancer${n.exposureScheme === 'internal' ? ' · 内部' : ' · 公网'}`
+            : `NodePort: ${n.nodePort}`;
           exposeBanner = `
             <div style="margin-top: 6px; padding: 6px 10px; background: var(--success-bg); border: 1px solid var(--success-border); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
               <div>
                 <div style="font-size: 11px; font-weight: 600; color: var(--success-text);">
-                  NodePort: ${n.nodePort}
+                  ${modeLabel}
                   ${isFollowerController ? '<span style="margin-left: 6px; font-size: 10px; font-weight: normal; color: var(--text-muted);">(自动路由至 Leader)</span>' : ''}
                 </div>
                 <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">${n.externalURL}</div>
+                ${n.exposureMessage ? `<div style="font-size: 10px; color: var(--danger-text); margin-top: 2px;">⚠ ${n.exposureMessage}</div>` : ''}
               </div>
               <a href="${n.externalURL}" target="_blank" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 10px;">${openBtnText}</a>
             </div>
@@ -3521,12 +3538,12 @@
               <button class="btn btn-secondary btn-sm" onclick="executeNodeAction('${selectedCluster.namespace}', '${n.name}', 'start')" title="拉起节点">
                 启动
               </button>
-              ${n.externalURL ? `
-                <button class="btn btn-secondary btn-sm" style="color: var(--danger-text);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)" title="关闭 NodePort 映射">
+              ${(n.externalURL || n.exposurePending) ? `
+                <button class="btn btn-secondary btn-sm" style="color: var(--danger-text);" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', false)" title="关闭外网入口（云负载均衡会自动释放）">
                   关闭外网
                 </button>
               ` : `
-                <button class="btn btn-secondary btn-sm" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', true)" title="为单个节点暴露独立端口">
+                <button class="btn btn-secondary btn-sm" onclick="toggleNodeExpose('${selectedCluster.namespace}', '${n.name}', true)" title="对外暴露：云端自动创建 LoadBalancer（无 IRSA 也可用），自建集群回退 NodePort">
                   + 暴露端口
                 </button>
               `}
@@ -3563,29 +3580,71 @@
         const url = `/api/nodes/${namespace}/${nodeName}/expose`;
         const method = enable ? 'POST' : 'DELETE';
         const res = await fetch(url, { method });
-        if (res.ok) {
-          showToast(`已${verb}节点 ${nodeName} 的 NodePort 映射`, 'success');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(`${verb}外部访问失败: ` + (data.error || res.statusText), 'error');
+          return;
+        }
+        if (enable && data.pending) {
+          // Cloud load balancers are provisioned asynchronously: report progress
+          // and poll until the address shows up instead of handing out a dead link.
+          showToast(`${data.providerName || '云端'} 正在创建 ${data.mode} 入口，等待分配地址…`, 'success');
           await fetchClusterDetail(namespace, selectedCluster.name);
           fetchDashboardData();
-        } else {
-          const err = await res.json();
-          showToast(`${verb}外部访问失败: ` + (err.error || res.statusText), 'error');
+          scheduleExposurePoll(namespace, nodeName);
+          return;
         }
+        if (enable && data.externalURL) {
+          showToast(`已${verb}外部访问：${data.mode} → ${data.externalURL}`, 'success');
+        } else {
+          showToast(`已${verb}节点 ${nodeName} 的外部访问`, 'success');
+        }
+        if (data.message) showToast(data.message, 'info');
+        await fetchClusterDetail(namespace, selectedCluster.name);
+        fetchDashboardData();
       } catch (e) {
         showToast('请求失败: ' + e, 'error');
       }
     }
 
+    // Poll the exposure endpoint a few times so a freshly provisioned cloud load
+    // balancer appears in the UI without a manual refresh.
+    async function scheduleExposurePoll(namespace, nodeName, attempt = 0) {
+      if (attempt >= 10) return;
+      setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/nodes/${namespace}/${nodeName}/expose`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.pending) {
+            scheduleExposurePoll(namespace, nodeName, attempt + 1);
+            return;
+          }
+          if (data.externalURL) {
+            showToast(`外部访问已就绪：${data.mode} → ${data.externalURL}`, 'success');
+          }
+          await fetchClusterDetail(namespace, selectedCluster.name);
+          fetchDashboardData();
+        } catch (e) {
+          scheduleExposurePoll(namespace, nodeName, attempt + 1);
+        }
+      }, 5000);
+    }
+
     async function toggleClusterExposure(namespace, clusterName) {
       try {
         const res = await fetch(`/api/clusters/${namespace}/${clusterName}/expose`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          showToast(`已切换集群 ${clusterName} 的网络暴露模式`, 'success');
+          const st = data.serviceType || (data.cluster && data.cluster.spec && data.cluster.spec.networking && data.cluster.spec.networking.serviceType) || '';
+          const detail = st === 'LoadBalancer'
+            ? `已切换为 LoadBalancer（${data.providerName || '云端'} 将自动创建入口，分配地址需要几十秒）`
+            : `已切换为 ${st || 'ClusterIP'}`;
+          showToast(detail, 'success');
           await fetchClusterDetail(namespace, clusterName);
           fetchDashboardData();
         } else {
-          const err = await res.json();
-          showToast('切换网络模式失败: ' + (err.error || res.statusText), 'error');
+          showToast('切换网络模式失败: ' + (data.error || res.statusText), 'error');
         }
       } catch (e) {
         showToast('请求失败: ' + e, 'error');
