@@ -40,6 +40,15 @@
     finishes provisioning instead of handing out a dead link.
   * See [docs/cloud-exposure.md](docs/cloud-exposure.md) and the
     [v0.3.0 release notes](docs/release-notes-0.3.0.md).
+* **HTTPS Without a Domain**:
+  * One flag (`spec.security.tls.enabled`) turns the exposed endpoint into HTTPS by
+    letting DolphinDB terminate TLS itself.
+  * The operator issues and rotates a self-signed certificate and derives the
+    domain DolphinDB requires — no ACM certificate, no registered domain, no load
+    balancer controller, no IRSA.
+  * Bring your own certificate by pointing `spec.security.tls.secretName` at any
+    `kubernetes.io/tls` Secret.
+  * See [docs/tls.md](docs/tls.md).
 * **Enterprise Observability**:
   * Prometheus metrics exported on port `8989` (`dolphindb_cluster_nodes`, `dolphindb_backup_total_chunks`, etc.).
   * Native `ServiceMonitor` integration for Prometheus Operator.
@@ -259,10 +268,27 @@ spec:
     hostname: "ddb-standalone"   # optional; defaults to the sanitised node name
 ```
 
+**5. Want HTTPS?** One flag, no domain required:
+
+```yaml
+spec:
+  security:
+    tls:
+      enabled: true
+```
+
+The operator issues a self-signed certificate and enables DolphinDB native HTTPS,
+so the endpoint becomes `https://…`. See [docs/tls.md](docs/tls.md) for importing
+the certificate to remove the browser warning, bringing your own certificate, and
+using ACM + load balancer TLS instead once you own a domain.
+
 ### Other managed-Kubernetes fixes in this release
 
 See [docs/release-notes-0.3.0.md](docs/release-notes-0.3.0.md) for the full list
-with evidence. Highlights:
+with evidence, and [docs/cloud-exposure.md](docs/cloud-exposure.md) for how
+endpoints are published.
+
+Highlights:
 
 * **Licence defaults** — `license.mode` defaults to `secret`; host-bound
   licensing is opt-in and no longer mounts a path from the author's machine.

@@ -127,7 +127,73 @@ live DolphinDB query.
 
 ---
 
-## 2. Managed-Kubernetes compatibility fixes
+## 2. HTTPS for the exposed endpoint (new)
+
+An exposed endpoint spoke plain HTTP, so credentials and query results crossed the
+public internet in the clear.
+
+Every AWS-native route to a trusted certificate turned out to be blocked on this
+account, and each blocker was verified rather than assumed:
+
+| Route | Outcome |
+| :--- | :--- |
+| ACM certificate + LB TLS | Needs a domain you control; Route 53 **domain registration is refused on Free Tier** |
+| `iam:UploadServerCertificate` (self-signed on an AWS LB) | **Denied by the account SCP** |
+| CloudFront default certificate | No domain needed, but **no WebSocket support** - the DolphinDB console needs `wss://` |
+| ALB via the AWS Load Balancer Controller | Needs **IRSA**, which the SCP blocks |
+
+So the operator makes DolphinDB terminate TLS itself, which needs none of that.
+
+**New API**
+
+```yaml
+spec:
+  security:
+    tls:
+      enabled: true                # operator issues a self-signed certificate
+      # secretName: my-tls         # or bring a kubernetes.io/tls Secret
+      # publicName: ddb.example.com # defaults to the exposed hostname
+```
+
+**What the operator does**
+
+* issues a self-signed, importable certificate (825 days) into
+  `<cluster>-tls-selfsigned`;
+* derives `publicName` — DolphinDB requires a *domain*, never an IP, when
+  `enableHTTPS` is on — from the spec, then the exposed LB hostname, then the
+  in-cluster service DNS name;
+* installs `server.crt`/`serverPrivate.key` into `<home>/keys` and
+  `<home>/<alias>/keys` at container start (DolphinDB reads one of them depending
+  on the mode) instead of mounting a Secret over a directory that also holds its
+  writable ACL keys and where it regenerates `server.crt` whenever the key is
+  missing;
+* rolls the node when the certificate is reissued, driven by a certificate hash on
+  the pod template;
+* advertises the endpoint as `https://`, because a cloud load balancer forwards
+  TCP untouched and cannot know the scheme.
+
+**Verified on EKS**
+
+```
+subject = O=DolphinDB Operator, CN=a4a6d7b4...elb.ap-southeast-2.amazonaws.com
+SAN     = <LB hostname>, <cluster> DNS names, localhost, 127.0.0.1
+valid   = 825 days
+get https://<LB>:8848/            -> HTTP 200, <title>DolphinDB</title>
+executeCode over https            -> version() = 3.00.5
+openssl with the cert as CA       -> Verify return code: 0 (ok)
+without -k                        -> rejected (exit 60) as expected
+```
+
+The last two matter: they prove the certificate is importable as a trust anchor,
+so a user can eliminate the browser warning by following the same procedure the
+DolphinDB documentation describes.
+
+Full guide, including the ACM + load balancer path for when a domain is
+available: [tls.md](tls.md).
+
+---
+
+## 3. Managed-Kubernetes compatibility fixes
 
 ### 2.1 Node names are not valid pod hostnames
 
@@ -218,7 +284,7 @@ to Secret-based licensing.
 
 ---
 
-## 3. Helm chart fixes
+## 4. Helm chart fixes
 
 | Fix | Detail |
 | :--- | :--- |
@@ -228,7 +294,7 @@ to Secret-based licensing.
 
 ---
 
-## 4. Verification
+## 5. Verification
 
 Performed on EKS 1.34 / `ap-southeast-2` / 2 × `m7i-flex.large`.
 
@@ -268,7 +334,7 @@ ddb-min-cluster   cluster     Ready   1            2
 
 ---
 
-## 5. Upgrade notes
+## 6. Upgrade notes
 
 **Breaking change — Deployment selectors.** The operator and dashboard
 Deployments no longer share a pod selector. `spec.selector` is immutable, so
@@ -308,7 +374,7 @@ kubectl apply -f config/crd/bases/
 
 ---
 
-## 6. Known limitations
+## 7. Known limitations
 
 * **TLS** — exposure does not terminate TLS. Front the port with an Ingress
   controller or an ALB + ACM certificate if TLS is required.
@@ -326,10 +392,11 @@ kubectl apply -f config/crd/bases/
 
 ---
 
-## 7. Files changed
+## 8. Files changed
 
 ```
 internal/exposure/              new — cloud-aware exposure (14 unit tests)
+internal/tls/                   new — self-signed certificate issuance (11 unit tests)
 internal/credentials/           new — admin credential resolution (6 unit tests)
 internal/controller/naming.go   new — DNS-safe hostname sanitisation (10 tests)
 internal/config/renderer_test.go        new — cache engine / dataSync (5 tests)
@@ -341,8 +408,9 @@ docs/release-notes-0.3.0.md     new — this document
 internal/dashboard/server.go            exposure API, cloud-aware detail, single-writer fix
 internal/dashboard/ui/index.html        pending state, LB mode, auto-polling
 internal/config/renderer.go             cache engine defaults
-internal/controller/ddbnode_controller.go      hostname, licence mount guard
 internal/controller/dolphindbcluster_controller.go  hostname, licence opt-in, fingerprint clear, credentials
+internal/controller/tls.go              TLS orchestration (certificate, publicName, protocol annotation)
+internal/controller/ddbnode_controller.go  TLS volume, keys install, -enableHTTPS flags, certificate roll
 internal/controller/ddbbackup_controller.go     credentials
 internal/controller/ddboperation_controller.go  credentials
 internal/migration/{converter,executor,types}.go  licence path option, credentials
@@ -352,5 +420,5 @@ deploy/helm/dolphindb-operator/{Chart.yaml,values.yaml,templates/*}
 README.md
 ```
 
-Test suite: 68 assertions across 8 packages. `gofmt`, `go vet`, `go test ./...`
+Test suite: 78 assertions across 9 packages. `gofmt`, `go vet`, `go test ./...`
 and `helm lint` all clean.

@@ -3372,13 +3372,19 @@
       const modeLabel = detail.exposureMode === 'LoadBalancer'
         ? `LoadBalancer · ${detail.exposureScheme === 'internal' ? '内部' : '公网'}`
         : (detail.exposureMode === 'NodePort' ? 'NodePort' : 'ClusterIP');
+      // Native HTTPS is terminated by DolphinDB itself on the same port, so the
+      // scheme is reported by the API rather than inferred from the LB.
+      const protoLabel = detail.exposureTLS ? ' · HTTPS' : '';
+      const selfSignedHint = (detail.exposureTLS && detail.tlsManaged)
+        ? '<div class="topology-hero-meta"><span style="color: var(--warning-text, #8d6e00);">⚠ 使用的是套件自动签发的自签名证书，浏览器会提示不安全。导入该证书为受信任机构即可消除告警。</span></div>'
+        : '';
 
       if (detail.exposurePending) {
         accessBanner.innerHTML = `
           <div class="topology-hero" style="border-style: dashed; background: var(--bg-subtle);">
             <div class="topology-hero-info">
               <h3>
-                <span class="badge badge-neutral">${modeLabel} 创建中…</span>
+                <span class="badge badge-neutral">${modeLabel}${protoLabel} 创建中…</span>
                 正在向云端申请外部入口
               </h3>
               <div class="topology-hero-meta">
@@ -3386,6 +3392,7 @@
                 <span>•</span>
                 <span>页面会自动刷新，无需重复点击</span>
               </div>
+              ${selfSignedHint}
             </div>
             <button class="btn btn-secondary" onclick="setClusterExposure('${ns}', '${cn}', false)">
               取消开启
@@ -3401,14 +3408,15 @@
           <div class="topology-hero">
             <div class="topology-hero-info">
               <h3>
-                <span class="badge badge-success" style="padding: 4px 10px; font-size: 12px;">${modeLabel} 外部访问已就绪</span>
+                <span class="badge badge-success" style="padding: 4px 10px; font-size: 12px;">${modeLabel}${protoLabel} 外部访问已就绪</span>
                 DolphinDB Web 交互式管理终端
               </h3>
               <div class="topology-hero-meta">
                 <span>外部直连地址: <code style="font-size: 13px; color: var(--primary); font-weight: 700;">${detail.accessURL}</code></span>
                 <span>•</span>
-                <span>协议: HTTP REST / WebSocket</span>
+                <span>协议: ${detail.exposureTLS ? 'HTTPS / WSS（传输已加密）' : 'HTTP REST / WebSocket'}</span>
               </div>
+              ${selfSignedHint}
               ${detail.exposureMessage ? `<div class="topology-hero-meta"><span style="color: var(--danger-text);">⚠ ${detail.exposureMessage}</span></div>` : ''}
             </div>
             <div style="display: flex; gap: 10px;">

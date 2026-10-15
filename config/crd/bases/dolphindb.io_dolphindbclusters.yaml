@@ -518,8 +518,10 @@ spec:
                           name
                         type: string
                       licensePath:
-                        description: LicensePath is the absolute path of the licence file on the host,
-                          used only for host-bound licensing. No default is applied.
+                        description: |-
+                          LicensePath is the absolute path of the licence file on the host, used only
+                          for host-bound (machineFingerprint) licensing. It has no default: supply it
+                          explicitly, otherwise the licence is taken from a Secret or from the image.
                         type: string
                       machineIdSecretName:
                         description: MachineIdSecretName specifies the secret containing
@@ -555,8 +557,14 @@ spec:
                     type: object
                   mode:
                     default: secret
-                    description: 'Mode defines the license type: server, secret, or
-                      machineFingerprint'
+                    description: |-
+                      Mode defines the license type: server, secret, or machineFingerprint
+
+                      The default is `secret` rather than `machineFingerprint`: host-bound
+                      licensing requires hostPath mounts (/etc/machine-id, /etc/hostname) and a
+                      licence file that exists on the node, which is rarely true on Kubernetes and
+                      never true on a managed cloud. Opting in explicitly is safer than surprising
+                      users with privileged mounts that fail to start.
                     enum:
                     - server
                     - secret
@@ -720,6 +728,31 @@ spec:
                     default: true
                     description: StrictPermissionInspection enables strict ACL inspection
                     type: boolean
+                  tls:
+                    description: TLS enables DolphinDB's native HTTPS for the Web
+                      UI and REST/WebSocket API.
+                    properties:
+                      enabled:
+                        description: Enabled turns on DolphinDB native HTTPS.
+                        type: boolean
+                      publicName:
+                        description: |-
+                          PublicName is the external domain clients use. DolphinDB requires a domain
+                          (never an IP) when enableHTTPS is on. When empty the operator derives one.
+                        type: string
+                      secretName:
+                        description: |-
+                          SecretName references an existing kubernetes.io/tls Secret (keys tls.crt and
+                          tls.key). Use this with a certificate you own - for example one issued for a
+                          domain you control, or an ACM-exported certificate. When empty the operator
+                          issues and rotates its own self-signed certificate.
+                        type: string
+                      validityDays:
+                        default: 825
+                        description: ValidityDays is the lifetime of the operator-managed
+                          self-signed certificate.
+                        type: integer
+                    type: object
                 type: object
               standalone:
                 description: Standalone configuration (used when mode == standalone)

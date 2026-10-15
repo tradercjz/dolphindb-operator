@@ -1,6 +1,11 @@
 package controller
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"dolphindb.io/operator/api/v1alpha1"
+)
 
 // SanitizeHostname converts a Kubernetes node name into a value that is legal
 // for a Pod's `spec.hostname`.
@@ -44,4 +49,23 @@ func SanitizeHostname(name string) string {
 		out = strings.Trim(out[:63], "-")
 	}
 	return out
+}
+
+// nodeHomeDir is the DolphinDB `-home` directory for a node. It is shared by the
+// container args builder and by the TLS material installer so the two cannot
+// drift apart.
+func nodeHomeDir(node *v1alpha1.DDBNode) string {
+	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+		return fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s", node.Spec.Alias)
+	}
+	return "/data/ddb/server/data"
+}
+
+// shellQuoteAll renders paths as single-quoted shell words.
+func shellQuoteAll(vals []string) string {
+	quoted := make([]string, 0, len(vals))
+	for _, v := range vals {
+		quoted = append(quoted, "'"+strings.ReplaceAll(v, "'", `'\''`)+"'")
+	}
+	return strings.Join(quoted, " ")
 }

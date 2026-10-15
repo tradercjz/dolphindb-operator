@@ -90,6 +90,12 @@ type DDBNodeSpec struct {
 	// Logging runtime logging configuration
 	Logging *LoggingSpec `json:"logging,omitempty"`
 
+	// TLS carries the resolved HTTPS material for this node. It is populated by the
+	// cluster controller from DolphinDBCluster.spec.security.tls, with the secret
+	// name already resolved (either a user supplied Secret or the operator managed
+	// self-signed one) and PublicName already derived.
+	TLS *NodeTLSSpec `json:"tls,omitempty"`
+
 	// Paused when true, container process is kept stopped without deleting PVCs
 	// +kubebuilder:default=false
 	Paused bool `json:"paused,omitempty"`
@@ -168,4 +174,18 @@ type DDBNodeList struct {
 
 func init() {
 	SchemeBuilder.Register(&DDBNode{}, &DDBNodeList{})
+}
+
+// NodeTLSSpec is the per-node view of the cluster TLS configuration.
+type NodeTLSSpec struct {
+	// SecretName is the kubernetes.io/tls Secret holding tls.crt and tls.key.
+	SecretName string `json:"secretName"`
+	// PublicName is the domain DolphinDB advertises (enableHTTPS requires a domain).
+	PublicName string `json:"publicName,omitempty"`
+	// Hash changes whenever the certificate is reissued, so the pod template can
+	// include it and roll the node when the material changes.
+	Hash string `json:"hash,omitempty"`
+	// Managed is true when the operator issued the certificate itself, which means
+	// a browser will report it as untrusted until the user imports it.
+	Managed bool `json:"managed,omitempty"`
 }

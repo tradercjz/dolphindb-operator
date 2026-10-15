@@ -350,6 +350,13 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 				}
 			}
 		}
+		// A reissued certificate has to reach the node, which means replacing the pod:
+		// the mounted Secret updates on its own, but DolphinDB only reads the files in
+		// its keys directory at startup.
+		if desired := tlsHashFor(node); pod.Annotations[dolphinTLSHashAnnotation] != desired {
+			needsRecreate = true
+		}
+
 		if needsRecreate && pod.DeletionTimestamp == nil {
 			log.FromContext(ctx).Info("Recreating pod due to updated spec / fingerprint / volume bindings",
 				"pod", pod.Name,
@@ -384,6 +391,10 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 			pod.Annotations["prometheus.io/scrape"] = "true"
 			pod.Annotations["prometheus.io/port"] = strconv.Itoa(int(node.Spec.Port))
 			pod.Annotations["prometheus.io/path"] = "/metrics"
+			updated = true
+		}
+		if v := tlsHashFor(node); pod.Annotations[dolphinTLSHashAnnotation] != v {
+			pod.Annotations[dolphinTLSHashAnnotation] = v
 			updated = true
 		}
 		if updated {
@@ -807,17 +818,55 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		}
 	}
 
+	// Native HTTPS: stage the certificate material and install it into the node's
+	// keys directory at startup.
+	//
+	// DolphinDB only looks in `<home>/keys` (and, for a single node, also
+	// `<home>/<alias>/keys`), so the files are copied into place from a read-only
+	// Secret mount instead of mounting the Secret over the directory: that directory
+	// also holds DolphinDB's own aclPrivate/aclPublic keys, which must stay
+	// writable, and DolphinDB regenerates server.crt when serverPrivate.key is
+	// missing, so both files have to land before it starts.
+	tlsInstall := ""
+	if node.Spec.TLS != nil && node.Spec.TLS.SecretName != "" {
+		homeDir := nodeHomeDir(node)
+		keysDirs := []string{
+			homeDir + "/keys",
+			homeDir + "/" + node.Spec.Alias + "/keys",
+		}
+		volumes = append(volumes, corev1.Volume{
+			Name: "ddb-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: node.Spec.TLS.SecretName,
+					Items: []corev1.KeyToPath{
+						{Key: corev1.TLSCertKey, Path: "server.crt"},
+						{Key: corev1.TLSPrivateKeyKey, Path: "serverPrivate.key"},
+					},
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      "ddb-tls",
+			MountPath: "/data/ddb/tls",
+			ReadOnly:  true,
+		})
+		tlsInstall = fmt.Sprintf(
+			`if [ -f /data/ddb/tls/server.crt ] && [ -f /data/ddb/tls/serverPrivate.key ]; then for d in %s; do mkdir -p "$d" && cp -f /data/ddb/tls/server.crt /data/ddb/tls/serverPrivate.key "$d"/ && chmod 600 "$d/serverPrivate.key"; done; fi; `,
+			shellQuoteAll(keysDirs))
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
 			Namespace: node.Namespace,
 			Labels:    podLabels,
 			Annotations: map[string]string{
-				"prometheus.io/scrape": "true",
-				"prometheus.io/port":   strconv.Itoa(int(node.Spec.Port)),
-				"prometheus.io/path":   "/metrics",
-			},
-		},
+				"prometheus.io/scrape":   "true",
+				"prometheus.io/port":     strconv.Itoa(int(node.Spec.Port)),
+				"prometheus.io/path":     "/metrics",
+				dolphinTLSHashAnnotation: tlsHashFor(node),
+			}},
 		Spec: corev1.PodSpec{
 			Hostname:                      podHostname,
 			Subdomain:                     headlessSvc,
@@ -835,7 +884,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Command: []string{
 						"/bin/sh",
 						"-c",
-						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; exec /data/ddb/server/dolphindb "$@"`,
+						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; ` + tlsInstall + `exec /data/ddb/server/dolphindb "$@"`,
 						"--",
 					},
 					Args:           args,
@@ -1028,10 +1077,7 @@ func getLegacyComponentType(role v1alpha1.NodeRole) string {
 }
 
 func (r *DDBNodeReconciler) buildContainerArgs(node *v1alpha1.DDBNode) []string {
-	homeDir := "/data/ddb/server/data"
-	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
-		homeDir = fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s", node.Spec.Alias)
-	}
+	homeDir := nodeHomeDir(node)
 
 	stdoutLog := int32(2)
 	maxLogSize := int32(200)
@@ -1070,6 +1116,17 @@ func (r *DDBNodeReconciler) buildContainerArgs(node *v1alpha1.DDBNode) []string 
 
 	if (node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough) || node.Spec.LicenseSecretName != "" {
 		args = append(args, "-license", "/data/ddb/server/dolphindb.lic")
+	}
+
+	// Native HTTPS. Passed as command line flags rather than config-file entries so
+	// the value stays per node: the advertised domain is derived from the exposed
+	// hostname, which differs per cluster and is only known to the controller.
+	// DolphinDB requires a domain here (never an IP) once enableHTTPS is on.
+	if node.Spec.TLS != nil && node.Spec.TLS.SecretName != "" {
+		args = append(args, "-enableHTTPS", "true")
+		if node.Spec.TLS.PublicName != "" {
+			args = append(args, "-publicName", node.Spec.TLS.PublicName)
+		}
 	}
 	domain := fmt.Sprintf("%s.%s.svc.cluster.local", node.Name, node.Namespace)
 	args = append(args, "-localSite", fmt.Sprintf("%s:%d:%s", domain, node.Spec.Port, node.Spec.Alias))

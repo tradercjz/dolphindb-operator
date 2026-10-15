@@ -116,6 +116,39 @@ type SecuritySpec struct {
 	// EnableShellFunction allows or denies the dangerous shell() function in DDB
 	// +kubebuilder:default=false
 	EnableShellFunction bool `json:"enableShellFunction,omitempty"`
+
+	// TLS enables DolphinDB's native HTTPS for the Web UI and REST/WebSocket API.
+	TLS *TLSSpec `json:"tls,omitempty"`
+}
+
+// TLSSpec configures DolphinDB native HTTPS (enableHTTPS).
+//
+// DolphinDB terminates TLS itself, on the same port as plain HTTP, using a
+// certificate found in the node's `<home>/keys` directory (server.crt +
+// serverPrivate.key). That makes it the one HTTPS option that needs neither a
+// registered domain, nor ACM, nor a cloud load balancer controller, nor IRSA - it
+// works identically on a laptop and on a locked-down cloud project.
+//
+// Because `enableHTTPS` requires `publicName` to be a *domain* (not an IP),
+// the operator derives one when the field is left empty: the exposed load
+// balancer hostname once it exists, otherwise the in-cluster service DNS name.
+type TLSSpec struct {
+	// Enabled turns on DolphinDB native HTTPS.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// SecretName references an existing kubernetes.io/tls Secret (keys tls.crt and
+	// tls.key). Use this with a certificate you own - for example one issued for a
+	// domain you control, or an ACM-exported certificate. When empty the operator
+	// issues and rotates its own self-signed certificate.
+	SecretName string `json:"secretName,omitempty"`
+
+	// PublicName is the external domain clients use. DolphinDB requires a domain
+	// (never an IP) when enableHTTPS is on. When empty the operator derives one.
+	PublicName string `json:"publicName,omitempty"`
+
+	// ValidityDays is the lifetime of the operator-managed self-signed certificate.
+	// +kubebuilder:default=825
+	ValidityDays int `json:"validityDays,omitempty"`
 }
 
 // LoggingSpec defines runtime logging configuration

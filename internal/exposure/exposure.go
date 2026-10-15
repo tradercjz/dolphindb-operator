@@ -109,6 +109,13 @@ const (
 	AnnotationAWSCrossZone = "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled"
 	// AnnotationGCPInternal marks a GCP load balancer as internal.
 	AnnotationGCPInternal = "networking.gke.io/load-balancer-type"
+
+	// AnnotationProtocol records the application protocol of the exposed port.
+	// A load balancer in front of DolphinDB forwards TCP untouched, so the scheme
+	// is decided by whether DolphinDB itself terminates TLS (enableHTTPS). Without
+	// this the endpoint would always be advertised as http://, which is wrong - and
+	// actively misleading - once native HTTPS is on.
+	AnnotationProtocol = "dolphindb.io/exposure-protocol"
 )
 
 // DetectProvider infers the cloud provider from node.spec.providerID, which every
@@ -206,10 +213,13 @@ func DefaultAnnotations(p Provider, scheme Scheme) map[string]string {
 
 // Options describe the desired exposure of a single node.
 type Options struct {
-	Mode        Mode
-	Scheme      Scheme
-	Provider    Provider
-	NodePort    int32
+	Mode     Mode
+	Scheme   Scheme
+	Provider Provider
+	NodePort int32
+	// TLS marks the exposed port as TLS terminated by DolphinDB itself, so the
+	// advertised URL uses https:// and clients must validate a certificate.
+	TLS         bool
 	Annotations map[string]string
 }
 
@@ -256,12 +266,15 @@ func BuildService(node *v1alpha1.DDBNode, opts Options) *corev1.Service {
 		for k, v := range DefaultAnnotations(opts.Provider, opts.Scheme) {
 			annotations[k] = v
 		}
-		// User supplied annotations win over the defaults, so an operator that
-		// *does* run the cloud load balancer controller can opt into the modern
-		// "external" flavour without us guessing.
-		for k, v := range opts.Annotations {
-			annotations[k] = v
-		}
+	}
+	if opts.TLS {
+		annotations[AnnotationProtocol] = "https"
+	}
+	// User supplied annotations win over the defaults, so an operator that *does*
+	// run the cloud load balancer controller can opt into the modern "external"
+	// flavour without us guessing.
+	for k, v := range opts.Annotations {
+		annotations[k] = v
 	}
 
 	trueVal := true
@@ -329,6 +342,8 @@ type Endpoint struct {
 	Mode     Mode     `json:"mode,omitempty"`
 	Scheme   Scheme   `json:"scheme,omitempty"`
 	Provider Provider `json:"provider,omitempty"`
+	// TLS is true when the endpoint speaks HTTPS.
+	TLS bool `json:"tls,omitempty"`
 	// Pending is true while the cloud is still provisioning the load balancer.
 	Pending bool `json:"pending,omitempty"`
 	// Message explains a pending or unreachable endpoint to the user.
@@ -353,6 +368,14 @@ func ResolveEndpoint(node *v1alpha1.DDBNode, k8sNode *corev1.Node, svc *corev1.S
 	}
 	svcPort := svc.Spec.Ports[0]
 
+	// DolphinDB terminates TLS itself on the same port, so the scheme comes from
+	// the service annotation rather than from the load balancer.
+	urlScheme := "http"
+	if svc.Annotations[AnnotationProtocol] == "https" {
+		urlScheme = "https"
+		ep.TLS = true
+	}
+
 	switch mode {
 	case ModeLoadBalancer:
 		ep.Scheme = SchemeInternetFacing
@@ -368,7 +391,7 @@ func ResolveEndpoint(node *v1alpha1.DDBNode, k8sNode *corev1.Node, svc *corev1.S
 		}
 		ep.Address = addr
 		ep.Port = svcPort.Port
-		ep.URL = fmt.Sprintf("http://%s:%d", addr, svcPort.Port)
+		ep.URL = fmt.Sprintf("%s://%s:%d", urlScheme, addr, svcPort.Port)
 
 	case ModeNodePort:
 		ep.Port = svcPort.NodePort
@@ -384,7 +407,7 @@ func ResolveEndpoint(node *v1alpha1.DDBNode, k8sNode *corev1.Node, svc *corev1.S
 			return ep
 		}
 		ep.Address = addr
-		ep.URL = fmt.Sprintf("http://%s:%d", addr, ep.Port)
+		ep.URL = fmt.Sprintf("%s://%s:%d", urlScheme, addr, ep.Port)
 		if !public {
 			ep.Message = "node has no external address; open the node security group for this " +
 				"NodePort, or expose the node with a LoadBalancer instead"

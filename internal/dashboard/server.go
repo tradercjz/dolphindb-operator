@@ -946,6 +946,12 @@ type ClusterDetail struct {
 	ExposureScheme  exposure.Scheme `json:"exposureScheme,omitempty"`
 	ExposurePending bool            `json:"exposurePending,omitempty"`
 	ExposureMessage string          `json:"exposureMessage,omitempty"`
+	ExposureTLS     bool            `json:"exposureTLS,omitempty"`
+
+	// TLSEnabled reports whether native HTTPS is on, TLSManaged whether the
+	// certificate is operator-issued (and therefore untrusted by browsers).
+	TLSEnabled bool `json:"tlsEnabled,omitempty"`
+	TLSManaged bool `json:"tlsManaged,omitempty"`
 }
 
 // anyNode picks a deterministic node from the map. NodePort is reachable through
@@ -963,6 +969,7 @@ func anyNode(m map[string]*corev1.Node) *corev1.Node {
 	return m[names[0]]
 }
 
+// NodeInfo describes one DolphinDB node as shown in the topology view.
 type NodeInfo struct {
 	Name        string            `json:"name"`
 	Role        v1alpha1.NodeRole `json:"role"`
@@ -987,6 +994,9 @@ type NodeInfo struct {
 	ExposurePending bool `json:"exposurePending,omitempty"`
 	// ExposureMessage explains a pending or potentially unreachable endpoint.
 	ExposureMessage string `json:"exposureMessage,omitempty"`
+
+	// ExposureTLS is true when the endpoint speaks HTTPS.
+	ExposureTLS bool `json:"exposureTLS,omitempty"`
 }
 
 func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namespace, name string) {
@@ -1192,6 +1202,7 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			ExposureScheme:  endpoint.Scheme,
 			ExposurePending: endpoint.Pending,
 			ExposureMessage: endpoint.Message,
+			ExposureTLS:     endpoint.TLS,
 		})
 	}
 
@@ -1255,6 +1266,9 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 		ExposureScheme:  clusterEndpoint.Scheme,
 		ExposurePending: clusterEndpoint.Pending,
 		ExposureMessage: clusterEndpoint.Message,
+		ExposureTLS:     clusterEndpoint.TLS,
+		TLSEnabled:      cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled,
+		TLSManaged:      cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled && cluster.Spec.Security.TLS.SecretName == "",
 	})
 }
 
@@ -1697,6 +1711,9 @@ func (s *Server) exposureOptions(ctx context.Context, node *v1alpha1.DDBNode, re
 		if len(merged) > 0 {
 			opts.Annotations = merged
 		}
+		// Native HTTPS is terminated by DolphinDB on the same port, so the exposed
+		// URL has to be advertised as https:// rather than http://.
+		opts.TLS = cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled
 	}
 	return opts
 }
@@ -1725,6 +1742,7 @@ func exposeNodeResponse(ep exposure.Endpoint, provider exposure.Provider, svcNam
 		"externalURL":  ep.URL,
 		"pending":      ep.Pending,
 		"message":      ep.Message,
+		"tls":          ep.TLS,
 	}
 }
 

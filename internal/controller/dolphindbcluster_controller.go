@@ -24,6 +24,7 @@ import (
 	"dolphindb.io/operator/internal/config"
 	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
+	"dolphindb.io/operator/internal/exposure"
 	"dolphindb.io/operator/internal/flowengine"
 	"dolphindb.io/operator/internal/metrics"
 	"dolphindb.io/operator/internal/paramdict"
@@ -290,17 +291,20 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 			needsUpdate = true
 		}
 
-		// Sync custom annotations (e.g. Alibaba Cloud SLB / AWS NLB annotations)
-		if len(cluster.Spec.Networking.Annotations) > 0 {
+		// Sync custom annotations (e.g. Alibaba Cloud SLB / AWS NLB annotations) and
+		// the exposure protocol, which changes when native HTTPS is toggled.
+		for k, v := range accessServiceAnnotations(cluster) {
 			if svc.Annotations == nil {
 				svc.Annotations = make(map[string]string)
 			}
-			for k, v := range cluster.Spec.Networking.Annotations {
-				if svc.Annotations[k] != v {
-					svc.Annotations[k] = v
-					needsUpdate = true
-				}
+			if svc.Annotations[k] != v {
+				svc.Annotations[k] = v
+				needsUpdate = true
 			}
+		}
+		if !tlsEnabled(cluster) && svc.Annotations[exposure.AnnotationProtocol] != "" {
+			delete(svc.Annotations, exposure.AnnotationProtocol)
+			needsUpdate = true
 		}
 
 		portsMismatch := len(svc.Spec.Ports) != len(desiredPorts)
@@ -340,13 +344,7 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 		return err
 	}
 
-	var svcAnnotations map[string]string
-	if len(cluster.Spec.Networking.Annotations) > 0 {
-		svcAnnotations = make(map[string]string)
-		for k, v := range cluster.Spec.Networking.Annotations {
-			svcAnnotations[k] = v
-		}
-	}
+	svcAnnotations := accessServiceAnnotations(cluster)
 
 	newSvc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -744,6 +742,23 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	nodeSpec.NodeSelector = cluster.Spec.Scheduling.NodeSelector
 	nodeSpec.Tolerations = cluster.Spec.Scheduling.Tolerations
 
+	// Native HTTPS: make sure the certificate exists before the pod that consumes
+	// it is created, and hand the node everything it needs (secret, advertised
+	// domain, and a hash that rolls the node when the certificate is reissued).
+	if tlsEnabled(cluster) && roleServesHTTPS(role) {
+		publicName := r.resolvePublicName(ctx, cluster)
+		tlsSecret, tlsHash, tlsManaged, err := r.ensureTLSSecret(ctx, cluster, tlsHosts(cluster, publicName, r.exposedHostname(ctx, cluster)))
+		if err != nil {
+			return err
+		}
+		nodeSpec.TLS = &v1alpha1.NodeTLSSpec{
+			SecretName: tlsSecret,
+			PublicName: publicName,
+			Hash:       tlsHash,
+			Managed:    tlsManaged,
+		}
+	}
+
 	existing := &v1alpha1.DDBNode{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
 	if err == nil {
@@ -775,6 +790,24 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 			// even after the user switched to a Secret-based licence.
 			existing.Spec.Fingerprint = nil
 			needsUpdate = true
+		}
+
+		// Same for TLS: it must be possible to turn HTTPS off again, and a rotated
+		// certificate has to reach the pod template so the node rolls.
+		switch {
+		case existing.Spec.TLS == nil && nodeSpec.TLS != nil:
+			existing.Spec.TLS = nodeSpec.TLS
+			needsUpdate = true
+		case existing.Spec.TLS != nil && nodeSpec.TLS == nil:
+			existing.Spec.TLS = nil
+			needsUpdate = true
+		case existing.Spec.TLS != nil && nodeSpec.TLS != nil:
+			if existing.Spec.TLS.SecretName != nodeSpec.TLS.SecretName ||
+				existing.Spec.TLS.PublicName != nodeSpec.TLS.PublicName ||
+				existing.Spec.TLS.Hash != nodeSpec.TLS.Hash {
+				existing.Spec.TLS = nodeSpec.TLS
+				needsUpdate = true
+			}
 		}
 		if existing.Spec.NodeName != nodeSpec.NodeName {
 			existing.Spec.NodeName = nodeSpec.NodeName
