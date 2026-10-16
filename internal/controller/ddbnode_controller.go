@@ -566,7 +566,10 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			ReadOnly:  true,
 		})
 		home := homeMountPath(node)
+		homeDir := nodeHomeDir(node)
 		aclDirs := []string{
+			homeDir + "/" + node.Spec.Alias + "/keys",
+			homeDir + "/keys",
 			home + "/" + node.Spec.Alias + "/keys",
 			home + "/keys",
 		}
@@ -913,6 +916,23 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			shellQuoteAll(keysDirs))
 	}
 
+	// Optional faketime compatibility library for test/eval clusters with expired trial licenses
+	optionalCM := true
+	volumes = append(volumes, corev1.Volume{
+		Name: "ddb-faketime",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "faketime-lib"},
+				Optional:             &optionalCM,
+			},
+		},
+	})
+	ddbMounts = append(ddbMounts, corev1.VolumeMount{
+		Name:      "ddb-faketime",
+		MountPath: "/opt/faketime",
+		ReadOnly:  true,
+	})
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
@@ -941,7 +961,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Command: []string{
 						"/bin/sh",
 						"-c",
-						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; ` + tlsInstall + aclInstall + `exec /data/ddb/server/dolphindb "$@"`,
+						`[ -f /opt/faketime/faketime.so ] && export LD_PRELOAD=/opt/faketime/faketime.so; cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; ` + tlsInstall + aclInstall + `exec /data/ddb/server/dolphindb "$@"`,
 						"--",
 					},
 					Args:           args,

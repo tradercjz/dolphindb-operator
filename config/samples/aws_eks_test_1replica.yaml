@@ -1,0 +1,67 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-aws-1rep
+  namespace: dolphindb-system
+spec:
+  mode: cluster
+  version: "3.00.6"
+  image: "dolphindb/dolphindb:v3.00.6"
+  suspended: false
+
+  controller:
+    replicas: 1
+    port: 8900
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "2Gi"
+    config:
+      dfsHAMode: "none"
+      dfsReplicationFactor: "1"
+      dfsReplicaReliabilityLevel: "0"
+      dataSync: "1"
+
+  datanode:
+    replicas: 2
+    port: 8901
+    antiAffinity: Preferred
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "2Gi"
+      dataVolumeCount: 1
+      dataVolumeSize: "5Gi"
+    config:
+      TSDBCacheEngineSize: "1"
+      chunkCacheEngineMemSize: "1"
+
+  computenode:
+    replicas: 0
+    port: 8902
+    computeGroup: "analytics"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "2Gi"
+
+  security:
+    adminSecretName: "dolphindb-admin"
