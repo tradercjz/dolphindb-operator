@@ -211,8 +211,8 @@ func TestPlatformAWSStoragePresets(t *testing.T) {
 	srv := platformServer(t, awsNodeForPlatform(), csiNode, csiDriver, scGp3, scIo2, scLocal)
 	info := callPlatform(t, srv)
 
-	if len(info.StoragePresets) != 4 {
-		t.Fatalf("expected 4 AWS storage presets, got %d", len(info.StoragePresets))
+	if len(info.StoragePresets) != 5 {
+		t.Fatalf("expected 5 AWS storage presets, got %d", len(info.StoragePresets))
 	}
 
 	presetMap := map[string]StoragePreset{}
@@ -233,6 +233,11 @@ func TestPlatformAWSStoragePresets(t *testing.T) {
 	local, ok := presetMap["local-nvme"]
 	if !ok || !local.Available || local.StorageClass != "local-path" {
 		t.Fatalf("local-nvme preset invalid: %+v", local)
+	}
+
+	efs, ok := presetMap["efs"]
+	if !ok || efs.StorageClass != "efs-sc" {
+		t.Fatalf("efs preset invalid: %+v", efs)
 	}
 
 	custom, ok := presetMap["custom"]

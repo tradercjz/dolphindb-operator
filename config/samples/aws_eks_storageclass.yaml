@@ -65,3 +65,23 @@ parameters:
   type: io2
   iopsPerGB: "50"                      # io2 Block Express 极低延迟与超高吞吐
   encrypted: "true"
+---
+# AWS EFS 弹性共享文件系统 (支持多节点 RWX 挂载，推荐用于多节点共享备份与插件)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap             # 基于 EFS Access Point 动态分配挂载点
+  directoryPerms: "0755"
+---
+# AWS FSx for Lustre 极致性能并行文件系统 (超高吞吐，百 GB/s 级)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fsx-lustre-sc
+provisioner: fsx.csi.aws.com
+mountOptions:
+  - flock
+

@@ -402,6 +402,22 @@ func buildStoragePresets(p exposure.Provider, classes []StorageClassSummary, def
 			localTip = "未检测到 local-path 存储类"
 		}
 
+		// 4. AWS EFS - Elastic File System (RWX Shared)
+		efsClass := findClass("efs", "efs.csi.aws.com")
+		if efsClass == nil {
+			efsClass = hasSC("efs-sc")
+		}
+		efsName := "efs-sc"
+		efsAvail := false
+		var efsTip string
+		if efsClass != nil {
+			efsName = efsClass.Name
+			efsAvail = efsClass.Usable
+			efsTip = efsClass.Hint
+		} else {
+			efsTip = "未创建 efs-sc 存储类 (需要 efs.csi.aws.com 驱动)"
+		}
+
 		presets = []StoragePreset{
 			{
 				ID:           "gp3",
@@ -438,6 +454,18 @@ func buildStoragePresets(p exposure.Provider, classes []StorageClassSummary, def
 				Available:    localAvail,
 				Tip:          localTip,
 				Features:     []string{"1,000,000+ IOPS", "微秒级超低延迟", "零网络传输开销"},
+			},
+			{
+				ID:           "efs",
+				Name:         "AWS EFS 弹性共享存储",
+				Category:     "多节点共享文件 (RWX)",
+				Badge:        "共享读写",
+				Icon:         "📂",
+				Description:  "Serverless 弹性 NFS 共享存储，支持多 Pod 同时挂载读写 (RWX)，推荐用于跨节点共享备份、插件及启动脚本",
+				StorageClass: efsName,
+				Available:    efsAvail,
+				Tip:          efsTip,
+				Features:     []string{"多节点同时读写", "弹性自动扩容", "支持跨 AZ 容灾"},
 			},
 			{
 				ID:           "custom",
