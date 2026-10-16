@@ -900,6 +900,13 @@ spec:
                     description: RaftGroupId specifies the streaming Raft group ID
                     type: integer
                 type: object
+              suspended:
+                default: false
+                description: |-
+                  Suspended pauses the cluster, gracefully stopping all node pods while preserving PVCs and data.
+                  When true, all compute and storage node pods are terminated to achieve scale-to-zero and eliminate cloud compute costs.
+                  When toggled back to false, the operator resumes all nodes and restores service.
+                type: boolean
               version:
                 default: 3.00.5
                 description: Version of DolphinDB Server image (e.g., 3.00.5)

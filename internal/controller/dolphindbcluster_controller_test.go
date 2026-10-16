@@ -332,3 +332,122 @@ func TestRestartOnTopologyDatanodeOnlyRestartsControllersOnly(t *testing.T) {
 		t.Fatalf("annotation = %q, want ctl:1,dn:2", got)
 	}
 }
+
+func TestReconcileSuspendedTogglesStoppedAnnotation(t *testing.T) {
+	cluster := clusterModeCluster(1)
+	cluster.Spec.Suspended = true
+
+	nodeCtl := &v1alpha1.DDBNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ddb-ha-ctl-0",
+			Namespace: "ddb",
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":  "ddb-ha",
+				"app.kubernetes.io/component": "controller",
+			},
+		},
+		Spec: v1alpha1.DDBNodeSpec{ClusterName: "ddb-ha", Index: 0, Role: v1alpha1.NodeRoleController},
+	}
+	nodeDn := &v1alpha1.DDBNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ddb-ha-dn-0",
+			Namespace: "ddb",
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":  "ddb-ha",
+				"app.kubernetes.io/component": "datanode",
+			},
+		},
+		Spec: v1alpha1.DDBNodeSpec{ClusterName: "ddb-ha", Index: 0, Role: v1alpha1.NodeRoleDataNode},
+	}
+
+	r := newClusterReconciler(t, cluster, nodeCtl, nodeDn)
+	ctx := context.Background()
+
+	handled, _, err := r.reconcileSuspended(ctx, cluster)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatal("expected reconcileSuspended to return handled=true when cluster is suspended")
+	}
+
+	// Verify child nodes received stopped annotation
+	var ctl v1alpha1.DDBNode
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-0"}, &ctl); err != nil {
+		t.Fatal(err)
+	}
+	if ctl.Annotations["dolphindb.io/stopped"] != "true" {
+		t.Fatalf("ctl node missing dolphindb.io/stopped annotation, got %v", ctl.Annotations)
+	}
+
+	if cluster.Status.Phase != v1alpha1.PhaseSuspended {
+		t.Fatalf("expected PhaseSuspended, got %v", cluster.Status.Phase)
+	}
+
+	// Test resumption
+	cluster.Spec.Suspended = false
+	handled, _, err = r.reconcileSuspended(ctx, cluster)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if handled {
+		t.Fatal("expected reconcileSuspended to return handled=false when cluster is resumed")
+	}
+
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-0"}, &ctl); err != nil {
+		t.Fatal(err)
+	}
+	if ctl.Annotations != nil && ctl.Annotations["dolphindb.io/stopped"] == "true" {
+		t.Fatalf("ctl node should have stopped annotation removed on resume")
+	}
+}
+
+func TestReconcileComputeNodeScaleDown(t *testing.T) {
+	cluster := clusterModeCluster(1)
+	cluster.Spec.ComputeNode = &v1alpha1.ComputeNodeGroupSpec{Replicas: 1}
+
+	cn0 := &v1alpha1.DDBNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ddb-ha-cn-0",
+			Namespace: "ddb",
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":  "ddb-ha",
+				"app.kubernetes.io/component": "computenode",
+			},
+		},
+		Spec: v1alpha1.DDBNodeSpec{ClusterName: "ddb-ha", Index: 0, Role: v1alpha1.NodeRoleComputeNode},
+	}
+	cn1 := &v1alpha1.DDBNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ddb-ha-cn-1",
+			Namespace: "ddb",
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":  "ddb-ha",
+				"app.kubernetes.io/component": "computenode",
+			},
+		},
+		Spec: v1alpha1.DDBNodeSpec{ClusterName: "ddb-ha", Index: 1, Role: v1alpha1.NodeRoleComputeNode},
+	}
+
+	r := newClusterReconciler(t, cluster, cn0, cn1)
+	ctx := context.Background()
+
+	handled, _, err := r.reconcileComputeNodeScaleDown(ctx, cluster)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatal("expected reconcileComputeNodeScaleDown to handle scale down from 2 to 1")
+	}
+
+	var checkCn1 v1alpha1.DDBNode
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-cn-1"}, &checkCn1); err == nil {
+		t.Fatal("expected cn-1 to be deleted during scale down")
+	}
+
+	var checkCn0 v1alpha1.DDBNode
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-cn-0"}, &checkCn0); err != nil {
+		t.Fatal("expected cn-0 to be retained during scale down")
+	}
+}
+

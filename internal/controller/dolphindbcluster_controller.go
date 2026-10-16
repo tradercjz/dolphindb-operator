@@ -88,8 +88,17 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
+	// 0.15 Check if cluster is suspended for cost saving / scale-to-zero
+	handled, res, err := r.reconcileSuspended(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if handled {
+		return res, nil
+	}
+
 	// 0.2 Check for scale-down before general reconciliation
-	handled, res, err := r.reconcileControllerScaleDown(ctx, cluster)
+	handled, res, err = r.reconcileControllerScaleDown(ctx, cluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -97,6 +106,13 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return res, nil
 	}
 	handled, res, err = r.reconcileScaleDown(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if handled {
+		return res, nil
+	}
+	handled, res, err = r.reconcileComputeNodeScaleDown(ctx, cluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1033,7 +1049,9 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 	cluster.Status.ComputeNode = v1alpha1.TopologyStatus{Desired: desiredCn, Ready: cnReady}
 	cluster.Status.MasterController = masterName
 
-	if cluster.Status.ActiveFlow != "" {
+	if cluster.Spec.Suspended {
+		cluster.Status.Phase = v1alpha1.PhaseSuspended
+	} else if cluster.Status.ActiveFlow != "" {
 		if strings.HasPrefix(cluster.Status.ActiveFlow, "ScaleDown") {
 			cluster.Status.Phase = v1alpha1.PhaseScaling
 		} else if strings.HasPrefix(cluster.Status.ActiveFlow, "RollingRestart") {
@@ -1545,3 +1563,91 @@ func (r *DolphinDBClusterReconciler) ensureFlowRegistered(cluster *v1alpha1.Dolp
 		r.FlowEngine.RegisterFlow(flow)
 	}
 }
+
+func (r *DolphinDBClusterReconciler) reconcileSuspended(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {
+	var nodeList v1alpha1.DDBNodeList
+	if err := r.List(ctx, &nodeList, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/instance": cluster.Name,
+	}); err != nil {
+		return false, ctrl.Result{}, err
+	}
+
+	if cluster.Spec.Suspended {
+		// Stop all child nodes gracefully, deleting Pods while preserving all PVCs
+		for i := range nodeList.Items {
+			node := &nodeList.Items[i]
+			if node.Annotations == nil {
+				node.Annotations = make(map[string]string)
+			}
+			if node.Annotations["dolphindb.io/stopped"] != "true" {
+				node.Annotations["dolphindb.io/stopped"] = "true"
+				if err := r.Update(ctx, node); err != nil {
+					return true, ctrl.Result{}, err
+				}
+			}
+		}
+
+		cluster.Status.Phase = v1alpha1.PhaseSuspended
+		cluster.Status.Controller = v1alpha1.TopologyStatus{Desired: 0, Ready: 0}
+		cluster.Status.DataNode = v1alpha1.TopologyStatus{Desired: 0, Ready: 0}
+		cluster.Status.ComputeNode = v1alpha1.TopologyStatus{Desired: 0, Ready: 0}
+
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			return true, ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		return true, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	// Resuming: clear "dolphindb.io/stopped" annotation if present
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if node.Annotations != nil && node.Annotations["dolphindb.io/stopped"] == "true" {
+			delete(node.Annotations, "dolphindb.io/stopped")
+			if err := r.Update(ctx, node); err != nil {
+				return false, ctrl.Result{}, err
+			}
+		}
+	}
+	return false, ctrl.Result{}, nil
+}
+
+func (r *DolphinDBClusterReconciler) reconcileComputeNodeScaleDown(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		return false, ctrl.Result{}, nil
+	}
+
+	desired := int32(0)
+	if cluster.Spec.ComputeNode != nil {
+		desired = cluster.Spec.ComputeNode.Replicas
+	}
+
+	var nodeList v1alpha1.DDBNodeList
+	if err := r.List(ctx, &nodeList, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/instance":  cluster.Name,
+		"app.kubernetes.io/component": string(v1alpha1.NodeRoleComputeNode),
+	}); err != nil {
+		return false, ctrl.Result{}, err
+	}
+
+	current := int32(len(nodeList.Items))
+	if current <= desired {
+		return false, ctrl.Result{}, nil
+	}
+
+	// Sort nodes by index descending to remove the highest index first
+	sort.Slice(nodeList.Items, func(i, j int) bool {
+		return nodeList.Items[i].Spec.Index > nodeList.Items[j].Spec.Index
+	})
+
+	for _, node := range nodeList.Items {
+		if node.Spec.Index >= desired {
+			log.FromContext(ctx).Info("Scaling down stateless ComputeNode", "node", node.Name, "index", node.Spec.Index)
+			if err := r.Delete(ctx, &node); err != nil && !errors.IsNotFound(err) {
+				return true, ctrl.Result{}, err
+			}
+		}
+	}
+
+	return true, ctrl.Result{Requeue: true}, nil
+}
+

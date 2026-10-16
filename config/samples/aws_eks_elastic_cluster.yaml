@@ -1,0 +1,86 @@
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-elastic
+  namespace: dolphindb-system
+spec:
+  mode: cluster
+  version: "3.00.6"
+  image: "dolphindb/dolphindb:v3.00.6"
+
+  # 方案 1: 集群休眠与 Scale-to-Zero 开关
+  # 设置为 true 时，所有 Pod 优雅下线，PVC 与元数据完整保留；
+  # 底层配合 Karpenter 时，EC2 实例 30s 内自动销毁归零，计算费用彻底为 0。
+  suspended: false
+
+  controller:
+    replicas: 3
+    port: 8900
+    antiAffinity: Preferred
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "10Gi"
+    config:
+      dfsHAMode: "Raft"
+      dfsReplicationFactor: "2"
+      dfsReplicaReliabilityLevel: "1"
+      dataSync: "1"
+
+  datanode:
+    replicas: 2
+    port: 8901
+    antiAffinity: Required
+    resources:
+      requests:
+        cpu: "1"
+        memory: "2Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "10Gi"
+      dataVolumeCount: 1
+      dataVolumeSize: "50Gi"
+    config:
+      TSDBCacheEngineSize: "2"
+      chunkCacheEngineMemSize: "2"
+
+  # 方案 3: 无状态分布式计算节点 (ComputeNode) 动态伸缩
+  # 平时设为 0（不占用任何算力和 EC2 机器）；
+  # 当需要进行盘中大吞吐分析、因子挖掘或分布式回测时，动态扩容至 2/4/8，算完随时缩回 0。
+  computenode:
+    replicas: 0
+    port: 8902
+    computeGroup: "analytics"
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "8"
+        memory: "16Gi"
+    storage:
+      storageClassName: "ebs-gp3-sc"
+      metaVolumeSize: "10Gi"
+
+  networking:
+    exposureMode: Gateway
+    serviceType: LoadBalancer
+    expose:
+      controller: true
+      computenode: false
+      datanode: false
+
+  security:
+    adminSecretName: "dolphindb-admin"
+    tls:
+      enabled: true
+      validityDays: 825

@@ -227,6 +227,7 @@ type ClusterSummary struct {
 	ControllerPort       int32                `json:"controllerPort"`
 	NodePort             int32                `json:"nodePort,omitempty"`
 	AccessURL            string               `json:"accessURL,omitempty"`
+	Suspended            bool                 `json:"suspended"`
 }
 
 func getDfsReplicationFactor(c *v1alpha1.DolphinDBCluster) int32 {
@@ -365,7 +366,9 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 			}
 
 			health := string(c.Status.Phase)
-			if health == "" {
+			if c.Spec.Suspended {
+				health = "Suspended"
+			} else if health == "" {
 				health = "Creating"
 			}
 
@@ -412,6 +415,7 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 				ControllerPort:       ctlPort,
 				NodePort:             nodePort,
 				AccessURL:            accessURL,
+				Suspended:            c.Spec.Suspended,
 			})
 		}
 
@@ -716,6 +720,16 @@ func (s *Server) handleClusterSubRoutes(w http.ResponseWriter, r *http.Request) 
 	case "restart":
 		if r.Method == http.MethodPost {
 			s.triggerRollingRestart(w, r, namespace, name)
+			return
+		}
+	case "suspend":
+		if r.Method == http.MethodPost {
+			s.suspendCluster(w, r, namespace, name)
+			return
+		}
+	case "resume":
+		if r.Method == http.MethodPost {
+			s.resumeCluster(w, r, namespace, name)
 			return
 		}
 	case "scale":
@@ -2059,6 +2073,66 @@ func (s *Server) scaleCluster(w http.ResponseWriter, r *http.Request, namespace,
 	}
 
 	jsonResponse(w, http.StatusOK, cluster)
+}
+
+func (s *Server) suspendCluster(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	cluster := &v1alpha1.DolphinDBCluster{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found", namespace, name))
+		return
+	}
+
+	if cluster.Spec.Suspended {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"message":   "Cluster is already suspended",
+			"suspended": true,
+			"status":    "Suspended",
+		})
+		return
+	}
+
+	cluster.Spec.Suspended = true
+	if err := s.client.Update(ctx, cluster); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to suspend cluster: %v", err))
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message":   fmt.Sprintf("Cluster %s/%s suspended successfully. Compute pods are stopping while PVC storage is fully preserved.", namespace, name),
+		"suspended": true,
+		"status":    "Suspended",
+	})
+}
+
+func (s *Server) resumeCluster(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	cluster := &v1alpha1.DolphinDBCluster{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found", namespace, name))
+		return
+	}
+
+	if !cluster.Spec.Suspended {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"message":   "Cluster is already running",
+			"suspended": false,
+			"status":    string(cluster.Status.Phase),
+		})
+		return
+	}
+
+	cluster.Spec.Suspended = false
+	if err := s.client.Update(ctx, cluster); err != nil {
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to resume cluster: %v", err))
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message":   fmt.Sprintf("Cluster %s/%s resumed successfully. Nodes are starting up.", namespace, name),
+		"suspended": false,
+		"status":    "Resuming",
+	})
 }
 
 func (s *Server) triggerRebalance(w http.ResponseWriter, r *http.Request, namespace, name string) {

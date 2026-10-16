@@ -509,6 +509,12 @@ type DolphinDBClusterSpec struct {
 
 	// Scheduling global node selection and tolerations
 	Scheduling SchedulingSpec `json:"scheduling,omitempty"`
+
+	// Suspended pauses the cluster, gracefully stopping all node pods while preserving PVCs and data.
+	// When true, all compute and storage node pods are terminated to achieve scale-to-zero and eliminate cloud compute costs.
+	// When toggled back to false, the operator resumes all nodes and restores service.
+	// +kubebuilder:default=false
+	Suspended bool `json:"suspended,omitempty"`
 }
 
 // ClusterPhase defines the lifecycle phase of the cluster
@@ -522,6 +528,7 @@ const (
 	PhaseUpgrading ClusterPhase = "Upgrading"
 	PhaseRolling   ClusterPhase = "RollingRestart"
 	PhaseDegraded  ClusterPhase = "Degraded"
+	PhaseSuspended ClusterPhase = "Suspended"
 )
 
 // TopologyStatus summaries running instances

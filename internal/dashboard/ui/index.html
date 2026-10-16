@@ -3487,10 +3487,16 @@
       }
 
       tbody.innerHTML = clusters.map(c => {
+        const isSuspended = c.suspended || c.health === 'Suspended';
         const isReady = c.health === 'Ready';
-        const healthBadge = isReady
-          ? `<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Ready</span>`
-          : `<span class="badge badge-warning">${c.health || 'Pending'}</span>`;
+        let healthBadge = '';
+        if (isSuspended) {
+          healthBadge = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);"><span class="pulse-dot" style="width: 5px; height: 5px; background: #f59e0b;"></span>已休眠 (0算力)</span>`;
+        } else if (isReady) {
+          healthBadge = `<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Ready</span>`;
+        } else {
+          healthBadge = `<span class="badge badge-warning">${c.health || 'Pending'}</span>`;
+        }
         
         const modeBadge = c.mode === 'cluster'
           ? `<span class="badge badge-info">Cluster 分布式</span>`
@@ -3511,6 +3517,16 @@
         const masterText = c.master 
           ? `<span class="badge badge-cyan" title="当前 Raft 选举 Master 领导节点"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>${c.master}</span>`
           : `<span style="color: var(--text-dim);">-</span>`;
+
+        const suspendResumeBtn = isSuspended
+          ? `<button class="btn btn-secondary btn-sm" onclick="resumeCluster('${c.namespace}', '${c.name}')" title="一键唤醒集群：拉起数据与计算节点恢复业务" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width: 13px; height: 13px; vertical-align: -2px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              唤醒
+             </button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="promptSuspendCluster('${c.namespace}', '${c.name}')" title="一键休眠集群：释放算力节点，缩容到0省钱，完整保留云盘存储" style="color: #f59e0b; border-color: rgba(245, 158, 11, 0.4);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width: 13px; height: 13px; vertical-align: -2px;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              休眠
+             </button>`;
 
         return `
           <tr>
@@ -3533,6 +3549,7 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   拓扑
                 </button>
+                ${suspendResumeBtn}
                 <button class="btn btn-secondary btn-sm" onclick="promptScale('${c.namespace}', '${c.name}', ${c.dataNodes}, ${c.computeNodes}, ${c.dfsReplicationFactor})" title="调整 DataNode / ComputeNode 副本">
                   扩缩容
                 </button>
@@ -3547,6 +3564,37 @@
           </tr>
         `;
       }).join('');
+    }
+
+    async function promptSuspendCluster(namespace, name) {
+      if (!confirm(`确定要休眠集群 "${name}" 吗？\n\n💡 机制说明：\n- 将安全优雅停止所有 Controller / DataNode / ComputeNode 算力容器，算力消耗降为 0。\n- 底层配合 AWS Karpenter / 弹性节点池时，底层 EC2 主机将自动关机销毁，不再产生 EC2 费用。\n- 所有 EBS 云盘与元数据将 100% 完整保留。\n- 随时可在 Dashboard 一键点击 “▶️ 唤醒” 恢复服务。`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/clusters/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/suspend`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '休眠失败');
+        showToast(data.message || '集群已进入休眠状态', 'success');
+        await fetchDashboardData();
+      } catch (err) {
+        showToast(`休眠失败: ${err.message}`, 'error');
+      }
+    }
+
+    async function resumeCluster(namespace, name) {
+      try {
+        const res = await fetch(`/api/clusters/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/resume`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '唤醒失败');
+        showToast(data.message || '集群正在唤醒恢复中...', 'success');
+        await fetchDashboardData();
+      } catch (err) {
+        showToast(`唤醒失败: ${err.message}`, 'error');
+      }
     }
 
     // Select Cluster & Render Topology

@@ -11,6 +11,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"dolphindb.io/operator/api/v1alpha1"
@@ -162,3 +163,59 @@ func TestDashboardNamespacesAndStorageClasses(t *testing.T) {
 		t.Fatalf("expected 200, got %d", wSC.Result().StatusCode)
 	}
 }
+
+func TestDashboardSuspendAndResume(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	testCluster := &v1alpha1.DolphinDBCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ddb",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.DolphinDBClusterSpec{
+			Mode:      v1alpha1.ModeCluster,
+			Version:   "3.00.5",
+			Suspended: false,
+		},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(testCluster).Build()
+	srv := NewServer(cli, nil, ":0", "default")
+
+	// 1. Suspend cluster
+	reqSuspend := httptest.NewRequest(http.MethodPost, "/api/clusters/default/test-ddb/suspend", nil)
+	wSuspend := httptest.NewRecorder()
+	srv.handleClusterSubRoutes(wSuspend, reqSuspend)
+
+	if wSuspend.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on suspend, got %d", wSuspend.Result().StatusCode)
+	}
+
+	// Verify cluster is now suspended in client
+	var updated v1alpha1.DolphinDBCluster
+	if err := cli.Get(reqSuspend.Context(), client.ObjectKey{Namespace: "default", Name: "test-ddb"}, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if !updated.Spec.Suspended {
+		t.Fatalf("expected cluster.Spec.Suspended = true")
+	}
+
+	// 2. Resume cluster
+	reqResume := httptest.NewRequest(http.MethodPost, "/api/clusters/default/test-ddb/resume", nil)
+	wResume := httptest.NewRecorder()
+	srv.handleClusterSubRoutes(wResume, reqResume)
+
+	if wResume.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on resume, got %d", wResume.Result().StatusCode)
+	}
+
+	if err := cli.Get(reqResume.Context(), client.ObjectKey{Namespace: "default", Name: "test-ddb"}, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.Suspended {
+		t.Fatalf("expected cluster.Spec.Suspended = false after resume")
+	}
+}
+
