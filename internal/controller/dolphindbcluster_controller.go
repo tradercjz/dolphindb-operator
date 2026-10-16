@@ -57,18 +57,14 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	logger.Info("Reconciling DolphinDBCluster", "name", cluster.Name, "mode", cluster.Spec.Mode)
 
-	// Reconcile the admin password FIRST. Everything below — the ACL key sync, the
-	// web config sync, backups, rolling restarts — has to log in as admin, and the
-	// password lives in the node's ACL metadata inside its home directory. When that
-	// directory is recreated the account silently reverts to the factory default and
-	// every one of those steps starts failing with
-	//   login("admin", "…") => The user name or password is incorrect.
-	// Calling it here, before anything else, is what makes the declared Secret the
-	// source of truth rather than a value that is read once and then lost.
-	if r.ensureAdminPasswordForCluster(ctx, cluster) {
-		// The controller is not reachable; requeue rather than continue without it.
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
+	// 0.35 Align the admin password BEFORE any step that needs to log in.
+	// reconcileWebUIConfigSync (0.4) authenticates with the declared Secret; if
+	// the controller still has the factory default, that login fails and used to
+	// abort the whole reconcile — so the rotation inside syncAclPublicKey (5.x)
+	// never ran and the cluster was stuck forever. This call is best-effort: when
+	// the controller pod does not exist yet (brand-new cluster) it is a no-op and
+	// the rotation is retried once the controller is up.
+	r.ensureAdminPasswordForCluster(ctx, cluster)
 
 	// Initialize FlowEngine if nil
 	if r.FlowEngine == nil {
