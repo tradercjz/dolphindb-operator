@@ -63,6 +63,7 @@ type PlatformInfo struct {
 
 	StorageClasses      []StorageClassSummary `json:"storageClasses"`
 	DefaultStorageClass string                `json:"defaultStorageClass,omitempty"`
+	StoragePresets      []StoragePreset       `json:"storagePresets,omitempty"`
 
 	// ImageRegistry / ImageRepository / DefaultVersion build the image reference
 	// shown in the wizard.
@@ -75,6 +76,21 @@ type PlatformInfo struct {
 	DefaultExpose ExposeDefaults `json:"defaultExpose"`
 	// DefaultServiceType is what an exposed component becomes by default.
 	DefaultServiceType string `json:"defaultServiceType"`
+}
+
+// StoragePreset is an opinionated, cloud-aware storage profile offered in the create wizard.
+type StoragePreset struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Category     string   `json:"category"`
+	Badge        string   `json:"badge,omitempty"`
+	Icon         string   `json:"icon,omitempty"`
+	Description  string   `json:"description"`
+	StorageClass string   `json:"storageClass"`
+	Available    bool     `json:"available"`
+	Selected     bool     `json:"selected"`
+	Tip          string   `json:"tip,omitempty"`
+	Features     []string `json:"features,omitempty"`
 }
 
 func envOr(key, def string) string {
@@ -114,6 +130,7 @@ func (s *Server) handlePlatform(w http.ResponseWriter, r *http.Request) {
 
 	info.Namespaces = s.listNamespaceOptions(ctx)
 	info.StorageClasses, info.DefaultStorageClass = s.listStorageClasses(ctx)
+	info.StoragePresets = buildStoragePresets(provider, info.StorageClasses, info.DefaultStorageClass)
 
 	jsonResponse(w, http.StatusOK, info)
 }
@@ -307,4 +324,232 @@ func storageClassHint(provisioner string) string {
 		return "node-local storage: data is tied to one node and is lost if that node is replaced"
 	}
 	return ""
+}
+
+// buildStoragePresets creates tailored, opinionated storage profiles based on the detected cloud.
+func buildStoragePresets(p exposure.Provider, classes []StorageClassSummary, defaultSC string) []StoragePreset {
+	findClass := func(nameSub, provSub string) *StorageClassSummary {
+		for i := range classes {
+			c := &classes[i]
+			if nameSub != "" && strings.Contains(strings.ToLower(c.Name), strings.ToLower(nameSub)) {
+				return c
+			}
+			if provSub != "" && strings.Contains(strings.ToLower(c.Provisioner), strings.ToLower(provSub)) {
+				return c
+			}
+		}
+		return nil
+	}
+
+	hasSC := func(name string) *StorageClassSummary {
+		for i := range classes {
+			if classes[i].Name == name {
+				return &classes[i]
+			}
+		}
+		return nil
+	}
+
+	var presets []StoragePreset
+
+	switch p {
+	case exposure.ProviderAWS:
+		// 1. EBS gp3 - Balanced & Cost-effective (Recommended)
+		gp3Class := findClass("gp3", "")
+		if gp3Class == nil {
+			gp3Class = hasSC("ebs-gp3-sc")
+		}
+		gp3Name := "ebs-gp3-sc"
+		gp3Avail := false
+		var gp3Tip string
+		if gp3Class != nil {
+			gp3Name = gp3Class.Name
+			gp3Avail = gp3Class.Usable
+			gp3Tip = gp3Class.Hint
+		} else {
+			gp3Tip = "未创建 ebs-gp3-sc 存储类 (可应用 config/samples/aws_eks_storageclass.yaml)"
+		}
+
+		// 2. EBS io2 Block Express - Financial Core / Low Latency
+		io2Class := findClass("io2", "")
+		if io2Class == nil {
+			io2Class = hasSC("ebs-io2-sc")
+		}
+		io2Name := "ebs-io2-sc"
+		io2Avail := false
+		var io2Tip string
+		if io2Class != nil {
+			io2Name = io2Class.Name
+			io2Avail = io2Class.Usable
+			io2Tip = io2Class.Hint
+		} else {
+			io2Tip = "未创建 ebs-io2-sc 存储类 (可应用 config/samples/aws_eks_storageclass.yaml)"
+		}
+
+		// 3. Local NVMe Instance Store - Extreme Throughput
+		localClass := findClass("local", "local-path")
+		if localClass == nil {
+			localClass = hasSC("local-path")
+		}
+		localName := "local-path"
+		localAvail := false
+		var localTip string
+		if localClass != nil {
+			localName = localClass.Name
+			localAvail = localClass.Usable
+			localTip = "本地物理盘随实例销毁而重置，建议数据节点副本数配置 dfsReplicationFactor >= 2"
+		} else {
+			localTip = "未检测到 local-path 存储类"
+		}
+
+		presets = []StoragePreset{
+			{
+				ID:           "gp3",
+				Name:         "EBS gp3 弹性云盘",
+				Category:     "高性价比通用型 (推荐)",
+				Badge:        "首选推荐",
+				Icon:         "⚖️",
+				Description:  "低成本云块存储，支持在线不停机扩容，IOPS (最高16,000) 与吞吐 (最高1,000MB/s) 独立按需调优",
+				StorageClass: gp3Name,
+				Available:    gp3Avail,
+				Tip:          gp3Tip,
+				Features:     []string{"在线热扩容", "吞吐独立调优", "成本仅为 io2 的 20%"},
+			},
+			{
+				ID:           "io2",
+				Name:         "EBS io2 Block Express",
+				Category:     "金融核心极速型",
+				Badge:        "亚毫秒延迟",
+				Icon:         "💎",
+				Description:  "最高 256,000 IOPS 及 4,000MB/s 吞吐，亚毫秒级稳定时延，99.999% 企业级持久性，支持节点故障跨机热漂移",
+				StorageClass: io2Name,
+				Available:    io2Avail,
+				Tip:          io2Tip,
+				Features:     []string{"256K IOPS", "亚毫秒时延", "99.999% 持久性"},
+			},
+			{
+				ID:           "local-nvme",
+				Name:         "EC2 本地 NVMe 实例存储",
+				Category:     "本地直通极致性能 (i4i/i3en)",
+				Badge:        "百万 IOPS",
+				Icon:         "🚀",
+				Description:  "直通 EC2 物理 PCIe 4.0 NVMe SSD，微秒级极低延迟与数 GB/s 吞吐，突破云盘网络上限；需配合 DFS 多副本容灾",
+				StorageClass: localName,
+				Available:    localAvail,
+				Tip:          localTip,
+				Features:     []string{"1,000,000+ IOPS", "微秒级超低延迟", "零网络传输开销"},
+			},
+			{
+				ID:           "custom",
+				Name:         "自定义存储类",
+				Category:     "高级手动指定",
+				Icon:         "⚙️",
+				Description:  "自由选择当前 Kubernetes 集群中已存在的任意 StorageClass",
+				StorageClass: defaultSC,
+				Available:    true,
+				Features:     []string{"自由指定", "支持任意 CSI 驱动"},
+			},
+		}
+
+	case exposure.ProviderAlibaba:
+		essdClass := findClass("alicloud-disk", "")
+		essdName := "alicloud-disk-topology"
+		essdAvail := false
+		if essdClass != nil {
+			essdName = essdClass.Name
+			essdAvail = essdClass.Usable
+		}
+		localClass := findClass("local", "")
+		localName := "local-path"
+		localAvail := false
+		if localClass != nil {
+			localName = localClass.Name
+			localAvail = localClass.Usable
+		}
+		presets = []StoragePreset{
+			{
+				ID:           "essd",
+				Name:         "阿里云 ESSD 云盘",
+				Category:     "高性能弹性云块存储",
+				Badge:        "推荐",
+				Icon:         "⚖️",
+				Description:  "极速 ESSD PL1/PL2 云盘，支持在线不停机扩容，高可靠性保障",
+				StorageClass: essdName,
+				Available:    essdAvail,
+				Features:     []string{"在线热扩容", "多副本可靠性"},
+			},
+			{
+				ID:           "local-disk",
+				Name:         "阿里云本地 NVMe 盘 (i3)",
+				Category:     "本地直通极致性能",
+				Badge:        "极致性能",
+				Icon:         "🚀",
+				Description:  "直通物理本地 NVMe 盘，提供百万级 IOPS 与超低延迟，需配合 DFS 副本容灾",
+				StorageClass: localName,
+				Available:    localAvail,
+				Features:     []string{"百万 IOPS", "零网络损耗"},
+			},
+			{
+				ID:           "custom",
+				Name:         "自定义存储类",
+				Category:     "高级手动指定",
+				Icon:         "⚙️",
+				Description:  "自由选择当前 Kubernetes 集群中已存在的任意 StorageClass",
+				StorageClass: defaultSC,
+				Available:    true,
+			},
+		}
+
+	default:
+		// Bare metal or other providers
+		presets = []StoragePreset{
+			{
+				ID:           "local",
+				Name:         "本地路径 / 本地盘 (Local Storage)",
+				Category:     "高性能本地存储 (推荐)",
+				Badge:        "推荐",
+				Icon:         "🚀",
+				Description:  "使用宿主机物理磁盘或本地目录，IOPS 最高、延迟最低，适合自建集群生产环境",
+				StorageClass: defaultSC,
+				Available:    defaultSC != "",
+				Features:     []string{"物理极限性能", "零网络损耗"},
+			},
+			{
+				ID:           "custom",
+				Name:         "自定义存储类",
+				Category:     "高级手动指定",
+				Icon:         "⚙️",
+				Description:  "自由选择当前 Kubernetes 集群中已存在的任意 StorageClass",
+				StorageClass: defaultSC,
+				Available:    true,
+			},
+		}
+	}
+
+	// Determine selected preset
+	selectedIdx := -1
+	for i, p := range presets {
+		if p.ID == "custom" {
+			continue
+		}
+		if p.StorageClass != "" && p.StorageClass == defaultSC && p.Available {
+			selectedIdx = i
+			break
+		}
+	}
+	if selectedIdx == -1 {
+		// Pick first available non-custom
+		for i, p := range presets {
+			if p.ID != "custom" && p.Available {
+				selectedIdx = i
+				break
+			}
+		}
+	}
+	if selectedIdx == -1 {
+		selectedIdx = 0
+	}
+	presets[selectedIdx].Selected = true
+
+	return presets
 }

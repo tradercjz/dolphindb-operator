@@ -855,7 +855,9 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		},
 	}
 
-	graceSeconds := int64(30)
+	// 120s graceful termination gives DolphinDB time to flush TSDB/OLAP cache
+	// and matches the AWS Spot 2-minute interruption / node drain window.
+	graceSeconds := int64(120)
 	compType := getLegacyComponentType(node.Spec.Role)
 	podLabels := map[string]string{
 		"app.kubernetes.io/name":      "dolphindb",

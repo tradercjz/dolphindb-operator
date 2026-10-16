@@ -89,6 +89,7 @@ const (
 	ProviderAWS     Provider = "aws"
 	ProviderGCP     Provider = "gcp"
 	ProviderAzure   Provider = "azure"
+	ProviderAlibaba Provider = "alicloud"
 	ProviderBare    Provider = "bare-metal"
 	ProviderUnknown Provider = "unknown"
 )
@@ -153,6 +154,8 @@ func providerFromID(id string) Provider {
 		return ProviderGCP
 	case strings.HasPrefix(id, "azure://"):
 		return ProviderAzure
+	case strings.HasPrefix(id, "alicloud://"):
+		return ProviderAlibaba
 	default:
 		return ProviderBare
 	}
@@ -163,7 +166,7 @@ func providerFromID(id string) Provider {
 // there is no controller to fulfil the request.
 func (p Provider) SupportsLoadBalancer() bool {
 	switch p {
-	case ProviderAWS, ProviderGCP, ProviderAzure:
+	case ProviderAWS, ProviderGCP, ProviderAzure, ProviderAlibaba:
 		return true
 	default:
 		return false
@@ -189,6 +192,8 @@ func (p Provider) DisplayName() string {
 		return "Google GKE"
 	case ProviderAzure:
 		return "Azure AKS"
+	case ProviderAlibaba:
+		return "Alibaba Cloud ACK"
 	case ProviderBare:
 		return "Self-managed Kubernetes"
 	default:
@@ -213,6 +218,13 @@ func DefaultAnnotations(p Provider, scheme Scheme) map[string]string {
 		if scheme == SchemeInternal {
 			out[AnnotationGCPInternal] = "internal"
 		}
+	case ProviderAlibaba:
+		if scheme == SchemeInternal {
+			out["service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type"] = "intranet"
+		} else {
+			out["service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type"] = "internet"
+		}
+		out["service.beta.kubernetes.io/alibaba-cloud-loadbalancer-spec"] = "slb.s1.small"
 	}
 	return out
 }
@@ -296,6 +308,15 @@ func BuildService(node *v1alpha1.DDBNode, opts Options) *corev1.Service {
 		BlockOwnerDeletion: &trueVal,
 	}
 
+	spec := corev1.ServiceSpec{
+		Type:     corev1.ServiceType(opts.Mode),
+		Selector: map[string]string{"dolphindb.io/node-alias": node.Spec.Alias},
+		Ports:    []corev1.ServicePort{svcPort},
+	}
+	if opts.Mode == ModeLoadBalancer {
+		spec.ExternalTrafficPolicy = corev1.ServiceExternalTrafficPolicyTypeLocal
+	}
+
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ServiceName(node.Name),
@@ -311,11 +332,7 @@ func BuildService(node *v1alpha1.DDBNode, opts Options) *corev1.Service {
 			Annotations:     annotations,
 			OwnerReferences: []metav1.OwnerReference{ownerRef},
 		},
-		Spec: corev1.ServiceSpec{
-			Type:     corev1.ServiceType(opts.Mode),
-			Selector: map[string]string{"dolphindb.io/node-alias": node.Spec.Alias},
-			Ports:    []corev1.ServicePort{svcPort},
-		},
+		Spec: spec,
 	}
 }
 
@@ -324,6 +341,9 @@ func BuildService(node *v1alpha1.DDBNode, opts Options) *corev1.Service {
 // would needlessly re-trigger the cloud load balancer reconciler.
 func Matches(svc *corev1.Service, desired *corev1.Service) bool {
 	if svc.Spec.Type != desired.Spec.Type {
+		return false
+	}
+	if svc.Spec.ExternalTrafficPolicy != desired.Spec.ExternalTrafficPolicy {
 		return false
 	}
 	for k, v := range desired.Annotations {

@@ -1975,10 +1975,14 @@
             </div>
           </div>
 
+          <div class="form-row" style="flex-direction: column;">
+            <div id="wiz-storage-presets-container" style="display:none; margin-bottom: 12px; width: 100%;"></div>
+          </div>
+
           <div class="form-row">
             <div class="form-group">
               <label>持久化存储类 (StorageClass)</label>
-              <select id="wiz-storageclass" class="form-control" onchange="renderStorageClasses(); updateWizardYAML();"></select>
+              <select id="wiz-storageclass" class="form-control" onchange="onStorageClassSelectChange(); updateWizardYAML();"></select>
               <div id="wiz-storageclass-note" style="display:none; font-size: 11px; color: var(--danger-text); margin-top: 4px;"></div>
             </div>
             <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
@@ -3226,6 +3230,127 @@
       }
     }
 
+    let selectedPresetId = '';
+
+    function renderStoragePresets() {
+      const container = document.getElementById('wiz-storage-presets-container');
+      if (!container) return;
+      if (!platformInfo || !platformInfo.storagePresets || platformInfo.storagePresets.length === 0) {
+        container.style.display = 'none';
+        return;
+      }
+      container.style.display = 'block';
+
+      if (!selectedPresetId) {
+        const sel = platformInfo.storagePresets.find(p => p.selected) || platformInfo.storagePresets[0];
+        selectedPresetId = sel ? sel.id : 'gp3';
+      }
+
+      const isAWS = platformInfo.provider === 'aws';
+      const headerTitle = isAWS ? '☁️ AWS 云原生推荐存储方案' : `${platformInfo.providerName} 推荐存储方案`;
+
+      const cardsHtml = platformInfo.storagePresets.map(preset => {
+        const isSelected = preset.id === selectedPresetId;
+        const borderCol = isSelected ? 'var(--primary)' : 'var(--border-color)';
+        const bgCol = isSelected ? 'rgba(24, 144, 255, 0.08)' : 'var(--bg-secondary)';
+        const badgeHtml = preset.badge ? `<span class="badge ${isSelected ? 'badge-primary' : 'badge-info'}" style="font-size: 11px; padding: 2px 6px;">${preset.badge}</span>` : '';
+        const featuresHtml = (preset.features || []).map(f => `<span style="display:inline-block; font-size:10px; background:rgba(255,255,255,0.06); padding:1px 5px; border-radius:3px; margin-right:4px; margin-top:3px;">${f}</span>`).join('');
+        const statusHtml = !preset.available && preset.id !== 'custom' 
+          ? `<div style="font-size: 10px; color: var(--danger-text); margin-top: 4px;">⚠ ${preset.tip || '不可用'}</div>` 
+          : '';
+        const scNameHtml = preset.storageClass ? `<span style="font-family: var(--font-mono); color: var(--primary); font-size: 11px;">${preset.storageClass}</span>` : '<span style="color:var(--text-muted); font-size:11px;">手动选择</span>';
+
+        return `
+          <div class="storage-preset-card" onclick="selectStoragePreset('${preset.id}')" style="
+            flex: 1; min-width: 210px; max-width: 320px; padding: 10px 12px; border: 1.5px solid ${borderCol};
+            background: ${bgCol}; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;
+            display: flex; flex-direction: column; justify-content: space-between; box-shadow: ${isSelected ? '0 0 8px rgba(24, 144, 255, 0.2)' : 'none'};">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <span style="font-weight: 600; font-size: 13px;">${preset.icon || '💾'} ${preset.name}</span>
+                ${badgeHtml}
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">${preset.description}</div>
+              <div style="margin-bottom: 6px;">${featuresHtml}</div>
+            </div>
+            <div style="border-top: 1px dashed var(--border-color); padding-top: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between;">
+              <span style="font-size: 11px; color: var(--text-dim);">存储类:</span>
+              ${scNameHtml}
+            </div>
+            ${statusHtml}
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 12px; font-weight: 600; color: var(--text-bright);">${headerTitle}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">已智能感知当前环境，点击方案卡片可自动推荐与绑定存储类</span>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">${cardsHtml}</div>
+      `;
+    }
+
+    function selectStoragePreset(presetId) {
+      selectedPresetId = presetId;
+      if (!platformInfo || !platformInfo.storagePresets) return;
+      const preset = platformInfo.storagePresets.find(p => p.id === presetId);
+      if (!preset) return;
+
+      const select = document.getElementById('wiz-storageclass');
+      if (preset.id === 'custom') {
+        if (select) {
+          select.focus();
+        }
+      } else if (preset.storageClass && select) {
+        let exists = false;
+        for (let i = 0; i < select.options.length; i++) {
+          if (select.options[i].value === preset.storageClass) {
+            select.selectedIndex = i;
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = preset.storageClass;
+          opt.textContent = `${preset.storageClass} · ${preset.available ? '可用' : '需安装/创建'}`;
+          select.appendChild(opt);
+          select.value = preset.storageClass;
+        }
+      }
+
+      renderStoragePresets();
+      onStorageClassSelectChange();
+      updateWizardYAML();
+
+      if (preset.id === 'local-nvme') {
+        showToast('💡 已选择本地 NVMe 存储：读写性能超百万 IOPS，建议数据节点副本数配为 2 或 3', 'info');
+      }
+    }
+
+    function onStorageClassSelectChange() {
+      const select = document.getElementById('wiz-storageclass');
+      if (!select) return;
+      const sel = select.options[select.selectedIndex];
+      const note = document.getElementById('wiz-storageclass-note');
+      if (note) {
+        note.textContent = sel && sel.title ? '⚠ ' + sel.title : '';
+        note.style.display = sel && sel.title ? 'block' : 'none';
+      }
+
+      // Sync preset selection card
+      if (platformInfo && platformInfo.storagePresets) {
+        const match = platformInfo.storagePresets.find(p => p.storageClass === select.value && p.id !== 'custom');
+        if (match) {
+          selectedPresetId = match.id;
+        } else {
+          selectedPresetId = 'custom';
+        }
+        renderStoragePresets();
+      }
+    }
+
     function renderStorageClasses() {
       const select = document.getElementById('wiz-storageclass');
       if (!select) return;
@@ -3248,6 +3373,8 @@
         note.textContent = sel && sel.title ? '⚠ ' + sel.title : '';
         note.style.display = sel && sel.title ? 'block' : 'none';
       }
+
+      renderStoragePresets();
 
       const tbody = document.getElementById('storageclasses-table-body');
       if (tbody) {

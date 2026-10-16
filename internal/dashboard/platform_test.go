@@ -192,3 +192,62 @@ func TestPlatformFallsBackWhenNoClassIsUsable(t *testing.T) {
 		t.Fatalf("no class is usable, so nothing should be preselected, got %q", info.DefaultStorageClass)
 	}
 }
+
+// AWS storage presets provide tailored options (gp3, io2, local-nvme, custom).
+func TestPlatformAWSStoragePresets(t *testing.T) {
+	csiNode := &storagev1.CSINode{
+		ObjectMeta: metav1.ObjectMeta{Name: "ip-10-0-0-1.ap-southeast-2.compute.internal"},
+		Spec: storagev1.CSINodeSpec{
+			Drivers: []storagev1.CSINodeDriver{
+				{Name: "ebs.csi.aws.com"},
+			},
+		},
+	}
+	csiDriver := &storagev1.CSIDriver{ObjectMeta: metav1.ObjectMeta{Name: "ebs.csi.aws.com"}}
+	scGp3 := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "ebs-gp3-sc"}, Provisioner: "ebs.csi.aws.com"}
+	scIo2 := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "ebs-io2-sc"}, Provisioner: "ebs.csi.aws.com"}
+	scLocal := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "local-path"}, Provisioner: "rancher.io/local-path"}
+
+	srv := platformServer(t, awsNodeForPlatform(), csiNode, csiDriver, scGp3, scIo2, scLocal)
+	info := callPlatform(t, srv)
+
+	if len(info.StoragePresets) != 4 {
+		t.Fatalf("expected 4 AWS storage presets, got %d", len(info.StoragePresets))
+	}
+
+	presetMap := map[string]StoragePreset{}
+	for _, p := range info.StoragePresets {
+		presetMap[p.ID] = p
+	}
+
+	gp3, ok := presetMap["gp3"]
+	if !ok || !gp3.Available || gp3.StorageClass != "ebs-gp3-sc" {
+		t.Fatalf("gp3 preset invalid: %+v", gp3)
+	}
+
+	io2, ok := presetMap["io2"]
+	if !ok || !io2.Available || io2.StorageClass != "ebs-io2-sc" {
+		t.Fatalf("io2 preset invalid: %+v", io2)
+	}
+
+	local, ok := presetMap["local-nvme"]
+	if !ok || !local.Available || local.StorageClass != "local-path" {
+		t.Fatalf("local-nvme preset invalid: %+v", local)
+	}
+
+	custom, ok := presetMap["custom"]
+	if !ok || !custom.Available {
+		t.Fatalf("custom preset invalid: %+v", custom)
+	}
+
+	// Exactly one preset must be selected
+	selectedCount := 0
+	for _, p := range info.StoragePresets {
+		if p.Selected {
+			selectedCount++
+		}
+	}
+	if selectedCount != 1 {
+		t.Fatalf("expected exactly 1 selected preset, got %d", selectedCount)
+	}
+}

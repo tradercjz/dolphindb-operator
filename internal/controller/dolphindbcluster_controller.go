@@ -304,6 +304,11 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 			needsUpdate = true
 		}
 
+		if svcType == corev1.ServiceTypeLoadBalancer && svc.Spec.ExternalTrafficPolicy != corev1.ServiceExternalTrafficPolicyTypeLocal {
+			svc.Spec.ExternalTrafficPolicy = corev1.ServiceExternalTrafficPolicyTypeLocal
+			needsUpdate = true
+		}
+
 		if !mapsEqual(svc.Spec.Selector, selector) {
 			svc.Spec.Selector = selector
 			needsUpdate = true
@@ -379,6 +384,9 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 			Selector: selector,
 			Ports:    desiredPorts,
 		},
+	}
+	if svcType == corev1.ServiceTypeLoadBalancer {
+		newSvc.Spec.ExternalTrafficPolicy = corev1.ServiceExternalTrafficPolicyTypeLocal
 	}
 
 	if err := ctrl.SetControllerReference(cluster, newSvc, r.Scheme); err != nil {
