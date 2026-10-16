@@ -89,7 +89,14 @@ func (r *DolphinDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	// 0.2 Check for scale-down before general reconciliation
-	handled, res, err := r.reconcileScaleDown(ctx, cluster)
+	handled, res, err := r.reconcileControllerScaleDown(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if handled {
+		return res, nil
+	}
+	handled, res, err = r.reconcileScaleDown(ctx, cluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -546,6 +553,12 @@ func (r *DolphinDBClusterReconciler) reconcileNodes(ctx context.Context, cluster
 				return err
 			}
 		}
+	}
+
+	// 1.5 If the controller count changed (scale up or down), restart node pods
+	// once so every node re-reads the controllerSite list rendered from the spec.
+	if err := r.restartOnControllerTopologyChange(ctx, cluster); err != nil {
+		return err
 	}
 
 	// 2. In cluster mode, sync ACL public key from Controller to Secret before launching DataNodes
@@ -1152,6 +1165,127 @@ func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBClu
 	baseURL := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
 	adminUser, adminPass := credentials.Resolve(context.Background(), r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
 	return ddbclient.NewClient(baseURL, adminUser, adminPass)
+}
+
+// annControllerTopology records the controller replica count the node pods were
+// last started with. Pods read the controllerSite list (rendered from spec) only
+// at startup, so any change to the controller count — up or down — needs a pod
+// restart to take effect; the annotation makes that restart happen exactly once.
+const annControllerTopology = "dolphindb.io/controller-topology"
+
+// reconcileControllerScaleDown removes excess controller DDBNodes when
+// spec.controller.replicas is reduced. reconcileScaleDown only handles data
+// nodes; controllers used to stay forever, so a 3->1 scale-down required
+// deleting DDBNodes by hand. Controllers are removed one per pass, highest
+// index first, and never below one. Once the excess are gone the surviving
+// pods restart once (see restartOnControllerTopologyChange) to re-read the
+// shrunken controllerSite list.
+func (r *DolphinDBClusterReconciler) reconcileControllerScaleDown(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone || cluster.Spec.Controller == nil {
+		return false, ctrl.Result{}, nil
+	}
+
+	var nodeList v1alpha1.DDBNodeList
+	if err := r.List(ctx, &nodeList, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/instance":  cluster.Name,
+		"app.kubernetes.io/component": string(v1alpha1.NodeRoleController),
+	}); err != nil {
+		return false, ctrl.Result{}, err
+	}
+
+	desired := cluster.Spec.Controller.Replicas
+	current := int32(len(nodeList.Items))
+	if current <= desired {
+		return false, ctrl.Result{}, nil
+	}
+	if desired < 1 {
+		log.FromContext(ctx).Error(fmt.Errorf("a cluster needs at least one controller"),
+			"Controller scale-down request rejected", "desired", desired)
+		return false, ctrl.Result{}, nil
+	}
+
+	highest := nodeList.Items[0]
+	for _, n := range nodeList.Items[1:] {
+		if n.Spec.Index > highest.Spec.Index {
+			highest = n
+		}
+	}
+
+	log.FromContext(ctx).Info("Detected controller scale-down, removing highest-index controller",
+		"candidate", highest.Name, "current", current, "desired", desired)
+
+	if err := r.Delete(ctx, &highest); err != nil && !errors.IsNotFound(err) {
+		return true, ctrl.Result{}, err
+	}
+	// One controller per pass: the next reconcile re-renders the config for the
+	// survivors, and when current == desired the topology restart finishes the job.
+	return true, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+// restartOnControllerTopologyChange restarts node pods once after the cluster
+// topology (controller or datanode count) changed:
+//
+//   - controller count changed: every node restarts, because all nodes carry the
+//     controllerSite list and only read it at startup. Without this, a removed
+//     controller stays in the datanodes' config (they heartbeat into the void)
+//     and an added controller never joins Raft.
+//   - only the datanode count changed: the controllers restart, because they read
+//     cluster.nodes at startup only — a newly added datanode stays "Unknown chunk
+//     node" forever otherwise (observed live: writes failed with "found 0"
+//     datanodes until the controller was bounced).
+func (r *DolphinDBClusterReconciler) restartOnControllerTopologyChange(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
+	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
+		return nil
+	}
+	ctlReplicas := int32(0)
+	dnReplicas := int32(0)
+	if cluster.Spec.Controller != nil {
+		ctlReplicas = cluster.Spec.Controller.Replicas
+	} else {
+		return nil
+	}
+	if cluster.Spec.DataNode != nil {
+		dnReplicas = cluster.Spec.DataNode.Replicas
+	}
+	desired := fmt.Sprintf("ctl:%d,dn:%d", ctlReplicas, dnReplicas)
+	current := cluster.Annotations[annControllerTopology]
+	if current == "" {
+		// First sighting of this cluster: record without restarting, so adopting
+		// an existing cluster does not bounce every pod.
+		return r.setControllerTopology(ctx, cluster, desired)
+	}
+	if current == desired {
+		return nil
+	}
+
+	ctlChanged := strings.Split(current, ",")[0] != strings.Split(desired, ",")[0]
+
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/name":     "dolphindb",
+		"app.kubernetes.io/instance": cluster.Name,
+	}); err != nil {
+		return err
+	}
+	for i := range pods.Items {
+		if !ctlChanged && pods.Items[i].Labels["app.kubernetes.io/component"] != string(v1alpha1.NodeRoleController) {
+			continue // datanode-only change: only the controllers must re-read cluster.nodes
+		}
+		if err := r.Delete(ctx, &pods.Items[i]); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+	}
+	log.FromContext(ctx).Info("Cluster topology changed, restarted node pods",
+		"from", current, "to", desired, "controllersOnly", !ctlChanged)
+	return r.setControllerTopology(ctx, cluster, desired)
+}
+
+func (r *DolphinDBClusterReconciler) setControllerTopology(ctx context.Context, cluster *v1alpha1.DolphinDBCluster, topology string) error {
+	if cluster.Annotations == nil {
+		cluster.Annotations = map[string]string{}
+	}
+	cluster.Annotations[annControllerTopology] = topology
+	return r.Update(ctx, cluster)
 }
 
 func (r *DolphinDBClusterReconciler) reconcileScaleDown(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {

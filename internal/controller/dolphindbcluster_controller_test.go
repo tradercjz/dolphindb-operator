@@ -167,3 +167,168 @@ func TestEnsureDDBNodeClearsStaleFingerprint(t *testing.T) {
 		t.Fatalf("stale fingerprint must be cleared, got %+v", node.Spec.Fingerprint)
 	}
 }
+
+func clusterModeCluster(controllerReplicas int32) *v1alpha1.DolphinDBCluster {
+	return &v1alpha1.DolphinDBCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ddb-ha",
+			Namespace: "ddb",
+			UID:       "uid-ha",
+		},
+		Spec: v1alpha1.DolphinDBClusterSpec{
+			Mode:       v1alpha1.ModeCluster,
+			Version:    "3.00.5",
+			Controller: &v1alpha1.ControllerGroupSpec{Replicas: controllerReplicas, Port: 8900},
+			DataNode:   &v1alpha1.DataNodeGroupSpec{Replicas: 1},
+		},
+	}
+}
+
+func ctlNode(name, cluster string, index int32) *v1alpha1.DDBNode {
+	return &v1alpha1.DDBNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "ddb",
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":  cluster,
+				"app.kubernetes.io/component": string(v1alpha1.NodeRoleController),
+			},
+		},
+		Spec: v1alpha1.DDBNodeSpec{
+			Alias:       name,
+			ClusterName: cluster,
+			Role:        v1alpha1.NodeRoleController,
+			Index:       index,
+		},
+	}
+}
+
+// Regression: reducing spec.controller.replicas used to leave the excess
+// controller DDBNodes running forever; operators had to delete them by hand.
+func TestReconcileControllerScaleDownRemovesHighestIndex(t *testing.T) {
+	cluster := clusterModeCluster(1) // scaled 3 -> 1
+	r := newClusterReconciler(t, cluster,
+		ctlNode("ddb-ha-ctl-0", "ddb-ha", 0),
+		ctlNode("ddb-ha-ctl-1", "ddb-ha", 1),
+		ctlNode("ddb-ha-ctl-2", "ddb-ha", 2))
+
+	handled, _, err := r.reconcileControllerScaleDown(context.Background(), cluster)
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	for _, name := range []string{"ddb-ha-ctl-2"} {
+		var n v1alpha1.DDBNode
+		if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: name}, &n); err == nil {
+			t.Errorf("%s should have been deleted", name)
+		}
+	}
+	for _, name := range []string{"ddb-ha-ctl-0", "ddb-ha-ctl-1"} {
+		var n v1alpha1.DDBNode
+		if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: name}, &n); err != nil {
+			t.Errorf("%s should survive: %v", name, err)
+		}
+	}
+}
+
+func TestReconcileControllerScaleDownRejectsBelowOne(t *testing.T) {
+	cluster := clusterModeCluster(0)
+	r := newClusterReconciler(t, cluster,
+		ctlNode("ddb-ha-ctl-0", "ddb-ha", 0),
+		ctlNode("ddb-ha-ctl-1", "ddb-ha", 1))
+
+	handled, _, err := r.reconcileControllerScaleDown(context.Background(), cluster)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if handled {
+		t.Fatal("scale-down below 1 controller must be rejected without doing work")
+	}
+	var n v1alpha1.DDBNode
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-1"}, &n); err != nil {
+		t.Fatal("no node may be deleted when the request is rejected")
+	}
+}
+
+func TestRestartOnControllerTopologyChangeRecordsWithoutBouncingOnAdoption(t *testing.T) {
+	cluster := clusterModeCluster(2)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "ddb-ha-ctl-0", Namespace: "ddb"}}
+	r := newClusterReconciler(t, cluster, pod)
+
+	if err := r.restartOnControllerTopologyChange(context.Background(), cluster); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if got := cluster.Annotations[annControllerTopology]; got != "ctl:2,dn:1" {
+		t.Fatalf("annotation = %q, want ctl:2,dn:1", got)
+	}
+	var p corev1.Pod
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-0"}, &p); err != nil {
+		t.Fatal("adoption must not restart pods")
+	}
+}
+
+func TestRestartOnControllerTopologyChangeRestartsWhenChanged(t *testing.T) {
+	cluster := clusterModeCluster(1)
+	cluster.Annotations = map[string]string{annControllerTopology: "ctl:2,dn:1"} // controller count changed 2 -> 1
+	r := newClusterReconciler(t, cluster,
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "ddb-ha-ctl-0", Namespace: "ddb", Labels: map[string]string{"app.kubernetes.io/name": "dolphindb", "app.kubernetes.io/instance": "ddb-ha"}}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "ddb-ha-dn-0", Namespace: "ddb", Labels: map[string]string{"app.kubernetes.io/name": "dolphindb", "app.kubernetes.io/instance": "ddb-ha"}}})
+
+	if err := r.restartOnControllerTopologyChange(context.Background(), cluster); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	var p corev1.Pod
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-0"}, &p); err == nil {
+		t.Error("master controller pod must be restarted too (it re-reads the peer list)")
+	}
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-dn-0"}, &p); err == nil {
+		t.Error("datanode pod must be restarted to re-read controllerSite")
+	}
+	if got := cluster.Annotations[annControllerTopology]; got != "ctl:1,dn:1" {
+		t.Fatalf("annotation = %q, want ctl:1,dn:1", got)
+	}
+}
+
+func TestRestartOnControllerTopologyChangeIsNoopWhenCurrent(t *testing.T) {
+	cluster := clusterModeCluster(2)
+	cluster.Annotations = map[string]string{annControllerTopology: "ctl:2,dn:1"}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "ddb-ha-ctl-0", Namespace: "ddb"}}
+	r := newClusterReconciler(t, cluster, pod)
+
+	if err := r.restartOnControllerTopologyChange(context.Background(), cluster); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	var p corev1.Pod
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-0"}, &p); err != nil {
+		t.Fatal("matching topology must not restart pods")
+	}
+}
+
+// Regression: adding a datanode used to leave the controller blind — it reads
+// cluster.nodes at startup only, so writes failed with "found 0" datanodes
+// until someone bounced the controller by hand.
+func TestRestartOnTopologyDatanodeOnlyRestartsControllersOnly(t *testing.T) {
+	cluster := clusterModeCluster(1)
+	cluster.Spec.DataNode.Replicas = 2 // datanodes scaled 1 -> 2
+	cluster.Annotations = map[string]string{annControllerTopology: "ctl:1,dn:1"}
+	ctlPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "ddb-ha-ctl-0", Namespace: "ddb",
+		Labels: map[string]string{"app.kubernetes.io/name": "dolphindb", "app.kubernetes.io/instance": "ddb-ha", "app.kubernetes.io/component": "controller"}}}
+	dnPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "ddb-ha-dn-1", Namespace: "ddb",
+		Labels: map[string]string{"app.kubernetes.io/name": "dolphindb", "app.kubernetes.io/instance": "ddb-ha", "app.kubernetes.io/component": "datanode"}}}
+	r := newClusterReconciler(t, cluster, ctlPod, dnPod)
+
+	if err := r.restartOnControllerTopologyChange(context.Background(), cluster); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	var p corev1.Pod
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-ctl-0"}, &p); err == nil {
+		t.Error("controller pod must be restarted to re-read cluster.nodes")
+	}
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "ddb", Name: "ddb-ha-dn-1"}, &p); err != nil {
+		t.Error("surviving datanode pod must NOT be restarted for a datanode-only change")
+	}
+	if got := cluster.Annotations[annControllerTopology]; got != "ctl:1,dn:2" {
+		t.Fatalf("annotation = %q, want ctl:1,dn:2", got)
+	}
+}
