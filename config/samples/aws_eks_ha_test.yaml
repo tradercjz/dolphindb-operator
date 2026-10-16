@@ -1,0 +1,56 @@
+# 高可用测试集群：3 控制节点（Raft）+ 2 数据节点 + 复制因子 2
+#
+# 注意：受 Free Tier EC2 配额限制（5 vCPU），本环境只有 2 个节点。
+# 3 个控制节点用 antiAffinity: Preferred 允许 2 个落在同一节点上 —— 这能完整
+# 测试 Raft 选主与故障转移机制，但**不是真正的节点级高可用**。真实 HA 需要
+# 3 个节点（需申请 EC2 配额提升到 6 vCPU 以上）。
+#
+# 数据节点 2 个 + dfsReplicationFactor 2：每个 chunk 在两个数据节点上各有一份，
+# 任意一个数据节点（或其所在节点）损坏，数据仍可读，DFS 会自动补副本。
+apiVersion: dolphindb.io/v1alpha1
+kind: DolphinDBCluster
+metadata:
+  name: ddb-ha
+  namespace: dolphindb-system
+spec:
+  version: "3.00.5"
+  image: "dolphindb/dolphindb:v3.00.5"
+  mode: "cluster"
+  controller:
+    replicas: 3
+    port: 8900
+    antiAffinity: "Preferred"      # 配额限制：2 节点上放 3 控制节点，必有同节点
+    resources:
+      requests: { cpu: "200m", memory: "1Gi" }
+      limits:   { cpu: "1",    memory: "2Gi" }
+    storage:
+      storageClassName: "local-path"
+      metaVolumeSize: "5Gi"
+    config:
+      dfsHAMode: "Raft"
+      dfsReplicationFactor: "2"
+      dfsReplicaReliabilityLevel: "1"
+      dataSync: "1"
+  datanode:
+    replicas: 2
+    port: 8901
+    antiAffinity: "Required"       # 两个数据节点必须分属不同节点
+    resources:
+      requests: { cpu: "300m", memory: "1500Mi" }
+      limits:   { cpu: "1",    memory: "2Gi" }
+    storage:
+      storageClassName: "local-path"
+      metaVolumeSize: "5Gi"
+      dataVolumeCount: 1
+      dataVolumeSize: "10Gi"
+    config:
+      chunkCacheEngineMemSize: "1"
+      TSDBCacheEngineSize: "1"
+  security:
+    adminSecretName: "dolphindb-admin"
+    tls:
+      enabled: true
+  networking:
+    expose:
+      controller: true             # Web 控制台走一个 LB
+      datanode: true               # 数据节点走另一个 LB（数据操作必须连它）

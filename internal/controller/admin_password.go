@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"dolphindb.io/operator/api/v1alpha1"
@@ -65,6 +68,28 @@ func postDDBScript(ctx context.Context, baseURL, script string) (string, error) 
 		return "", nil
 	}
 	return out.Object[0].Value, nil
+}
+
+// ensureAdminPasswordForCluster finds the running controller and reconciles its
+// admin password. It returns true when the controller is not reachable, which means
+// the caller should requeue rather than proceed.
+func (r *DolphinDBClusterReconciler) ensureAdminPasswordForCluster(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) bool {
+	ctlPodName := cluster.Name + "-ctl-0"
+	if cluster.Status.MasterController != "" {
+		ctlPodName = cluster.Status.MasterController
+	}
+	ctlPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err != nil ||
+		ctlPod.Status.Phase != corev1.PodRunning || ctlPod.Status.PodIP == "" {
+		return true
+	}
+	ctlPort := int32(8900)
+	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
+		ctlPort = cluster.Spec.Controller.Port
+	}
+	baseURL := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
+	r.ensureAdminPassword(ctx, cluster, baseURL)
+	return false
 }
 
 // ensureAdminPassword aligns DolphinDB's admin password with the declared Secret.
