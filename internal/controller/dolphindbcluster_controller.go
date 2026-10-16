@@ -1,11 +1,13 @@
 package controller
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,7 +24,9 @@ import (
 
 	"dolphindb.io/operator/api/v1alpha1"
 	"dolphindb.io/operator/internal/config"
+	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
+	"dolphindb.io/operator/internal/exposure"
 	"dolphindb.io/operator/internal/flowengine"
 	"dolphindb.io/operator/internal/metrics"
 	"dolphindb.io/operator/internal/paramdict"
@@ -189,10 +193,10 @@ func (r *DolphinDBClusterReconciler) ensureHeadlessService(ctx context.Context, 
 }
 
 func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
-	svcType := corev1.ServiceTypeClusterIP
-	if cluster.Spec.Networking.ServiceType != "" {
-		svcType = cluster.Spec.Networking.ServiceType
-	}
+	// Exposure is resolved per component: an exposed component needs its own Service
+	// and therefore its own cloud load balancer.
+	plan := resolveExposure(cluster, r.provider(ctx))
+	svcType := plan.Controller
 
 	if cluster.Spec.Mode == v1alpha1.ModeStandalone {
 		port := int32(8848)
@@ -240,7 +244,7 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 		dnPorts := []corev1.ServicePort{
 			{Name: "dn-port", Port: dnPort, TargetPort: intstr.FromInt(int(dnPort))},
 		}
-		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-dn", cluster.Name), svcType, dnSelector, dnPorts); err != nil {
+		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-dn", cluster.Name), plan.DataNode, dnSelector, dnPorts); err != nil {
 			return err
 		}
 	}
@@ -258,7 +262,7 @@ func (r *DolphinDBClusterReconciler) ensureAccessService(ctx context.Context, cl
 		cnPorts := []corev1.ServicePort{
 			{Name: "cn-port", Port: cnPort, TargetPort: intstr.FromInt(int(cnPort))},
 		}
-		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-cn", cluster.Name), svcType, cnSelector, cnPorts); err != nil {
+		if err := r.reconcileSingleAccessService(ctx, cluster, fmt.Sprintf("%s-cn", cluster.Name), plan.ComputeNode, cnSelector, cnPorts); err != nil {
 			return err
 		}
 	}
@@ -289,17 +293,20 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 			needsUpdate = true
 		}
 
-		// Sync custom annotations (e.g. Alibaba Cloud SLB / AWS NLB annotations)
-		if len(cluster.Spec.Networking.Annotations) > 0 {
+		// Sync custom annotations (e.g. Alibaba Cloud SLB / AWS NLB annotations) and
+		// the exposure protocol, which changes when native HTTPS is toggled.
+		for k, v := range accessServiceAnnotations(cluster, r.provider(ctx)) {
 			if svc.Annotations == nil {
 				svc.Annotations = make(map[string]string)
 			}
-			for k, v := range cluster.Spec.Networking.Annotations {
-				if svc.Annotations[k] != v {
-					svc.Annotations[k] = v
-					needsUpdate = true
-				}
+			if svc.Annotations[k] != v {
+				svc.Annotations[k] = v
+				needsUpdate = true
 			}
+		}
+		if !tlsEnabled(cluster) && svc.Annotations[exposure.AnnotationProtocol] != "" {
+			delete(svc.Annotations, exposure.AnnotationProtocol)
+			needsUpdate = true
 		}
 
 		portsMismatch := len(svc.Spec.Ports) != len(desiredPorts)
@@ -339,13 +346,7 @@ func (r *DolphinDBClusterReconciler) reconcileSingleAccessService(
 		return err
 	}
 
-	var svcAnnotations map[string]string
-	if len(cluster.Spec.Networking.Annotations) > 0 {
-		svcAnnotations = make(map[string]string)
-		for k, v := range cluster.Spec.Networking.Annotations {
-			svcAnnotations[k] = v
-		}
-	}
+	svcAnnotations := accessServiceAnnotations(cluster, r.provider(ctx))
 
 	newSvc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -664,10 +665,9 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	}
 
 	if cluster.Spec.License.MachineFingerprint != nil {
+		// Host-bound licensing is strictly opt-in: the fingerprint block carries the
+		// operator's licence path and cannot be guessed, so no path is invented here.
 		nodeSpec.Fingerprint = cluster.Spec.License.MachineFingerprint.DeepCopy()
-		if nodeSpec.Fingerprint.LicensePath == "" {
-			nodeSpec.Fingerprint.LicensePath = "/home/jzchen/dolphindb.lic"
-		}
 		if cluster.Spec.Mode == v1alpha1.ModeStandalone {
 			if nodeSpec.NodeName == "" && cluster.Spec.License.MachineFingerprint.NodeName != "" {
 				nodeSpec.NodeName = cluster.Spec.License.MachineFingerprint.NodeName
@@ -675,15 +675,6 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 			if nodeSpec.Hostname == "" && cluster.Spec.License.MachineFingerprint.Hostname != "" {
 				nodeSpec.Hostname = cluster.Spec.License.MachineFingerprint.Hostname
 			}
-		}
-	} else if cluster.Spec.License.Mode == v1alpha1.LicenseModeMachineFingerprint || cluster.Spec.License.Mode == "" {
-		// Auto-default fingerprint if mode is machineFingerprint
-		nodeSpec.Fingerprint = &v1alpha1.MachineFingerprintSpec{
-			AutoPassthrough: true,
-			MountMachineId:  true,
-			MountHostEtc:    true,
-			UseHostName:     true,
-			LicensePath:     "/home/jzchen/dolphindb.lic",
 		}
 	}
 
@@ -693,7 +684,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 		if binding.Hostname != "" {
 			nodeSpec.Hostname = binding.Hostname
 		} else if cluster.Spec.Mode == v1alpha1.ModeStandalone {
-			nodeSpec.Hostname = binding.NodeName
+			nodeSpec.Hostname = SanitizeHostname(binding.NodeName)
 		}
 		if binding.LicenseSecretName != "" {
 			nodeSpec.LicenseSecretName = binding.LicenseSecretName
@@ -701,7 +692,7 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	} else if nodeSpec.NodeName == "" && defaultNodeName != "" {
 		nodeSpec.NodeName = defaultNodeName
 		if cluster.Spec.Mode == v1alpha1.ModeStandalone && nodeSpec.Hostname == "" {
-			nodeSpec.Hostname = defaultNodeName
+			nodeSpec.Hostname = SanitizeHostname(defaultNodeName)
 		}
 	}
 
@@ -753,6 +744,23 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 	nodeSpec.NodeSelector = cluster.Spec.Scheduling.NodeSelector
 	nodeSpec.Tolerations = cluster.Spec.Scheduling.Tolerations
 
+	// Native HTTPS: make sure the certificate exists before the pod that consumes
+	// it is created, and hand the node everything it needs (secret, advertised
+	// domain, and a hash that rolls the node when the certificate is reissued).
+	if tlsEnabled(cluster) && roleServesHTTPS(role) {
+		publicName := r.resolvePublicName(ctx, cluster)
+		tlsSecret, tlsHash, tlsManaged, err := r.ensureTLSSecret(ctx, cluster, tlsHosts(cluster, publicName, r.exposedHostname(ctx, cluster)))
+		if err != nil {
+			return err
+		}
+		nodeSpec.TLS = &v1alpha1.NodeTLSSpec{
+			SecretName: tlsSecret,
+			PublicName: publicName,
+			Hash:       tlsHash,
+			Managed:    tlsManaged,
+		}
+	}
+
 	existing := &v1alpha1.DDBNode{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, existing)
 	if err == nil {
@@ -775,6 +783,31 @@ func (r *DolphinDBClusterReconciler) ensureDDBNode(
 			}
 			if existing.Spec.Fingerprint.UseHostName != nodeSpec.Fingerprint.UseHostName {
 				existing.Spec.Fingerprint.UseHostName = nodeSpec.Fingerprint.UseHostName
+				needsUpdate = true
+			}
+		} else if existing.Spec.Fingerprint != nil && nodeSpec.Fingerprint == nil {
+			// Host-bound licensing is opt-in, so removing it from the CR has to be
+			// reflected here too. Without this branch a stale fingerprint persisted
+			// forever, which kept hostPath mounts (and their startup failures) alive
+			// even after the user switched to a Secret-based licence.
+			existing.Spec.Fingerprint = nil
+			needsUpdate = true
+		}
+
+		// Same for TLS: it must be possible to turn HTTPS off again, and a rotated
+		// certificate has to reach the pod template so the node rolls.
+		switch {
+		case existing.Spec.TLS == nil && nodeSpec.TLS != nil:
+			existing.Spec.TLS = nodeSpec.TLS
+			needsUpdate = true
+		case existing.Spec.TLS != nil && nodeSpec.TLS == nil:
+			existing.Spec.TLS = nil
+			needsUpdate = true
+		case existing.Spec.TLS != nil && nodeSpec.TLS != nil:
+			if existing.Spec.TLS.SecretName != nodeSpec.TLS.SecretName ||
+				existing.Spec.TLS.PublicName != nodeSpec.TLS.PublicName ||
+				existing.Spec.TLS.Hash != nodeSpec.TLS.Hash {
+				existing.Spec.TLS = nodeSpec.TLS
 				needsUpdate = true
 			}
 		}
@@ -898,7 +931,8 @@ func (r *DolphinDBClusterReconciler) updateClusterStatus(ctx context.Context, cl
 						if cluster.Spec.Controller.Port > 0 {
 							ctlPort = cluster.Spec.Controller.Port
 						}
-						c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort), "admin", "123456")
+						adminUser, adminPass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+						c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort), adminUser, adminPass)
 						alias, err := c.GetLeaderControllerAlias(ctx)
 						if err == nil && alias != "" {
 							leaderAlias = alias
@@ -1013,78 +1047,47 @@ func rolePrefix(role v1alpha1.NodeRole) string {
 	}
 }
 
+// syncAclPublicKey publishes the cluster's shared ACL keypair.
+//
+// DolphinDB uses this RSA pair for inter-node message encryption and keeps it at
+// `<HOME_DIR>/<NodeAlias>/keys` (aclPublic.key + aclPrivate.key). Two behaviours
+// matter, both measured on a live cluster:
+//
+//   - a node that finds only ONE of the two files treats the pair as missing and
+//     generates its own, silently replacing whatever it was given. Handing data
+//     nodes just the controller's public key therefore produced
+//     `Failed to decrypt the given message by RSA private key` and the data nodes
+//     never started;
+//   - the controller regenerates its pair whenever its home directory is recreated,
+//     which invalidates anything that was distributed beforehand.
+//
+// So the operator owns one pair for the whole cluster and publishes both halves.
+// Every node installs it at start-up; nothing depends on which node generated what.
 func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) error {
-	ctlPodName := fmt.Sprintf("%s-ctl-0", cluster.Name)
-	ctlPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ctlPodName}, ctlPod); err != nil {
-		return err
-	}
-	if ctlPod.Status.Phase != corev1.PodRunning || ctlPod.Status.PodIP == "" {
-		return fmt.Errorf("controller pod not running yet")
-	}
-
-	ctlPort := int32(8900)
-	if cluster.Spec.Controller != nil && cluster.Spec.Controller.Port > 0 {
-		ctlPort = cluster.Spec.Controller.Port
-	}
-
-	url := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
-	payload := map[string]interface{}{
-		"functionName": "executeCode",
-		"params": []map[string]string{
-			{
-				"name":  "script",
-				"form":  "scalar",
-				"type":  "string",
-				"value": `login("admin", "123456"); concat(funcByName("getAclPublicKey")())`,
-			},
-		},
-	}
-	bodyBytes, _ := json.Marshal(payload)
-
-	clientHttp := &http.Client{
-		Transport: &http.Transport{
-			Proxy:             nil,
-			DisableKeepAlives: true,
-		},
-		Timeout: 5 * time.Second,
-	}
-	resp, err := clientHttp.Post(url, "application/json", bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var ddbResp struct {
-		ResultCode string `json:"resultCode"`
-		Msg        string `json:"msg"`
-		Object     []struct {
-			Value string `json:"value"`
-		} `json:"object"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&ddbResp); err != nil {
-		return err
-	}
-	if ddbResp.ResultCode != "0" || len(ddbResp.Object) == 0 || ddbResp.Object[0].Value == "" {
-		return fmt.Errorf("failed to get acl public key: %s", ddbResp.Msg)
-	}
-
-	keyData := []byte(ddbResp.Object[0].Value)
 	secretName := fmt.Sprintf("%s-acl-keys", cluster.Name)
+
 	existingSec := &corev1.Secret{}
-	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, existingSec)
-	if err == nil {
-		if bytes.Equal(existingSec.Data["aclPublic.key"], keyData) {
-			return nil
-		}
-		if existingSec.Data == nil {
-			existingSec.Data = make(map[string][]byte)
-		}
-		existingSec.Data["aclPublic.key"] = keyData
-		return r.Update(ctx, existingSec)
+	err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, existingSec)
+	if err == nil && len(existingSec.Data["aclPrivate.key"]) > 0 && len(existingSec.Data["aclPublic.key"]) > 0 {
+		return nil // already published
 	}
-	if !errors.IsNotFound(err) {
+	if err != nil && !errors.IsNotFound(err) {
 		return err
+	}
+
+	keyPEM, pubPEM, genErr := generateACLKeyPair()
+	if genErr != nil {
+		return genErr
+	}
+
+	data := map[string][]byte{"aclPrivate.key": keyPEM, "aclPublic.key": pubPEM}
+	if err == nil {
+		if existingSec.Data == nil {
+			existingSec.Data = map[string][]byte{}
+		}
+		existingSec.Data["aclPrivate.key"] = keyPEM
+		existingSec.Data["aclPublic.key"] = pubPEM
+		return r.Update(ctx, existingSec)
 	}
 
 	newSec := &corev1.Secret{
@@ -1092,18 +1095,33 @@ func (r *DolphinDBClusterReconciler) syncAclPublicKey(ctx context.Context, clust
 			Name:      secretName,
 			Namespace: cluster.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name":     "dolphindb",
-				"app.kubernetes.io/instance": cluster.Name,
+				"app.kubernetes.io/name":      "dolphindb",
+				"app.kubernetes.io/instance":  cluster.Name,
+				"app.kubernetes.io/component": "acl-keys",
 			},
 		},
-		Data: map[string][]byte{
-			"aclPublic.key": keyData,
-		},
+		Data: data,
 	}
 	if err := ctrl.SetControllerReference(cluster, newSec, r.Scheme); err != nil {
 		return err
 	}
 	return r.Create(ctx, newSec)
+}
+
+// generateACLKeyPair returns an RSA keypair in the PEM encodings DolphinDB writes
+// and reads: PKCS#1 ("RSA PRIVATE KEY") and PKIX ("PUBLIC KEY").
+func generateACLKeyPair() (keyPEM, pubPEM []byte, err error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyDER := x509.MarshalPKCS1PrivateKey(key)
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}), nil
 }
 
 func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBCluster) *ddbclient.Client {
@@ -1123,7 +1141,8 @@ func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBClu
 		ctlPort = cluster.Spec.Controller.Port
 	}
 	baseURL := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
-	return ddbclient.NewClient(baseURL, "admin", "123456")
+	adminUser, adminPass := credentials.Resolve(context.Background(), r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+	return ddbclient.NewClient(baseURL, adminUser, adminPass)
 }
 
 func (r *DolphinDBClusterReconciler) reconcileScaleDown(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) (bool, ctrl.Result, error) {

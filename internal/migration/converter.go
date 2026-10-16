@@ -13,6 +13,36 @@ import (
 )
 
 // ConvertLegacyCluster translates legacy cluster configuration into the new DolphinDBCluster CR
+// migrationDefaultLicenseSecret is the conventional Secret holding dolphindb.lic.
+const migrationDefaultLicenseSecret = "dolphindb-license"
+
+// buildLicenseSpec decides how the migrated cluster obtains its licence.
+//
+// Host-bound (machineFingerprint) licensing is only preserved when the caller
+// supplies a real licence path. The operator cannot know where the file lives on
+// the target hosts, and inventing a path made every Pod fail to start on any
+// machine other than the one the operator was originally written on.
+func buildLicenseSpec(opts ConversionOptions) v1alpha1.LicenseSpec {
+	if opts.UseSecretLicense || opts.LicensePath == "" {
+		return v1alpha1.LicenseSpec{
+			Mode:       v1alpha1.LicenseModeSecret,
+			SecretName: migrationDefaultLicenseSecret,
+			AutoReload: true,
+		}
+	}
+	return v1alpha1.LicenseSpec{
+		Mode:       v1alpha1.LicenseModeMachineFingerprint,
+		AutoReload: true,
+		MachineFingerprint: &v1alpha1.MachineFingerprintSpec{
+			AutoPassthrough: true,
+			MountMachineId:  true,
+			MountHostEtc:    true,
+			UseHostName:     true,
+			LicensePath:     opts.LicensePath,
+		},
+	}
+}
+
 func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (*ConversionResult, error) {
 	targetName := opts.NewClusterName
 	if targetName == "" {
@@ -62,18 +92,7 @@ func ConvertLegacyCluster(detail *LegacyClusterDetail, opts ConversionOptions) (
 		Spec: v1alpha1.DolphinDBClusterSpec{
 			Version:         targetVer,
 			ImageRepository: "dolphindb",
-			License: v1alpha1.LicenseSpec{
-				Mode:       v1alpha1.LicenseModeMachineFingerprint,
-				SecretName: "",
-				AutoReload: true,
-				MachineFingerprint: &v1alpha1.MachineFingerprintSpec{
-					AutoPassthrough: true,
-					MountMachineId:  true,
-					MountHostEtc:    true,
-					UseHostName:     true,
-					LicensePath:     "/home/jzchen/dolphindb.lic",
-				},
-			},
+			License:         buildLicenseSpec(opts),
 			Networking: v1alpha1.NetworkingSpec{
 				ExposureMode: v1alpha1.ExposureNodePortDirect,
 				ServiceType:  corev1.ServiceTypeNodePort,

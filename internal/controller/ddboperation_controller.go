@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"dolphindb.io/operator/api/v1alpha1"
+	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
 )
 
@@ -114,7 +115,8 @@ func (r *DDBOperationReconciler) getDDBClient(ctx context.Context, cluster *v1al
 	}
 
 	baseURL := fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port)
-	return ddbclient.NewClient(baseURL, "admin", "123456")
+	user, pass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+	return ddbclient.NewClient(baseURL, user, pass)
 }
 
 func (r *DDBOperationReconciler) reconcileReloadLicense(ctx context.Context, op *v1alpha1.DDBOperation, cluster *v1alpha1.DolphinDBCluster) (ctrl.Result, error) {

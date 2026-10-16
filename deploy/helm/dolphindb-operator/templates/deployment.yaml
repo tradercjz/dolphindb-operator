@@ -9,10 +9,21 @@ spec:
   selector:
     matchLabels:
       {{- include "dolphindb-operator.selectorLabels" . | nindent 6 }}
+      # The dashboard Deployment previously shared this exact selector, so the
+      # operator's selector also matched dashboard Pods. That makes
+      # `kubectl logs deploy/<operator>` pick a random Pod, and leaves two
+      # controllers contending for the same Pod set. Give each Deployment its own
+      # component label.
+      #
+      # NOTE: a Deployment selector is immutable. Upgrading an existing release
+      # requires deleting the Deployment first (`kubectl delete deploy <name>`),
+      # after which Helm recreates it. The Pods are stateless, so this is safe.
+      app.kubernetes.io/component: operator
   template:
     metadata:
       labels:
         {{- include "dolphindb-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: operator
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -25,12 +36,19 @@ spec:
         - name: manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.image.command }}
           command:
-            - /manager
+            {{- toYaml .Values.image.command | nindent 12 }}
+          {{- end }}
+          {{- if .Values.image.args }}
+          args:
+            {{- toYaml .Values.image.args | nindent 12 }}
+          {{- else }}
           args:
             - --metrics-bind-address=:{{ .Values.metrics.port }}
             - --health-probe-bind-address=:{{ .Values.metrics.probePort }}
             - --leader-elect=false
+          {{- end }}
           ports:
             - name: metrics
               containerPort: {{ .Values.metrics.port }}

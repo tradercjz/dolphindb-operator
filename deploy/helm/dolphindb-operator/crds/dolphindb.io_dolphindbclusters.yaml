@@ -518,8 +518,10 @@ spec:
                           name
                         type: string
                       licensePath:
-                        description: LicensePath optional host license file path (defaults
-                          to /home/jzchen/dolphindb.lic)
+                        description: |-
+                          LicensePath is the absolute path of the licence file on the host, used only
+                          for host-bound (machineFingerprint) licensing. It has no default: supply it
+                          explicitly, otherwise the licence is taken from a Secret or from the image.
                         type: string
                       machineIdSecretName:
                         description: MachineIdSecretName specifies the secret containing
@@ -554,9 +556,15 @@ spec:
                         type: string
                     type: object
                   mode:
-                    default: machineFingerprint
-                    description: 'Mode defines the license type: server, secret, or
-                      machineFingerprint'
+                    default: secret
+                    description: |-
+                      Mode defines the license type: server, secret, or machineFingerprint
+
+                      The default is `secret` rather than `machineFingerprint`: host-bound
+                      licensing requires hostPath mounts (/etc/machine-id, /etc/hostname) and a
+                      licence file that exists on the node, which is rarely true on Kubernetes and
+                      never true on a managed cloud. Opting in explicitly is safer than surprising
+                      users with privileged mounts that fail to start.
                     enum:
                     - server
                     - secret
@@ -617,6 +625,30 @@ spec:
                     description: Annotations allows passing custom annotations to
                       external Services (e.g. Alibaba Cloud SLB / AWS NLB annotations)
                     type: object
+                  expose:
+                    description: |-
+                      Expose selects which components get an external entry point.
+
+                      Each selected component needs its own Service, and therefore its own cloud
+                      load balancer: a Kubernetes Service can only target one pod set, so a single
+                      load balancer cannot serve controllers and data nodes at once.
+                    properties:
+                      computenode:
+                        description: ComputeNode exposes port 8902, the stateless
+                          query tier.
+                        type: boolean
+                      controller:
+                        description: |-
+                          Controller exposes port 8900: the Web console and the management API.
+                          A controller holds cluster metadata and heartbeats; it cannot run DFS
+                          operations itself, so this is the *management* entry point.
+                        type: boolean
+                      datanode:
+                        description: |-
+                          DataNode exposes port 8901, where DFS reads and writes actually execute.
+                          Needed for real data work: a controller rejects database()/loadTable().
+                        type: boolean
+                    type: object
                   exposureMode:
                     default: NodePortDirect
                     description: ExposureMode defines the external exposure strategy
@@ -630,8 +662,14 @@ spec:
                       for Web UI redirect
                     type: string
                   serviceType:
-                    default: NodePort
-                    description: ServiceType defines K8s service type
+                    description: |-
+                      ServiceType is the Kubernetes Service type used for the components selected by
+                      `expose`.
+
+                      Leave it empty to let the operator decide. The old default was NodePort, which
+                      on a cloud produced an access URL that looked public but was firewalled off by
+                      the node security group - the operator never opens that group, so the link was
+                      dead on arrival.
                     type: string
                 type: object
               preloadModules:
@@ -720,6 +758,31 @@ spec:
                     default: true
                     description: StrictPermissionInspection enables strict ACL inspection
                     type: boolean
+                  tls:
+                    description: TLS enables DolphinDB's native HTTPS for the Web
+                      UI and REST/WebSocket API.
+                    properties:
+                      enabled:
+                        description: Enabled turns on DolphinDB native HTTPS.
+                        type: boolean
+                      publicName:
+                        description: |-
+                          PublicName is the external domain clients use. DolphinDB requires a domain
+                          (never an IP) when enableHTTPS is on. When empty the operator derives one.
+                        type: string
+                      secretName:
+                        description: |-
+                          SecretName references an existing kubernetes.io/tls Secret (keys tls.crt and
+                          tls.key). Use this with a certificate you own - for example one issued for a
+                          domain you control, or an ACM-exported certificate. When empty the operator
+                          issues and rotates its own self-signed certificate.
+                        type: string
+                      validityDays:
+                        default: 825
+                        description: ValidityDays is the lifetime of the operator-managed
+                          self-signed certificate.
+                        type: integer
+                    type: object
                 type: object
               standalone:
                 description: Standalone configuration (used when mode == standalone)

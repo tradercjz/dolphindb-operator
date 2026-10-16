@@ -21,13 +21,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	"dolphindb.io/operator/api/v1alpha1"
+	"dolphindb.io/operator/internal/credentials"
 	"dolphindb.io/operator/internal/ddbclient"
+	"dolphindb.io/operator/internal/exposure"
 	"dolphindb.io/operator/internal/migration"
 )
 
@@ -61,6 +62,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/namespaces", s.handleNamespaces)
 	mux.HandleFunc("/api/storageclasses", s.handleStorageClasses)
+	mux.HandleFunc("/api/platform", s.handlePlatform)
 
 	mux.HandleFunc("/api/clusters", s.handleClusters)
 	mux.HandleFunc("/api/clusters/", s.handleClusterSubRoutes)
@@ -167,6 +169,11 @@ type StorageClassSummary struct {
 	Name        string `json:"name"`
 	Provisioner string `json:"provisioner"`
 	IsDefault   bool   `json:"isDefault"`
+	// Usable is false when the class cannot bind a PVC as things stand, for example
+	// a CSI class whose driver is not installed.
+	Usable bool `json:"usable"`
+	// Hint explains a class that will not work, or a caveat about one that will.
+	Hint string `json:"hint,omitempty"`
 }
 
 func (s *Server) handleStorageClasses(w http.ResponseWriter, r *http.Request) {
@@ -843,20 +850,105 @@ func (s *Server) updateClusterConfig(w http.ResponseWriter, r *http.Request, nam
 	jsonResponse(w, http.StatusOK, cluster)
 }
 
+// ClusterExposeRequest is the body of POST /api/clusters/{ns}/{name}/expose.
+type ClusterExposeRequest struct {
+	// Enabled requests an explicit desired state. When it is omitted the endpoint
+	// toggles, which is kept only for backwards compatibility.
+	//
+	// A blind toggle is dangerous here: a caller that believes the cluster is not
+	// exposed - for example because a stale response reported an empty accessURL -
+	// would switch an already-exposed cluster *off*, deleting the cloud load
+	// balancer and producing a brand new DNS name on the next click.
+	Enabled *bool `json:"enabled,omitempty"`
+	// Scheme is "internet-facing" (default) or "internal".
+	Scheme string `json:"scheme,omitempty"`
+	// Component selects which component to act on: "controller", "datanode",
+	// "computenode", or "all".
+	//
+	// A cluster exposes them independently because they are different pod sets on
+	// different ports, and each exposed one becomes its own cloud load balancer:
+	// the Web console lives on the controller, while DFS reads and writes only run
+	// on data or compute nodes. Exposing "all" on a cloud therefore costs three load
+	// balancers.
+	Component string `json:"component,omitempty"`
+}
+
 func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, namespace, name string) {
 	ctx := r.Context()
+	var req ClusterExposeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
 	cluster := &v1alpha1.DolphinDBCluster{}
 	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
 		errorResponse(w, http.StatusNotFound, fmt.Sprintf("Cluster %s/%s not found: %v", namespace, name, err))
 		return
 	}
 
-	if cluster.Spec.Networking.ServiceType == corev1.ServiceTypeNodePort {
+	// On a managed cloud prefer a load balancer: the control plane provisions it
+	// and wires the security groups, so exposing produces a reachable address with
+	// no manual security group work and no IRSA. Bare metal keeps the NodePort
+	// behaviour because nothing would fulfil a LoadBalancer there.
+	provider := s.detectProvider(ctx)
+	exposedType := corev1.ServiceTypeNodePort
+	if provider.SupportsLoadBalancer() {
+		exposedType = corev1.ServiceTypeLoadBalancer
+	}
+
+	// Current per-component selection. A cluster created before per-component
+	// exposure existed has no `expose` block; fall back to its cluster-wide
+	// ServiceType so a toggle does not silently drop an existing exposure.
+	state := map[string]bool{"controller": false, "datanode": false, "computenode": false}
+	if e := cluster.Spec.Networking.Expose; e != nil {
+		state["controller"], state["datanode"], state["computenode"] = e.Controller, e.DataNode, e.ComputeNode
+	} else if t := cluster.Spec.Networking.ServiceType; t != "" && t != corev1.ServiceTypeClusterIP {
+		state["controller"], state["datanode"], state["computenode"] = true, true, true
+	}
+
+	targets := []string{"controller", "datanode", "computenode"}
+	if req.Component != "" && req.Component != "all" {
+		if _, ok := state[req.Component]; !ok {
+			errorResponse(w, http.StatusBadRequest, fmt.Sprintf("unknown component %q: expected controller, datanode, computenode or all", req.Component))
+			return
+		}
+		targets = []string{req.Component}
+	}
+
+	// Default to toggling only when the caller did not state its intent.
+	wantExposed := !state[targets[0]]
+	if req.Enabled != nil {
+		wantExposed = *req.Enabled
+	}
+	for _, t := range targets {
+		state[t] = wantExposed
+	}
+
+	cluster.Spec.Networking.Expose = &v1alpha1.ExposeSpec{
+		Controller:  state["controller"],
+		DataNode:    state["datanode"],
+		ComputeNode: state["computenode"],
+	}
+
+	if wantExposed {
+		// State the type explicitly. Without this a cluster still carrying the old
+		// NodePort default would keep publishing unreachable NodePort URLs.
+		cluster.Spec.Networking.ServiceType = exposedType
+		if exposedType == corev1.ServiceTypeLoadBalancer {
+			cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureGateway
+			if cluster.Spec.Networking.Annotations == nil {
+				cluster.Spec.Networking.Annotations = map[string]string{}
+			}
+			scheme := exposure.ParseScheme(req.Scheme, exposure.SchemeInternetFacing)
+			for k, v := range exposure.DefaultAnnotations(provider, scheme) {
+				cluster.Spec.Networking.Annotations[k] = v
+			}
+		} else {
+			cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureNodePortDirect
+		}
+	} else if !cluster.Spec.Networking.Expose.Any() {
 		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeClusterIP
 		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureClusterIP
-	} else {
-		cluster.Spec.Networking.ServiceType = corev1.ServiceTypeNodePort
-		cluster.Spec.Networking.ExposureMode = v1alpha1.ExposureNodePortDirect
 	}
 
 	if err := s.client.Update(ctx, cluster); err != nil {
@@ -864,24 +956,24 @@ func (s *Server) toggleClusterExpose(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
-	// Also directly update K8s services if exist
-	svc := &corev1.Service{}
-	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, svc); err == nil {
-		svc.Spec.Type = cluster.Spec.Networking.ServiceType
-		_ = s.client.Update(ctx, svc)
-	}
-	dnSvc := &corev1.Service{}
-	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name + "-dn"}, dnSvc); err == nil {
-		dnSvc.Spec.Type = cluster.Spec.Networking.ServiceType
-		_ = s.client.Update(ctx, dnSvc)
-	}
-	cnSvc := &corev1.Service{}
-	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name + "-cn"}, cnSvc); err == nil {
-		cnSvc.Spec.Type = cluster.Spec.Networking.ServiceType
-		_ = s.client.Update(ctx, cnSvc)
-	}
-
-	jsonResponse(w, http.StatusOK, cluster)
+	// The cluster-level Access Services are owned and reconciled by the
+	// DolphinDBCluster controller. Mutating them from here would create two writers
+	// for the same object and race the controller's cached read: the controller can
+	// briefly observe the old type and flip the Service back, which for a
+	// LoadBalancer means the cloud provider deletes the load balancer it just
+	// created ("SyncLoadBalancerFailed ... may only be used when spec.type is
+	// 'LoadBalancer'"). Updating the CR and letting the single owner act is both
+	// correct and sufficient - the reconcile is triggered by this write.
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"cluster":      cluster,
+		"provider":     provider,
+		"providerName": provider.DisplayName(),
+		"serviceType":  cluster.Spec.Networking.ServiceType,
+		"enabled":      wantExposed,
+		"component":    req.Component,
+		"exposed":      cluster.Spec.Networking.Expose.Names(),
+		"message":      "networking updated; the controller will reconcile the access services",
+	})
 }
 
 // ClusterDetail represents comprehensive topology view for a single cluster
@@ -892,8 +984,70 @@ type ClusterDetail struct {
 	Backups     []v1alpha1.DDBBackup      `json:"backups"`
 	ServiceType string                    `json:"serviceType,omitempty"`
 	AccessURL   string                    `json:"accessURL,omitempty"`
+
+	// Exposure fields describe the cluster-level entry point (as opposed to the
+	// per-node ones in NodeInfo) so the UI can render the same states for both:
+	// a real address, a pending cloud load balancer, or an unreachable NodePort.
+	ExposureMode    exposure.Mode   `json:"exposureMode,omitempty"`
+	ExposureScheme  exposure.Scheme `json:"exposureScheme,omitempty"`
+	ExposurePending bool            `json:"exposurePending,omitempty"`
+	ExposureMessage string          `json:"exposureMessage,omitempty"`
+	ExposureTLS     bool            `json:"exposureTLS,omitempty"`
+
+	// TLSEnabled reports whether native HTTPS is on, TLSManaged whether the
+	// certificate is operator-issued (and therefore untrusted by browsers).
+	TLSEnabled bool `json:"tlsEnabled,omitempty"`
+	TLSManaged bool `json:"tlsManaged,omitempty"`
+
+	// Components describes every Access Service individually. A cluster has up to
+	// three (controller, data nodes, compute nodes) on different ports and different
+	// pod sets, and each exposed one is a separate cloud load balancer, so the UI
+	// needs per-component state rather than a single cluster-wide URL.
+	Components []ComponentExposure `json:"components,omitempty"`
 }
 
+// ComponentExposure is the external reachability of one cluster component.
+type ComponentExposure struct {
+	// Component is controller, datanode or computenode.
+	Component string `json:"component"`
+	// ServiceName is the Kubernetes Service backing this component.
+	ServiceName string `json:"serviceName"`
+	// ServiceType is ClusterIP, NodePort or LoadBalancer.
+	ServiceType string `json:"serviceType"`
+	// Exposed is true when the component has a non-ClusterIP entry point.
+	Exposed bool `json:"exposed"`
+	// URL is the external address, when one is known.
+	URL string `json:"url,omitempty"`
+	// Port is the exposed port (the NodePort for NodePort exposure).
+	Port int32 `json:"port,omitempty"`
+	// Pending is true while the cloud provisions the load balancer.
+	Pending bool `json:"pending,omitempty"`
+	// Reachable is false when the address is known not to work, for example a
+	// NodePort on a cloud whose security group has not been opened. Always
+	// serialised so the UI can tell "false" from "not reported".
+	Reachable bool `json:"reachable"`
+	// Message explains a pending or unreachable endpoint.
+	Message string `json:"message,omitempty"`
+	// TLS is true when the endpoint speaks HTTPS.
+	TLS bool `json:"tls,omitempty"`
+}
+
+// anyNode picks a deterministic node from the map. NodePort is reachable through
+// any node because kube-proxy forwards it, so the choice only matters for
+// reproducibility.
+func anyNode(m map[string]*corev1.Node) *corev1.Node {
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return nil
+	}
+	return m[names[0]]
+}
+
+// NodeInfo describes one DolphinDB node as shown in the topology view.
 type NodeInfo struct {
 	Name        string            `json:"name"`
 	Role        v1alpha1.NodeRole `json:"role"`
@@ -907,6 +1061,20 @@ type NodeInfo struct {
 	NodePort    int32             `json:"nodePort,omitempty"`
 	ExternalURL string            `json:"externalURL,omitempty"`
 	IsLeader    bool              `json:"isLeader,omitempty"`
+
+	// ExposureMode is the effective Service type used to reach this node from
+	// outside the cluster: ClusterIP, NodePort or LoadBalancer.
+	ExposureMode exposure.Mode `json:"exposureMode,omitempty"`
+	// ExposureScheme distinguishes an internet-facing from an internal load balancer.
+	ExposureScheme exposure.Scheme `json:"exposureScheme,omitempty"`
+	// ExposurePending is true while the cloud provider is still provisioning the
+	// load balancer, letting the UI show progress instead of a dead link.
+	ExposurePending bool `json:"exposurePending,omitempty"`
+	// ExposureMessage explains a pending or potentially unreachable endpoint.
+	ExposureMessage string `json:"exposureMessage,omitempty"`
+
+	// ExposureTLS is true when the endpoint speaks HTTPS.
+	ExposureTLS bool `json:"exposureTLS,omitempty"`
 }
 
 func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namespace, name string) {
@@ -926,31 +1094,64 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 		svcMap[svcList.Items[i].Name] = &svcList.Items[i]
 	}
 
+	// The Kubernetes nodes are required to resolve a *reachable* address for
+	// NodePort exposure. On every cloud DDBNode.Status.HostIP is a private pod
+	// subnet address, which is why the previous implementation handed out URLs
+	// that could never be opened from outside the cluster.
+	k8sNodeMap := map[string]*corev1.Node{}
+	nodeList := &corev1.NodeList{}
+	if err := s.client.List(ctx, nodeList); err == nil {
+		for i := range nodeList.Items {
+			k8sNodeMap[nodeList.Items[i].Name] = &nodeList.Items[i]
+		}
+	}
+
 	clusterSvcType := "ClusterIP"
 	var clusterAccessURL string
+	var clusterEndpoint exposure.Endpoint
 	if clusterSvc, exists := svcMap[name]; exists {
 		clusterSvcType = string(clusterSvc.Spec.Type)
-		if clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
-			var ctlNodePort int32
-			for _, p := range clusterSvc.Spec.Ports {
-				if p.NodePort > 0 {
-					ctlNodePort = p.NodePort
-					break
-				}
-			}
-			if ctlNodePort > 0 {
-				hostIP := "192.168.100.44"
-				if cluster.Spec.Networking.PublicIP != "" {
-					hostIP = cluster.Spec.Networking.PublicIP
-				} else if r != nil && r.Host != "" {
-					h, _, err := net.SplitHostPort(r.Host)
-					if err == nil && h != "" && h != "localhost" && h != "127.0.0.1" {
-						hostIP = h
-					}
-				}
-				clusterAccessURL = fmt.Sprintf("http://%s:%d", hostIP, ctlNodePort)
-			}
+		// Resolve the cluster entry point the same cloud-aware way as a per-node
+		// exposure. Previously this only ran for NodePort and derived the address
+		// from the request Host or a hardcoded IP, so a LoadBalancer produced an
+		// empty accessURL - which made the UI report "ClusterIP, not exposed" for a
+		// cluster that was in fact exposed, and offer a toggle that then turned the
+		// exposure *off*.
+		clusterEndpoint = exposure.ResolveEndpoint(nil, anyNode(k8sNodeMap), clusterSvc)
+		clusterAccessURL = clusterEndpoint.URL
+	}
+
+	// Per-component view. Each component is a different pod set on a different port,
+	// so each exposed one is its own Service and its own cloud load balancer.
+	components := make([]ComponentExposure, 0, 3)
+	for _, comp := range []struct {
+		name    string
+		svcName string
+	}{
+		{"controller", name},
+		{"datanode", name + "-dn"},
+		{"computenode", name + "-cn"},
+	} {
+		svc, ok := svcMap[comp.svcName]
+		if !ok {
+			continue
 		}
+		entry := ComponentExposure{
+			Component:   comp.name,
+			ServiceName: comp.svcName,
+			ServiceType: string(svc.Spec.Type),
+			Exposed:     svc.Spec.Type != corev1.ServiceTypeClusterIP,
+		}
+		if entry.Exposed {
+			ep := exposure.ResolveEndpoint(nil, anyNode(k8sNodeMap), svc)
+			entry.URL = ep.URL
+			entry.Port = ep.Port
+			entry.Pending = ep.Pending
+			entry.Reachable = ep.Reachable
+			entry.Message = ep.Message
+			entry.TLS = ep.TLS
+		}
+		components = append(components, entry)
 	}
 
 	// Fetch DDBNodes
@@ -977,7 +1178,8 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			for idx := range ddbNodeList.Items {
 				item := &ddbNodeList.Items[idx]
 				if item.Spec.ClusterName == name && item.Spec.Role == v1alpha1.NodeRoleController && item.Status.PodIP != "" && item.Status.Phase == v1alpha1.NodePhaseRunning {
-					c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", item.Status.PodIP, item.Spec.Port), "admin", "123456")
+					adminUser, adminPass := credentials.Resolve(ctx, s.client, namespace, cluster.Spec.Security.AdminSecretName)
+					c := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", item.Status.PodIP, item.Spec.Port), adminUser, adminPass)
 					if alias, err := c.GetLeaderControllerAlias(ctx); err == nil && alias != "" {
 						leaderAlias = alias
 						for j := range ddbNodeList.Items {
@@ -1035,18 +1237,12 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			ready = true
 		}
 
-		var nodePort int32
-		// 1. Check dedicated <node.Name>-ext
-		if extSvc, exists := svcMap[n.Name+"-ext"]; exists && extSvc.Spec.Type == corev1.ServiceTypeNodePort {
-			for _, p := range extSvc.Spec.Ports {
-				if p.NodePort > 0 {
-					nodePort = p.NodePort
-					break
-				}
-			}
-		}
-		// 2. Check component-level services (<cluster.Name>-dn, <cluster.Name>-cn) or cluster-level service (<cluster.Name>)
-		if nodePort == 0 {
+		// Choose the Service that exposes this node: the dedicated per-node
+		// exposure first, then the component level Service, then the cluster Service.
+		var expSvc *corev1.Service
+		if s, ok := svcMap[n.Name+"-ext"]; ok {
+			expSvc = s
+		} else {
 			compSvcName := n.Spec.ClusterName
 			switch n.Spec.Role {
 			case v1alpha1.NodeRoleDataNode:
@@ -1054,28 +1250,25 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 			case v1alpha1.NodeRoleComputeNode:
 				compSvcName = n.Spec.ClusterName + "-cn"
 			}
-			if compSvc, exists := svcMap[compSvcName]; exists && compSvc.Spec.Type == corev1.ServiceTypeNodePort {
-				for _, p := range compSvc.Spec.Ports {
-					if p.NodePort > 0 {
-						nodePort = p.NodePort
-						break
-					}
-				}
-			}
-			if nodePort == 0 {
-				if clusterSvc, exists := svcMap[n.Spec.ClusterName]; exists && clusterSvc.Spec.Type == corev1.ServiceTypeNodePort {
-					for _, p := range clusterSvc.Spec.Ports {
-						if p.NodePort > 0 {
-							nodePort = p.NodePort
-							break
-						}
-					}
-				}
+			expSvc = svcMap[compSvcName]
+			if expSvc == nil {
+				expSvc = svcMap[n.Spec.ClusterName]
 			}
 		}
 
+		var nodePort int32
 		var extURL string
-		if nodePort > 0 {
+		var endpoint exposure.Endpoint
+		if expSvc != nil && expSvc.Spec.Type != corev1.ServiceTypeClusterIP {
+			endpoint = exposure.ResolveEndpoint(&n, k8sNodeMap[n.Status.NodeName], expSvc)
+			extURL = endpoint.URL
+			if endpoint.Mode == exposure.ModeNodePort {
+				nodePort = endpoint.Port
+			}
+		}
+		// Legacy fallback for platforms where the node object is not readable:
+		// synthesise a URL from cluster networking, but never invent a hardcoded IP.
+		if extURL == "" && nodePort > 0 {
 			hIP := n.Status.HostIP
 			if hIP == "" && cluster.Spec.Networking.PublicIP != "" {
 				hIP = cluster.Spec.Networking.PublicIP
@@ -1086,10 +1279,9 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 					hIP = h
 				}
 			}
-			if hIP == "" {
-				hIP = "192.168.100.44"
+			if hIP != "" {
+				extURL = fmt.Sprintf("http://%s:%d", hIP, nodePort)
 			}
-			extURL = fmt.Sprintf("http://%s:%d", hIP, nodePort)
 		}
 
 		isLeader := false
@@ -1105,18 +1297,23 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 		}
 
 		nodes = append(nodes, NodeInfo{
-			Name:        n.Name,
-			Role:        n.Spec.Role,
-			Phase:       string(n.Status.Phase),
-			PodIP:       podIP,
-			HostIP:      hostIP,
-			Port:        n.Spec.Port,
-			Ready:       ready,
-			ChunksCount: n.Status.ChunksCount,
-			DDBState:    n.Status.DDBState,
-			NodePort:    nodePort,
-			ExternalURL: extURL,
-			IsLeader:    isLeader,
+			Name:            n.Name,
+			Role:            n.Spec.Role,
+			Phase:           string(n.Status.Phase),
+			PodIP:           podIP,
+			HostIP:          hostIP,
+			Port:            n.Spec.Port,
+			Ready:           ready,
+			ChunksCount:     n.Status.ChunksCount,
+			DDBState:        n.Status.DDBState,
+			NodePort:        nodePort,
+			ExternalURL:     extURL,
+			IsLeader:        isLeader,
+			ExposureMode:    endpoint.Mode,
+			ExposureScheme:  endpoint.Scheme,
+			ExposurePending: endpoint.Pending,
+			ExposureMessage: endpoint.Message,
+			ExposureTLS:     endpoint.TLS,
 		})
 	}
 
@@ -1170,12 +1367,20 @@ func (s *Server) getClusterDetail(w http.ResponseWriter, r *http.Request, namesp
 	})
 
 	jsonResponse(w, http.StatusOK, ClusterDetail{
-		Cluster:     *cluster,
-		Nodes:       nodes,
-		Operations:  clusterOps,
-		Backups:     clusterBackups,
-		ServiceType: clusterSvcType,
-		AccessURL:   clusterAccessURL,
+		Cluster:         *cluster,
+		Nodes:           nodes,
+		Operations:      clusterOps,
+		Backups:         clusterBackups,
+		ServiceType:     clusterSvcType,
+		AccessURL:       clusterAccessURL,
+		ExposureMode:    clusterEndpoint.Mode,
+		ExposureScheme:  clusterEndpoint.Scheme,
+		ExposurePending: clusterEndpoint.Pending,
+		ExposureMessage: clusterEndpoint.Message,
+		ExposureTLS:     clusterEndpoint.TLS,
+		TLSEnabled:      cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled,
+		TLSManaged:      cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled && cluster.Spec.Security.TLS.SecretName == "",
+		Components:      components,
 	})
 }
 
@@ -1206,11 +1411,14 @@ func (s *Server) handleNodeSubRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "expose":
-		if r.Method == http.MethodPost {
+		switch r.Method {
+		case http.MethodGet:
+			s.getNodeExposure(w, r, namespace, name)
+			return
+		case http.MethodPost:
 			s.exposeNodeService(w, r, namespace, name)
 			return
-		}
-		if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			s.unexposeNodeService(w, r, namespace, name)
 			return
 		}
@@ -1569,8 +1777,94 @@ func (s *Server) executeNodeAction(w http.ResponseWriter, r *http.Request, names
 
 type ExposeNodeRequest struct {
 	NodePort int32 `json:"nodePort,omitempty"`
+	// Mode selects the exposure mechanism: "loadBalancer" (the default on a
+	// managed cloud), "nodePort", or "clusterIP" to tear the exposure down.
+	Mode string `json:"mode,omitempty"`
+	// Scheme is "internet-facing" (default) or "internal".
+	Scheme string `json:"scheme,omitempty"`
+	// Annotations are merged on top of the provider defaults, letting an operator
+	// that does run the cloud load balancer controller opt into the modern
+	// annotation flavour without the suite having to guess.
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// detectProvider works out which cloud the cluster runs on by inspecting the
+// nodes. It degrades to bare metal (i.e. NodePort) when nodes cannot be listed,
+// for example when RBAC does not grant `nodes` access.
+func (s *Server) detectProvider(ctx context.Context) exposure.Provider {
+	nodeList := &corev1.NodeList{}
+	if err := s.client.List(ctx, nodeList); err != nil {
+		return exposure.ProviderBare
+	}
+	return exposure.DetectProvider(nodeList.Items)
+}
+
+// exposureOptions builds the effective exposure options for a node, folding in
+// cluster level annotations as defaults.
+func (s *Server) exposureOptions(ctx context.Context, node *v1alpha1.DDBNode, req ExposeNodeRequest) exposure.Options {
+	provider := s.detectProvider(ctx)
+	opts := exposure.Options{
+		Mode:        exposure.ParseMode(req.Mode, provider.DefaultMode()),
+		Scheme:      exposure.ParseScheme(req.Scheme, exposure.SchemeInternetFacing),
+		Provider:    provider,
+		NodePort:    req.NodePort,
+		Annotations: req.Annotations,
+	}.Normalize()
+
+	cluster := &v1alpha1.DolphinDBCluster{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Spec.ClusterName}, cluster); err == nil {
+		merged := map[string]string{}
+		for k, v := range cluster.Spec.Networking.Annotations {
+			merged[k] = v
+		}
+		for k, v := range req.Annotations {
+			merged[k] = v
+		}
+		if len(merged) > 0 {
+			opts.Annotations = merged
+		}
+		// Native HTTPS is terminated by DolphinDB on the same port, so the exposed
+		// URL has to be advertised as https:// rather than http://.
+		opts.TLS = cluster.Spec.Security.TLS != nil && cluster.Spec.Security.TLS.Enabled
+	}
+	return opts
+}
+
+// resolveNodeEndpoint reads the live objects back and turns them into a usable
+// external address.
+func (s *Server) resolveNodeEndpoint(ctx context.Context, node *v1alpha1.DDBNode) exposure.Endpoint {
+	svc := &corev1.Service{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: exposure.ServiceName(node.Name)}, svc); err != nil {
+		return exposure.Endpoint{Mode: exposure.ModeClusterIP, Message: "node is not exposed outside the cluster"}
+	}
+	k8sNode := &corev1.Node{}
+	_ = s.client.Get(ctx, client.ObjectKey{Name: node.Status.NodeName}, k8sNode)
+	return exposure.ResolveEndpoint(node, k8sNode, svc)
+}
+
+func exposeNodeResponse(ep exposure.Endpoint, provider exposure.Provider, svcName string) map[string]interface{} {
+	return map[string]interface{}{
+		"success":      true,
+		"serviceName":  svcName,
+		"provider":     provider,
+		"providerName": provider.DisplayName(),
+		"mode":         ep.Mode,
+		"scheme":       ep.Scheme,
+		"nodePort":     ep.Port,
+		"externalURL":  ep.URL,
+		"pending":      ep.Pending,
+		"message":      ep.Message,
+		"tls":          ep.TLS,
+	}
+}
+
+// exposeNodeService publishes a single DolphinDB node outside the cluster.
+//
+// On a managed cloud the default is a Service of type LoadBalancer: the cloud
+// control plane provisions the load balancer *and* wires the security groups,
+// so clicking "expose" yields a working endpoint with no manual steps and no
+// IRSA - which matters on projects whose SCP denies OIDC provider management.
+// On bare metal it falls back to NodePort.
 func (s *Server) exposeNodeService(w http.ResponseWriter, r *http.Request, namespace, name string) {
 	ctx := r.Context()
 	var req ExposeNodeRequest
@@ -1584,106 +1878,80 @@ func (s *Server) exposeNodeService(w http.ResponseWriter, r *http.Request, names
 		return
 	}
 
-	svcName := fmt.Sprintf("%s-ext", name)
-	svc := &corev1.Service{}
-	err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc)
-	if err == nil {
-		var allocatedNodePort int32
-		for _, p := range svc.Spec.Ports {
-			if p.NodePort > 0 {
-				allocatedNodePort = p.NodePort
-				break
+	opts := s.exposureOptions(ctx, node, req)
+	if opts.Mode == exposure.ModeClusterIP {
+		s.unexposeNodeService(w, r, namespace, name)
+		return
+	}
+	desired := exposure.BuildService(node, opts)
+
+	existing := &corev1.Service{}
+	err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: desired.Name}, existing)
+	created := false
+	switch {
+	case errors.IsNotFound(err):
+		if err := s.client.Create(ctx, desired); err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create exposure service: %v", err))
+			return
+		}
+		created = true
+	case err != nil:
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to query exposure service: %v", err))
+		return
+	case !exposure.Matches(existing, desired):
+		// Changing the type or annotations must happen in place: recreating the
+		// Service would churn addresses and leak the previous load balancer.
+		existing.Spec.Type = desired.Spec.Type
+		if existing.Annotations == nil {
+			existing.Annotations = map[string]string{}
+		}
+		for k, v := range desired.Annotations {
+			existing.Annotations[k] = v
+		}
+		if existing.Labels == nil {
+			existing.Labels = map[string]string{}
+		}
+		for k, v := range desired.Labels {
+			existing.Labels[k] = v
+		}
+		if len(existing.Spec.Ports) == len(desired.Spec.Ports) {
+			for i := range desired.Spec.Ports {
+				if desired.Spec.Ports[i].NodePort > 0 {
+					existing.Spec.Ports[i].NodePort = desired.Spec.Ports[i].NodePort
+				}
 			}
 		}
-		hostIP := getEffectiveHostIP(node, r)
-		jsonResponse(w, http.StatusOK, map[string]interface{}{
-			"success":     true,
-			"serviceName": svcName,
-			"nodePort":    allocatedNodePort,
-			"externalURL": fmt.Sprintf("http://%s:%d", hostIP, allocatedNodePort),
-		})
-		return
-	}
-
-	if !errors.IsNotFound(err) {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to query service: %v", err))
-		return
-	}
-
-	port := node.Spec.Port
-	if port == 0 {
-		port = 8848
-	}
-
-	svcPort := corev1.ServicePort{
-		Name:       "web-port",
-		Port:       port,
-		TargetPort: intstr.FromInt(int(port)),
-	}
-	if req.NodePort > 0 {
-		svcPort.NodePort = req.NodePort
-	}
-
-	trueVal := true
-	ownerRef := metav1.OwnerReference{
-		APIVersion:         "dolphindb.io/v1alpha1",
-		Kind:               "DDBNode",
-		Name:               node.Name,
-		UID:                node.UID,
-		Controller:         &trueVal,
-		BlockOwnerDeletion: &trueVal,
-	}
-
-	newSvc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      svcName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":      "dolphindb",
-				"app.kubernetes.io/instance":  node.Spec.ClusterName,
-				"app.kubernetes.io/component": string(node.Spec.Role),
-				"dolphindb.io/node-alias":     node.Spec.Alias,
-				"dolphindb.io/exposed":        "true",
-			},
-			OwnerReferences: []metav1.OwnerReference{ownerRef},
-		},
-		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeNodePort,
-			Selector: map[string]string{
-				"dolphindb.io/node-alias": node.Spec.Alias,
-			},
-			Ports: []corev1.ServicePort{svcPort},
-		},
-	}
-
-	if err := s.client.Create(ctx, newSvc); err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create NodePort service: %v", err))
-		return
-	}
-
-	// Fetch back to inspect assigned NodePort
-	createdSvc := &corev1.Service{}
-	_ = s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, createdSvc)
-	var allocatedNodePort int32
-	for _, p := range createdSvc.Spec.Ports {
-		if p.NodePort > 0 {
-			allocatedNodePort = p.NodePort
-			break
+		if err := s.client.Update(ctx, existing); err != nil {
+			errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update exposure service: %v", err))
+			return
 		}
 	}
 
-	hostIP := getEffectiveHostIP(node, r)
-	jsonResponse(w, http.StatusCreated, map[string]interface{}{
-		"success":     true,
-		"serviceName": svcName,
-		"nodePort":    allocatedNodePort,
-		"externalURL": fmt.Sprintf("http://%s:%d", hostIP, allocatedNodePort),
-	})
+	ep := s.resolveNodeEndpoint(ctx, node)
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	jsonResponse(w, status, exposeNodeResponse(ep, opts.Provider, desired.Name))
+}
+
+// getNodeExposure reports the current exposure of a node without changing it, so
+// the UI can poll while the cloud finishes provisioning a load balancer.
+func (s *Server) getNodeExposure(w http.ResponseWriter, r *http.Request, namespace, name string) {
+	ctx := r.Context()
+	node := &v1alpha1.DDBNode{}
+	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, node); err != nil {
+		errorResponse(w, http.StatusNotFound, fmt.Sprintf("DDBNode %s/%s not found: %v", namespace, name, err))
+		return
+	}
+	provider := s.detectProvider(ctx)
+	ep := s.resolveNodeEndpoint(ctx, node)
+	jsonResponse(w, http.StatusOK, exposeNodeResponse(ep, provider, exposure.ServiceName(node.Name)))
 }
 
 func (s *Server) unexposeNodeService(w http.ResponseWriter, r *http.Request, namespace, name string) {
 	ctx := r.Context()
-	svcName := fmt.Sprintf("%s-ext", name)
+	svcName := exposure.ServiceName(name)
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svcName,
@@ -1696,21 +1964,8 @@ func (s *Server) unexposeNodeService(w http.ResponseWriter, r *http.Request, nam
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("Service %s deleted", svcName),
+		"message": fmt.Sprintf("Service %s deleted; any cloud load balancer behind it is released automatically", svcName),
 	})
-}
-
-func getEffectiveHostIP(node *v1alpha1.DDBNode, r *http.Request) string {
-	if node != nil && node.Status.HostIP != "" {
-		return node.Status.HostIP
-	}
-	if r != nil && r.Host != "" {
-		host, _, err := net.SplitHostPort(r.Host)
-		if err == nil && host != "" && host != "localhost" && host != "127.0.0.1" {
-			return host
-		}
-	}
-	return "192.168.100.44"
 }
 
 type RollingRestartRequest struct {
@@ -2236,7 +2491,8 @@ func (s *Server) getClusterLicenseDetails(ctx context.Context, cluster *v1alpha1
 	pod := &corev1.Pod{}
 	if err := s.client.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: targetPodName}, pod); err == nil &&
 		pod.Status.Phase == corev1.PodRunning && pod.Status.PodIP != "" {
-		cli := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port), "admin", "123456")
+		adminUser, adminPass := credentials.Resolve(ctx, s.client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
+		cli := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port), adminUser, adminPass)
 		if details, err := cli.GetLicenseDetails(ctx); err == nil && len(details) > 0 {
 			info.Available = true
 			info.Expiration = details["expiration"]
@@ -2364,7 +2620,10 @@ func queryDDBFingerprint(ctx context.Context, podIP string, port int) (string, e
 		return "", fmt.Errorf("invalid podIP or port")
 	}
 	url := fmt.Sprintf("http://%s:%d/", podIP, port)
-	script := `login("admin", "123456"); generateMachineFingerprint("/tmp"); concat(file("/tmp/MachineFingerprint").readLines(), "\n")`
+	// This runs against a throwaway probe Pod built from the vanilla DolphinDB
+	// image with no configuration, so it always uses the factory credentials
+	// rather than the target cluster's Secret.
+	script := credentials.LoginScript(credentials.AdminUser, credentials.DefaultAdminPassword) + ` generateMachineFingerprint("/tmp"); concat(file("/tmp/MachineFingerprint").readLines(), "\n")`
 
 	payload := map[string]interface{}{
 		"functionName": "executeCode",
@@ -2475,7 +2734,8 @@ func (s *Server) runProbePodForNode(ctx context.Context, nodeName, targetNs stri
 					},
 					Command: []string{"/bin/sh", "-c"},
 					Args: []string{
-						`echo 'login("admin", "123456"); generateMachineFingerprint("/tmp");' > /tmp/gen.dos
+						// Throwaway probe Pod from the vanilla image: factory credentials apply.
+						fmt.Sprintf(`echo '%s generateMachineFingerprint("/tmp");' > /tmp/gen.dos
 /data/ddb/server/dolphindb -console 0 -mode single -localSite 127.0.0.1:9999:tmpnode -startup /tmp/gen.dos &
 for i in $(seq 1 40); do
   if [ -f /tmp/MachineFingerprint ]; then
@@ -2486,7 +2746,7 @@ for i in $(seq 1 40); do
   fi
   sleep 0.2
 done
-exit 1`,
+exit 1`, credentials.LoginScript(credentials.AdminUser, credentials.DefaultAdminPassword)),
 					},
 				},
 			},

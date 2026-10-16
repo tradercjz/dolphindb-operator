@@ -350,6 +350,22 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 				}
 			}
 		}
+		// The node home directory must be on persistent storage. A pod created before
+		// that guarantee existed keeps its redo log on the container's ephemeral
+		// layer and will lose acknowledged writes when it is recreated, so replace it.
+		if !podHasPersistentHome(node, pod) {
+			log.FromContext(ctx).Info("Recreating pod: DolphinDB home directory is not on persistent storage",
+				"pod", pod.Name, "home", homeMountPath(node), "role", string(node.Spec.Role))
+			needsRecreate = true
+		}
+
+		// A reissued certificate has to reach the node, which means replacing the pod:
+		// the mounted Secret updates on its own, but DolphinDB only reads the files in
+		// its keys directory at startup.
+		if desired := tlsHashFor(node); pod.Annotations[dolphinTLSHashAnnotation] != desired {
+			needsRecreate = true
+		}
+
 		if needsRecreate && pod.DeletionTimestamp == nil {
 			log.FromContext(ctx).Info("Recreating pod due to updated spec / fingerprint / volume bindings",
 				"pod", pod.Name,
@@ -384,6 +400,10 @@ func (r *DDBNodeReconciler) ensurePod(ctx context.Context, node *v1alpha1.DDBNod
 			pod.Annotations["prometheus.io/scrape"] = "true"
 			pod.Annotations["prometheus.io/port"] = strconv.Itoa(int(node.Spec.Port))
 			pod.Annotations["prometheus.io/path"] = "/metrics"
+			updated = true
+		}
+		if v := tlsHashFor(node); pod.Annotations[dolphinTLSHashAnnotation] != v {
+			pod.Annotations[dolphinTLSHashAnnotation] = v
 			updated = true
 		}
 		if updated {
@@ -489,12 +509,13 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 			Name:      licVolName,
 			MountPath: "/data/ddb/license",
 		})
-	} else if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough {
+	} else if node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough && node.Spec.Fingerprint.LicensePath != "" {
+		// Host-path licence passthrough is strictly opt-in. There is deliberately no
+		// fallback path here: the previous hardcoded default pointed at a directory
+		// inside the original author's home directory, so on any other machine the
+		// kubelet failed with "not a directory" and the container never started.
 		licVolName := "host-dolphindb-license"
-		licPath := "/home/jzchen/dolphindb.lic"
-		if node.Spec.Fingerprint.LicensePath != "" {
-			licPath = node.Spec.Fingerprint.LicensePath
-		}
+		licPath := node.Spec.Fingerprint.LicensePath
 		volumes = append(volumes, corev1.Volume{
 			Name: licVolName,
 			VolumeSource: corev1.VolumeSource{
@@ -509,8 +530,26 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		})
 	}
 
-	// Mount ACL public key for DataNode and ComputeNode in cluster mode
-	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
+	// Mount ACL public key for DataNode and ComputeNode in cluster mode.
+	//
+	// DolphinDB reads these from `<HOME_DIR>/<NodeAlias>/keys` (see the node startup
+	// documentation). The operator used to mount the Secret at `<home>/keys`, one
+	// level short, so data nodes never actually received the controller's key and
+	// inter-node messages could not be decrypted:
+	//
+	//	ChunkNode failed to initialize: RemoteRun[ctl-0] Failed to decrypt the given
+	//	message by RSA private key.
+	//
+	// The material is staged read-only and copied into place by the entrypoint, the
+	// same way the TLS certificate is handled: mounting a Secret over the keys
+	// directory would also hide server.crt and block DolphinDB's own writes.
+	aclInstall := ""
+	// Every cluster-mode node needs the keys, the controller included: DolphinDB
+	// treats a lone public key as a missing pair and generates a fresh one, so a
+	// data node that only received the public key ended up with its own keypair and
+	// could not decrypt the controller's messages. The operator therefore publishes
+	// one shared pair to all of them.
+	if node.Spec.Role != v1alpha1.NodeRoleSingle {
 		aclSecName := fmt.Sprintf("%s-acl-keys", node.Spec.ClusterName)
 		aclVolName := "ddb-acl-key"
 		volumes = append(volumes, corev1.Volume{
@@ -523,20 +562,34 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		})
 		ddbMounts = append(ddbMounts, corev1.VolumeMount{
 			Name:      aclVolName,
-			MountPath: "/data/ddb/server/data/keys",
+			MountPath: "/data/ddb/acl-keys",
+			ReadOnly:  true,
 		})
-		ddbMounts = append(ddbMounts, corev1.VolumeMount{
-			Name:      aclVolName,
-			MountPath: fmt.Sprintf("/data/ddb/server/data/%s/keys", node.Spec.Alias),
-		})
-		ddbMounts = append(ddbMounts, corev1.VolumeMount{
-			Name:      aclVolName,
-			MountPath: fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s/keys", node.Spec.Alias),
-		})
+		home := homeMountPath(node)
+		aclDirs := []string{
+			home + "/" + node.Spec.Alias + "/keys",
+			home + "/keys",
+		}
+		aclInstall = fmt.Sprintf(
+			`if [ -d /data/ddb/acl-keys ]; then for d in %s; do mkdir -p "$d" && cp -f /data/ddb/acl-keys/*.key "$d"/ 2>/dev/null; done; fi; `,
+			shellQuoteAll(aclDirs))
 	}
 
 	// Mount PVCs
+	//
+	// `homeMounted` tracks whether the node's home directory has been put on
+	// persistent storage yet. The previous code used `i == 0` for that decision,
+	// where `i` indexes the *whole* PVC list - and that list always starts with the
+	// meta volume. So for a data node the test never fired and its home directory
+	// ended up on the container's ephemeral layer.
+	//
+	// That was not cosmetic. DolphinDB keeps its redo log and recover log under
+	// `<home>/log`, so a recreated pod lost every write that had been acknowledged
+	// but not yet checkpointed. Reproduced: six rows written, pod deleted and
+	// recreated, two rows left, with
+	//	[startup::redoLogReplay] The log dir [...] is empty. No need to check redo log.
 	hasLogMount := false
+	homeMounted := false
 	for i, pvc := range pvcs {
 		volName := fmt.Sprintf("vol-%d", i)
 		volumes = append(volumes, corev1.Volume{
@@ -564,6 +617,16 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Name:      volName,
 					MountPath: "/var/lib/dolphindb/meta",
 				})
+				// Controllers and compute nodes are given no data volume, so their home
+				// directory - which holds the redo and recover logs - has to live on the
+				// meta volume instead.
+				if !homeMounted && (node.Spec.Role == v1alpha1.NodeRoleController || node.Spec.Role == v1alpha1.NodeRoleComputeNode) {
+					ddbMounts = append(ddbMounts, corev1.VolumeMount{
+						Name:      volName,
+						MountPath: homeMountPath(node),
+					})
+					homeMounted = true
+				}
 			}
 		} else if strings.HasPrefix(pvc.Name, "data-") {
 			if node.Spec.Role == v1alpha1.NodeRoleSingle || node.Spec.Role == v1alpha1.NodeRoleController {
@@ -579,6 +642,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Name:      volName,
 					MountPath: "/var/lib/dolphindb/data/vol-0",
 				})
+				homeMounted = true
 			} else {
 				volIdx := fmt.Sprintf("%d", i)
 				parts := strings.Split(pvc.Name, "-")
@@ -587,7 +651,9 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 						volIdx = parts[1]
 					}
 				}
-				if i == 0 {
+				// The first data volume also carries the node home, so the redo log
+				// survives the pod being recreated.
+				if !homeMounted {
 					ddbMounts = append(ddbMounts, corev1.VolumeMount{
 						Name:      volName,
 						MountPath: "/data/ddb/server/data",
@@ -596,6 +662,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 						Name:      volName,
 						MountPath: "/data/ddb/server/clusterDemo/data",
 					})
+					homeMounted = true
 				}
 				ddbMounts = append(ddbMounts, corev1.VolumeMount{
 					Name:      volName,
@@ -637,18 +704,21 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		}
 	}
 
-	// Hardware fingerprint passthrough (if enabled)
+	// Hardware fingerprint passthrough (if enabled).
+	//
+	// Any node name that ends up as the Pod hostname must be sanitised: managed
+	// node names are DNS names containing dots, which Kubernetes rejects outright.
 	podHostname := node.Name
 	if node.Spec.Role == v1alpha1.NodeRoleSingle {
 		if node.Spec.Hostname != "" {
-			podHostname = node.Spec.Hostname
+			podHostname = SanitizeHostname(node.Spec.Hostname)
 		} else if node.Spec.Fingerprint != nil {
 			if node.Spec.Fingerprint.Hostname != "" {
-				podHostname = node.Spec.Fingerprint.Hostname
+				podHostname = SanitizeHostname(node.Spec.Fingerprint.Hostname)
 			} else if node.Spec.Fingerprint.UseHostName && node.Spec.NodeName != "" {
-				podHostname = node.Spec.NodeName
+				podHostname = SanitizeHostname(node.Spec.NodeName)
 			} else if node.Spec.NodeName != "" {
-				podHostname = node.Spec.NodeName
+				podHostname = SanitizeHostname(node.Spec.NodeName)
 			}
 		}
 	}
@@ -803,17 +873,55 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 		}
 	}
 
+	// Native HTTPS: stage the certificate material and install it into the node's
+	// keys directory at startup.
+	//
+	// DolphinDB only looks in `<home>/keys` (and, for a single node, also
+	// `<home>/<alias>/keys`), so the files are copied into place from a read-only
+	// Secret mount instead of mounting the Secret over the directory: that directory
+	// also holds DolphinDB's own aclPrivate/aclPublic keys, which must stay
+	// writable, and DolphinDB regenerates server.crt when serverPrivate.key is
+	// missing, so both files have to land before it starts.
+	tlsInstall := ""
+	if node.Spec.TLS != nil && node.Spec.TLS.SecretName != "" {
+		homeDir := nodeHomeDir(node)
+		keysDirs := []string{
+			homeDir + "/keys",
+			homeDir + "/" + node.Spec.Alias + "/keys",
+		}
+		volumes = append(volumes, corev1.Volume{
+			Name: "ddb-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: node.Spec.TLS.SecretName,
+					Items: []corev1.KeyToPath{
+						{Key: corev1.TLSCertKey, Path: "server.crt"},
+						{Key: corev1.TLSPrivateKeyKey, Path: "serverPrivate.key"},
+					},
+				},
+			},
+		})
+		ddbMounts = append(ddbMounts, corev1.VolumeMount{
+			Name:      "ddb-tls",
+			MountPath: "/data/ddb/tls",
+			ReadOnly:  true,
+		})
+		tlsInstall = fmt.Sprintf(
+			`if [ -f /data/ddb/tls/server.crt ] && [ -f /data/ddb/tls/serverPrivate.key ]; then for d in %s; do mkdir -p "$d" && cp -f /data/ddb/tls/server.crt /data/ddb/tls/serverPrivate.key "$d"/ && chmod 600 "$d/serverPrivate.key"; done; fi; `,
+			shellQuoteAll(keysDirs))
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
 			Namespace: node.Namespace,
 			Labels:    podLabels,
 			Annotations: map[string]string{
-				"prometheus.io/scrape": "true",
-				"prometheus.io/port":   strconv.Itoa(int(node.Spec.Port)),
-				"prometheus.io/path":   "/metrics",
-			},
-		},
+				"prometheus.io/scrape":   "true",
+				"prometheus.io/port":     strconv.Itoa(int(node.Spec.Port)),
+				"prometheus.io/path":     "/metrics",
+				dolphinTLSHashAnnotation: tlsHashFor(node),
+			}},
 		Spec: corev1.PodSpec{
 			Hostname:                      podHostname,
 			Subdomain:                     headlessSvc,
@@ -831,7 +939,7 @@ func (r *DDBNodeReconciler) buildPod(ctx context.Context, node *v1alpha1.DDBNode
 					Command: []string{
 						"/bin/sh",
 						"-c",
-						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; exec /data/ddb/server/dolphindb "$@"`,
+						`cp -f /data/ddb/config-source/* /data/ddb/server/config/ 2>/dev/null || true; [ -f /data/ddb/license/dolphindb.lic ] && ln -sf /data/ddb/license/dolphindb.lic /data/ddb/server/dolphindb.lic 2>/dev/null || true; ` + tlsInstall + aclInstall + `exec /data/ddb/server/dolphindb "$@"`,
 						"--",
 					},
 					Args:           args,
@@ -1024,10 +1132,7 @@ func getLegacyComponentType(role v1alpha1.NodeRole) string {
 }
 
 func (r *DDBNodeReconciler) buildContainerArgs(node *v1alpha1.DDBNode) []string {
-	homeDir := "/data/ddb/server/data"
-	if node.Spec.Role == v1alpha1.NodeRoleDataNode || node.Spec.Role == v1alpha1.NodeRoleComputeNode {
-		homeDir = fmt.Sprintf("/data/ddb/server/clusterDemo/data/%s", node.Spec.Alias)
-	}
+	homeDir := nodeHomeDir(node)
 
 	stdoutLog := int32(2)
 	maxLogSize := int32(200)
@@ -1066,6 +1171,17 @@ func (r *DDBNodeReconciler) buildContainerArgs(node *v1alpha1.DDBNode) []string 
 
 	if (node.Spec.Fingerprint != nil && node.Spec.Fingerprint.AutoPassthrough) || node.Spec.LicenseSecretName != "" {
 		args = append(args, "-license", "/data/ddb/server/dolphindb.lic")
+	}
+
+	// Native HTTPS. Passed as command line flags rather than config-file entries so
+	// the value stays per node: the advertised domain is derived from the exposed
+	// hostname, which differs per cluster and is only known to the controller.
+	// DolphinDB requires a domain here (never an IP) once enableHTTPS is on.
+	if node.Spec.TLS != nil && node.Spec.TLS.SecretName != "" {
+		args = append(args, "-enableHTTPS", "true")
+		if node.Spec.TLS.PublicName != "" {
+			args = append(args, "-publicName", node.Spec.TLS.PublicName)
+		}
 	}
 	domain := fmt.Sprintf("%s.%s.svc.cluster.local", node.Name, node.Namespace)
 	args = append(args, "-localSite", fmt.Sprintf("%s:%d:%s", domain, node.Spec.Port, node.Spec.Alias))

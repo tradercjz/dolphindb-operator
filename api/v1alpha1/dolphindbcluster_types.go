@@ -70,14 +70,22 @@ type MachineFingerprintSpec struct {
 	// NodeName manual node pinning if specified
 	NodeName string `json:"nodeName,omitempty"`
 
-	// LicensePath optional host license file path (defaults to /home/jzchen/dolphindb.lic)
+	// LicensePath is the absolute path of the licence file on the host, used only
+	// for host-bound (machineFingerprint) licensing. It has no default: supply it
+	// explicitly, otherwise the licence is taken from a Secret or from the image.
 	LicensePath string `json:"licensePath,omitempty"`
 }
 
 // LicenseSpec defines licensing configuration
 type LicenseSpec struct {
 	// Mode defines the license type: server, secret, or machineFingerprint
-	// +kubebuilder:default="machineFingerprint"
+	//
+	// The default is `secret` rather than `machineFingerprint`: host-bound
+	// licensing requires hostPath mounts (/etc/machine-id, /etc/hostname) and a
+	// licence file that exists on the node, which is rarely true on Kubernetes and
+	// never true on a managed cloud. Opting in explicitly is safer than surprising
+	// users with privileged mounts that fail to start.
+	// +kubebuilder:default="secret"
 	Mode LicenseMode `json:"mode,omitempty"`
 
 	// SecretName is the K8s Secret containing dolphindb.lic
@@ -108,6 +116,39 @@ type SecuritySpec struct {
 	// EnableShellFunction allows or denies the dangerous shell() function in DDB
 	// +kubebuilder:default=false
 	EnableShellFunction bool `json:"enableShellFunction,omitempty"`
+
+	// TLS enables DolphinDB's native HTTPS for the Web UI and REST/WebSocket API.
+	TLS *TLSSpec `json:"tls,omitempty"`
+}
+
+// TLSSpec configures DolphinDB native HTTPS (enableHTTPS).
+//
+// DolphinDB terminates TLS itself, on the same port as plain HTTP, using a
+// certificate found in the node's `<home>/keys` directory (server.crt +
+// serverPrivate.key). That makes it the one HTTPS option that needs neither a
+// registered domain, nor ACM, nor a cloud load balancer controller, nor IRSA - it
+// works identically on a laptop and on a locked-down cloud project.
+//
+// Because `enableHTTPS` requires `publicName` to be a *domain* (not an IP),
+// the operator derives one when the field is left empty: the exposed load
+// balancer hostname once it exists, otherwise the in-cluster service DNS name.
+type TLSSpec struct {
+	// Enabled turns on DolphinDB native HTTPS.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// SecretName references an existing kubernetes.io/tls Secret (keys tls.crt and
+	// tls.key). Use this with a certificate you own - for example one issued for a
+	// domain you control, or an ACM-exported certificate. When empty the operator
+	// issues and rotates its own self-signed certificate.
+	SecretName string `json:"secretName,omitempty"`
+
+	// PublicName is the external domain clients use. DolphinDB requires a domain
+	// (never an IP) when enableHTTPS is on. When empty the operator derives one.
+	PublicName string `json:"publicName,omitempty"`
+
+	// ValidityDays is the lifetime of the operator-managed self-signed certificate.
+	// +kubebuilder:default=825
+	ValidityDays int `json:"validityDays,omitempty"`
 }
 
 // LoggingSpec defines runtime logging configuration
@@ -143,15 +184,69 @@ const (
 	ExposureClusterIP      ExposureMode = "ClusterIP"
 )
 
+// ExposeSpec selects which cluster components are reachable from outside.
+//
+// Defaults come from the platform: on a managed cloud nothing is exposed until it
+// is asked for, because every exposed component costs a load balancer, whereas on
+// bare metal the traditional NodePort behaviour is preserved.
+type ExposeSpec struct {
+	// Controller exposes port 8900: the Web console and the management API.
+	// A controller holds cluster metadata and heartbeats; it cannot run DFS
+	// operations itself, so this is the *management* entry point.
+	Controller bool `json:"controller,omitempty"`
+
+	// DataNode exposes port 8901, where DFS reads and writes actually execute.
+	// Needed for real data work: a controller rejects database()/loadTable().
+	DataNode bool `json:"datanode,omitempty"`
+
+	// ComputeNode exposes port 8902, the stateless query tier.
+	ComputeNode bool `json:"computenode,omitempty"`
+}
+
+// Any reports whether at least one component is selected.
+func (e *ExposeSpec) Any() bool {
+	return e != nil && (e.Controller || e.DataNode || e.ComputeNode)
+}
+
+// Names lists the selected components, for messages and status.
+func (e *ExposeSpec) Names() []string {
+	if e == nil {
+		return nil
+	}
+	var out []string
+	if e.Controller {
+		out = append(out, "controller")
+	}
+	if e.DataNode {
+		out = append(out, "datanode")
+	}
+	if e.ComputeNode {
+		out = append(out, "computenode")
+	}
+	return out
+}
+
 // NetworkingSpec defines external access and publicName mapping
 type NetworkingSpec struct {
 	// ExposureMode defines the external exposure strategy
 	// +kubebuilder:default="NodePortDirect"
 	ExposureMode ExposureMode `json:"exposureMode,omitempty"`
 
-	// ServiceType defines K8s service type
-	// +kubebuilder:default="NodePort"
+	// ServiceType is the Kubernetes Service type used for the components selected by
+	// `expose`.
+	//
+	// Leave it empty to let the operator decide. The old default was NodePort, which
+	// on a cloud produced an access URL that looked public but was firewalled off by
+	// the node security group - the operator never opens that group, so the link was
+	// dead on arrival.
 	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
+
+	// Expose selects which components get an external entry point.
+	//
+	// Each selected component needs its own Service, and therefore its own cloud
+	// load balancer: a Kubernetes Service can only target one pod set, so a single
+	// load balancer cannot serve controllers and data nodes at once.
+	Expose *ExposeSpec `json:"expose,omitempty"`
 
 	// PublicIP or domain to inject into publicName config for Web UI redirect
 	PublicIP string `json:"publicIP,omitempty"`

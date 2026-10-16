@@ -104,8 +104,10 @@ spec:
                     description: Hostname manual override if not using host node name
                     type: string
                   licensePath:
-                    description: LicensePath optional host license file path (defaults
-                      to /home/jzchen/dolphindb.lic)
+                    description: |-
+                      LicensePath is the absolute path of the licence file on the host, used only
+                      for host-bound (machineFingerprint) licensing. It has no default: supply it
+                      explicitly, otherwise the licence is taken from a Secret or from the image.
                     type: string
                   machineIdSecretName:
                     description: MachineIdSecretName specifies the secret containing
@@ -287,6 +289,34 @@ spec:
                   storageClassName:
                     description: StorageClassName to use for PVCs
                     type: string
+                type: object
+              tls:
+                description: |-
+                  TLS carries the resolved HTTPS material for this node. It is populated by the
+                  cluster controller from DolphinDBCluster.spec.security.tls, with the secret
+                  name already resolved (either a user supplied Secret or the operator managed
+                  self-signed one) and PublicName already derived.
+                properties:
+                  hash:
+                    description: |-
+                      Hash changes whenever the certificate is reissued, so the pod template can
+                      include it and roll the node when the material changes.
+                    type: string
+                  managed:
+                    description: |-
+                      Managed is true when the operator issued the certificate itself, which means
+                      a browser will report it as untrusted until the user imports it.
+                    type: boolean
+                  publicName:
+                    description: PublicName is the domain DolphinDB advertises (enableHTTPS
+                      requires a domain).
+                    type: string
+                  secretName:
+                    description: SecretName is the kubernetes.io/tls Secret holding
+                      tls.crt and tls.key.
+                    type: string
+                required:
+                - secretName
                 type: object
               tolerations:
                 description: Tolerations pod tolerations

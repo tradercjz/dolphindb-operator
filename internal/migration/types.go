@@ -120,12 +120,18 @@ type AssessmentReport struct {
 
 // ConversionOptions specifies parameters for converting to the new CRD
 type ConversionOptions struct {
-	TargetMode       string   `json:"targetMode"` // "blue-green" or "in-place"
-	TargetVersion    string   `json:"targetVersion"`
-	NewClusterName   string   `json:"newClusterName"`
-	TargetNamespace  string   `json:"targetNamespace"`
-	UseSecretLicense bool     `json:"useSecretLicense"`
-	ExistingPVCs     []string `json:"existingPVCs"`
+	TargetMode      string `json:"targetMode"` // "blue-green" or "in-place"
+	TargetVersion   string `json:"targetVersion"`
+	NewClusterName  string `json:"newClusterName"`
+	TargetNamespace string `json:"targetNamespace"`
+	// UseSecretLicense switches the target cluster to the `secret` licence mode.
+	// When false, host-bound licensing is carried over and LicensePath must be set.
+	UseSecretLicense bool `json:"useSecretLicense"`
+	// LicensePath is the absolute path of the licence file on the target hosts. It
+	// is only used for host-bound (machineFingerprint) licensing and is required in
+	// that case: the operator no longer invents a default path.
+	LicensePath  string   `json:"licensePath,omitempty"`
+	ExistingPVCs []string `json:"existingPVCs"`
 }
 
 // AdoptionStep is an actionable step for in-place migration
