@@ -1815,6 +1815,7 @@
                 <th>备份数据库</th>
                 <th>状态</th>
                 <th>总 Chunks</th>
+                <th>存储位置</th>
                 <th>定时周期</th>
                 <th>下次备份</th>
                 <th>上次完成</th>
@@ -1823,7 +1824,7 @@
             </thead>
             <tbody id="backups-table-body">
               <tr>
-                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无备份任务</td>
+                <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无备份任务</td>
               </tr>
             </tbody>
           </table>
@@ -1846,6 +1847,7 @@
                 <th>原数据库</th>
                 <th>恢复至目标库</th>
                 <th>状态</th>
+                <th>来源存储</th>
                 <th>完成耗时</th>
                 <th>详情信息</th>
                 <th style="text-align: right;">操作</th>
@@ -1853,7 +1855,7 @@
             </thead>
             <tbody id="restores-table-body">
               <tr>
-                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无数据恢复记录</td>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">暂无数据恢复记录</td>
               </tr>
             </tbody>
           </table>
@@ -2857,6 +2859,55 @@
           <label>目标 DolphinDB 集群</label>
           <select id="backup-cluster-select" class="form-control"></select>
         </div>
+
+        <div class="form-group">
+          <label>备份目标存储介质</label>
+          <div style="display: flex; gap: 16px; margin-top: 6px;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+              <input type="radio" name="backup-dest-type" value="s3" checked onchange="toggleBackupDestType()"> ☁️ AWS S3 对象存储 (推荐)
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+              <input type="radio" name="backup-dest-type" value="local" onchange="toggleBackupDestType()"> 📁 本地存储卷路径
+            </label>
+          </div>
+        </div>
+
+        <!-- S3 Destination Fields -->
+        <div id="backup-s3-fields" style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+          <div class="form-group" style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: 600;">S3 存储桶 (Bucket) <span style="color: var(--danger, #ef4444);">*</span></label>
+            <input type="text" id="backup-s3-bucket" class="form-control" placeholder="例如: ddb-backup-test-859928915600">
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">AWS 区域 (Region)</label>
+              <input type="text" id="backup-s3-region" class="form-control" value="ap-southeast-2" placeholder="ap-southeast-2">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">存储前缀路径 (Prefix)</label>
+              <input type="text" id="backup-s3-prefix" class="form-control" placeholder="dolphindb-backups">
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">自定义 S3 Endpoint (可选，兼容MinIO/OSS)</label>
+              <input type="text" id="backup-s3-endpoint" class="form-control" placeholder="留空默认AWS标准端点">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">Secret 凭证 (可选，默认继承IAM节点权限)</label>
+              <input type="text" id="backup-s3-secret" class="form-control" placeholder="留空使用Node IAM Role">
+            </div>
+          </div>
+        </div>
+
+        <!-- Local Path Field -->
+        <div id="backup-local-fields" style="display: none; margin-bottom: 14px;">
+          <div class="form-group">
+            <label>备份存储路径 (DataNode 容器内路径)</label>
+            <input type="text" id="backup-path" class="form-control" value="/dolphindb/backups">
+          </div>
+        </div>
+
         <div class="form-group">
           <label>备份数据库列表 (逗号分隔，例如 dfs://stockDB, dfs://tradeDB)</label>
           <input type="text" id="backup-dbs" class="form-control" value="dfs://demodb">
@@ -2864,10 +2915,6 @@
         <div class="form-group">
           <label>备份表名 (可选，逗号分隔，留空为备份全库所有表)</label>
           <input type="text" id="backup-tables" class="form-control" placeholder="留空默认全表备份">
-        </div>
-        <div class="form-group">
-          <label>备份存储路径 (存储卷内路径)</label>
-          <input type="text" id="backup-path" class="form-control" value="/dolphindb/backups">
         </div>
         <div class="form-group">
           <label>Cron 定时表达式 (留空为立即触发一次性快照备份)</label>
@@ -2904,21 +2951,67 @@
           <label>目标恢复集群</label>
           <select id="restore-cluster-select" class="form-control"></select>
         </div>
+
         <div class="form-group">
-          <label>源备份名称 (留空则从指定存储路径恢复)</label>
-          <input type="text" id="restore-backup-name" class="form-control">
+          <label>数据恢复源类型</label>
+          <div style="display: flex; gap: 14px; margin-top: 6px;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+              <input type="radio" name="restore-source-type" value="s3" checked onchange="toggleRestoreSourceType()"> ☁️ 从 AWS S3 对象存储恢复
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+              <input type="radio" name="restore-source-type" value="backup_crd" onchange="toggleRestoreSourceType()"> 📋 从现有备份记录恢复
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+              <input type="radio" name="restore-source-type" value="local" onchange="toggleRestoreSourceType()"> 📁 从节点本地路径恢复
+            </label>
+          </div>
         </div>
-        <div class="form-group">
-          <label>备份数据路径</label>
-          <input type="text" id="restore-backup-path" class="form-control" value="/dolphindb/backups">
+
+        <!-- S3 Restore Fields -->
+        <div id="restore-s3-fields" style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+          <div class="form-group" style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: 600;">S3 存储桶 (Bucket) <span style="color: var(--danger, #ef4444);">*</span></label>
+            <input type="text" id="restore-s3-bucket" class="form-control" placeholder="例如: ddb-backup-test-859928915600">
+          </div>
+          <div class="form-group" style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: 600;">S3 对象 Key / 文件路径 <span style="color: var(--danger, #ef4444);">*</span></label>
+            <input type="text" id="restore-s3-key" class="form-control" placeholder="例如: dolphindb-backups/ddb-aws-1rep/backup-test.zip">
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">AWS 区域 (Region)</label>
+              <input type="text" id="restore-s3-region" class="form-control" value="ap-southeast-2" placeholder="ap-southeast-2">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px;">Secret 凭证 (可选)</label>
+              <input type="text" id="restore-s3-secret" class="form-control" placeholder="留空继承IAM节点权限">
+            </div>
+          </div>
         </div>
+
+        <!-- CRD Source Fields -->
+        <div id="restore-crd-fields" style="display: none; margin-bottom: 14px;">
+          <div class="form-group">
+            <label>现有备份任务名称 (DDBBackup CR)</label>
+            <input type="text" id="restore-backup-name" class="form-control" placeholder="例如 backup-ddb-aws-1rep-1729080000">
+          </div>
+        </div>
+
+        <!-- Local Path Field -->
+        <div id="restore-local-fields" style="display: none; margin-bottom: 14px;">
+          <div class="form-group">
+            <label>备份数据路径 (DataNode 容器内路径)</label>
+            <input type="text" id="restore-backup-path" class="form-control" value="/dolphindb/backups">
+          </div>
+        </div>
+
         <div class="form-group">
           <label>恢复的源数据库 (dfs://...)</label>
           <input type="text" id="restore-database" class="form-control" value="dfs://demodb">
         </div>
         <div class="form-group">
           <label>目标重命名库 (可选，留空为恢复至原库)</label>
-          <input type="text" id="restore-target-db" class="form-control" placeholder="留空为恢复至原库">
+          <input type="text" id="restore-target-db" class="form-control" placeholder="留空为恢复至原库，例如 dfs://restored_demodb">
         </div>
       </div>
       <div class="modal-footer">
@@ -5117,7 +5210,32 @@ spec:
     }
 
     // Backups
+    function toggleBackupDestType() {
+      const el = document.querySelector('input[name="backup-dest-type"]:checked');
+      if (!el) return;
+      const type = el.value;
+      const s3Fields = document.getElementById('backup-s3-fields');
+      const localFields = document.getElementById('backup-local-fields');
+      if (s3Fields && localFields) {
+        s3Fields.style.display = (type === 's3') ? 'block' : 'none';
+        localFields.style.display = (type === 'local') ? 'block' : 'none';
+      }
+    }
+
+    function toggleRestoreSourceType() {
+      const el = document.querySelector('input[name="restore-source-type"]:checked');
+      if (!el) return;
+      const type = el.value;
+      const s3Fields = document.getElementById('restore-s3-fields');
+      const crdFields = document.getElementById('restore-crd-fields');
+      const localFields = document.getElementById('restore-local-fields');
+      if (s3Fields) s3Fields.style.display = (type === 's3') ? 'block' : 'none';
+      if (crdFields) crdFields.style.display = (type === 'backup_crd') ? 'block' : 'none';
+      if (localFields) localFields.style.display = (type === 'local') ? 'block' : 'none';
+    }
+
     function openBackupModal() {
+      toggleBackupDestType();
       document.getElementById('modal-backup').classList.add('open');
     }
 
@@ -5126,9 +5244,33 @@ spec:
       const dbs = document.getElementById('backup-dbs').value.split(',').map(s => s.trim()).filter(Boolean);
       const tables = document.getElementById('backup-tables').value.split(',').map(s => s.trim()).filter(Boolean);
       const schedule = document.getElementById('backup-schedule').value.trim();
-      const path = document.getElementById('backup-path').value.trim();
       const parallel = document.getElementById('backup-parallel').checked;
       const snapshot = document.getElementById('backup-snapshot').checked;
+
+      const destTypeEl = document.querySelector('input[name="backup-dest-type"]:checked');
+      const destType = destTypeEl ? destTypeEl.value : 's3';
+      let path = '';
+      let s3 = null;
+
+      if (destType === 's3') {
+        const bucket = document.getElementById('backup-s3-bucket').value.trim();
+        if (!bucket) {
+          showToast('S3 存储桶 (Bucket) 为必填项', 'error');
+          return;
+        }
+        s3 = {
+          bucket: bucket,
+          region: document.getElementById('backup-s3-region').value.trim() || 'ap-southeast-2',
+          prefix: document.getElementById('backup-s3-prefix').value.trim() || '',
+          endpoint: document.getElementById('backup-s3-endpoint').value.trim() || '',
+        };
+        const sec = document.getElementById('backup-s3-secret').value.trim();
+        if (sec) {
+          s3.secretRef = { name: sec };
+        }
+      } else {
+        path = document.getElementById('backup-path').value.trim();
+      }
 
       if (!cluster || dbs.length === 0) {
         showToast('请指定集群与至少一个数据库', 'error');
@@ -5136,10 +5278,13 @@ spec:
       }
 
       try {
+        const payload = { cluster, databases: dbs, tables, schedule, backupPath: path, parallel, snapshot };
+        if (s3) payload.s3 = s3;
+
         const res = await fetch('/api/backups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cluster, databases: dbs, tables, schedule, backupPath: path, parallel, snapshot })
+          body: JSON.stringify(payload)
         });
         if (res.ok) {
           closeModal('modal-backup');
@@ -5154,22 +5299,70 @@ spec:
       }
     }
 
-    function openRestoreModal(clusterName = '', dbName = '') {
+    function openRestoreModal(clusterName = '', dbName = '', backupName = '', s3Bucket = '', s3Key = '', s3Region = '') {
       if (clusterName) {
         document.getElementById('restore-cluster-select').value = clusterName;
       }
       if (dbName) {
         document.getElementById('restore-database').value = dbName;
       }
+      if (backupName) {
+        document.getElementById('restore-backup-name').value = backupName;
+      }
+      if (s3Bucket && s3Key) {
+        const s3Radio = document.querySelector('input[name="restore-source-type"][value="s3"]');
+        if (s3Radio) s3Radio.checked = true;
+        document.getElementById('restore-s3-bucket').value = s3Bucket;
+        document.getElementById('restore-s3-key').value = s3Key;
+        if (s3Region) document.getElementById('restore-s3-region').value = s3Region;
+      } else if (backupName) {
+        const crdRadio = document.querySelector('input[name="restore-source-type"][value="backup_crd"]');
+        if (crdRadio) crdRadio.checked = true;
+      }
+      toggleRestoreSourceType();
       document.getElementById('modal-restore').classList.add('open');
     }
 
     async function submitRestore() {
       const cluster = document.getElementById('restore-cluster-select').value;
-      const backupName = document.getElementById('restore-backup-name').value.trim();
-      const backupPath = document.getElementById('restore-backup-path').value.trim();
       const database = document.getElementById('restore-database').value.trim();
       const targetDatabase = document.getElementById('restore-target-db').value.trim();
+
+      const sourceTypeEl = document.querySelector('input[name="restore-source-type"]:checked');
+      const sourceType = sourceTypeEl ? sourceTypeEl.value : 's3';
+      let backupName = '';
+      let backupPath = '';
+      let s3 = null;
+      let s3Key = '';
+
+      if (sourceType === 's3') {
+        const bucket = document.getElementById('restore-s3-bucket').value.trim();
+        s3Key = document.getElementById('restore-s3-key').value.trim();
+        if (!bucket || !s3Key) {
+          showToast('S3 存储桶与对象 Key 路径均为必填项', 'error');
+          return;
+        }
+        s3 = {
+          bucket: bucket,
+          region: document.getElementById('restore-s3-region').value.trim() || 'ap-southeast-2',
+        };
+        const sec = document.getElementById('restore-s3-secret').value.trim();
+        if (sec) {
+          s3.secretRef = { name: sec };
+        }
+      } else if (sourceType === 'backup_crd') {
+        backupName = document.getElementById('restore-backup-name').value.trim();
+        if (!backupName) {
+          showToast('请填写现有备份任务名称', 'error');
+          return;
+        }
+      } else {
+        backupPath = document.getElementById('restore-backup-path').value.trim();
+        if (!backupPath) {
+          showToast('请填写备份数据路径', 'error');
+          return;
+        }
+      }
 
       if (!cluster || !database) {
         showToast('集群与原数据库均为必填项', 'error');
@@ -5177,10 +5370,16 @@ spec:
       }
 
       try {
+        const payload = { cluster, backupName, backupPath, database, targetDatabase };
+        if (s3) {
+          payload.s3 = s3;
+          payload.s3Key = s3Key;
+        }
+
         const res = await fetch('/api/restores', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cluster, backupName, backupPath, database, targetDatabase })
+          body: JSON.stringify(payload)
         });
         if (res.ok) {
           closeModal('modal-restore');
@@ -5257,7 +5456,7 @@ spec:
 
       const tbody = document.getElementById('backups-table-body');
       if (backups.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无快照备份记录，点击上方按钮创建新备份策略</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无快照备份记录，点击上方按钮创建新备份策略</td></tr>';
         return;
       }
 
@@ -5273,6 +5472,26 @@ spec:
         const next = b.status && b.status.nextBackupTime ? b.status.nextBackupTime.replace('T', ' ').replace('Z', '') : '-';
         const last = b.status && b.status.lastBackupTime ? formatAge(new Date(b.status.lastBackupTime)) : '-';
 
+        let storageBadge = '<span class="badge badge-secondary">📁 本地卷</span>';
+        let s3Bucket = '';
+        let s3Key = '';
+        let s3Region = '';
+
+        if (b.status && b.status.s3Location) {
+          const s3Loc = b.status.s3Location;
+          storageBadge = `<span class="badge badge-purple" title="${s3Loc}">☁️ AWS S3</span> <span style="font-size: 10px; color: var(--text-muted);">${s3Loc.split('/').pop()}</span>`;
+          if (s3Loc.startsWith('s3://')) {
+            const parts = s3Loc.replace('s3://', '').split('/');
+            s3Bucket = parts[0];
+            s3Key = parts.slice(1).join('/');
+          }
+          if (b.spec.s3 && b.spec.s3.region) s3Region = b.spec.s3.region;
+        } else if (b.spec.s3 && b.spec.s3.bucket) {
+          s3Bucket = b.spec.s3.bucket;
+          s3Region = b.spec.s3.region || 'ap-southeast-2';
+          storageBadge = `<span class="badge badge-purple">☁️ S3: ${s3Bucket}</span>`;
+        }
+
         return `
           <tr>
             <td><strong style="color: var(--primary); font-family: var(--font-mono);">${b.metadata.name}</strong></td>
@@ -5280,11 +5499,12 @@ spec:
             <td><code style="color: var(--primary); font-size: 11px;">${dbs}</code></td>
             <td>${phaseBadge}</td>
             <td><strong style="color: var(--text-main);">${total}</strong></td>
+            <td>${storageBadge}</td>
             <td>${sched}</td>
             <td style="color: var(--text-dim); font-size: 11px;">${next}</td>
             <td style="color: var(--text-dim); font-size: 11px;">${last}</td>
             <td style="text-align: right;">
-              <button class="btn btn-secondary btn-sm" onclick="openRestoreModal('${b.spec.cluster}', '${dbs}')">恢复</button>
+              <button class="btn btn-secondary btn-sm" onclick="openRestoreModal('${b.spec.cluster}', '${dbs}', '${b.metadata.name}', '${s3Bucket}', '${s3Key}', '${s3Region}')">恢复</button>
               <button class="btn btn-danger btn-sm" onclick="deleteBackup('${b.metadata.namespace}', '${b.metadata.name}')">删除</button>
             </td>
           </tr>
@@ -5305,7 +5525,7 @@ spec:
     function renderRestoresTable(restores) {
       const tbody = document.getElementById('restores-table-body');
       if (restores.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无数据恢复审计记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">暂无数据恢复审计记录</td></tr>';
         return;
       }
 
@@ -5314,6 +5534,14 @@ spec:
         let phaseBadge = '<span class="badge badge-info">' + phase + '</span>';
         if (phase === 'Completed') phaseBadge = '<span class="badge badge-success"><span class="pulse-dot" style="width: 5px; height: 5px;"></span>Completed</span>';
         if (phase === 'Failed') phaseBadge = '<span class="badge badge-danger">Failed</span>';
+
+        let sourceBadge = '<span class="badge badge-secondary">📁 本地路径</span>';
+        if (r.spec.s3Key) {
+          const s3Name = r.spec.s3Key.split('/').pop();
+          sourceBadge = `<span class="badge badge-purple" title="s3://${r.spec.s3 ? r.spec.s3.bucket : ''}/${r.spec.s3Key}">☁️ S3</span> <span style="font-size: 10px; color: var(--text-muted);">${s3Name}</span>`;
+        } else if (r.spec.backupName) {
+          sourceBadge = `<span class="badge badge-info" title="DDBBackup: ${r.spec.backupName}">📋 ${r.spec.backupName}</span>`;
+        }
 
         const completion = r.status && r.status.completionTime ? formatAge(new Date(r.status.completionTime)) : '-';
         const msg = r.status ? (r.status.message || '') : '';
@@ -5325,6 +5553,7 @@ spec:
             <td><code style="font-size: 11px;">${r.spec.database}</code></td>
             <td><code style="font-size: 11px; color: var(--success);">${r.spec.targetDatabase || r.spec.database}</code></td>
             <td>${phaseBadge}</td>
+            <td>${sourceBadge}</td>
             <td style="color: var(--text-dim); font-size: 11px;">${completion}</td>
             <td style="color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg}</td>
             <td style="text-align: right;">

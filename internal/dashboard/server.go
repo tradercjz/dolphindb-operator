@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -2265,16 +2266,17 @@ func (s *Server) handleOperationSubRoutes(w http.ResponseWriter, r *http.Request
 }
 
 type CreateBackupRequest struct {
-	Cluster    string   `json:"cluster"`
-	Namespace  string   `json:"namespace"`
-	Name       string   `json:"name,omitempty"`
-	Databases  []string `json:"databases"`
-	Tables     []string `json:"tables,omitempty"`
-	BackupPath string   `json:"backupPath,omitempty"`
-	Schedule   string   `json:"schedule,omitempty"`
-	Parallel   bool     `json:"parallel,omitempty"`
-	Snapshot   bool     `json:"snapshot,omitempty"`
-	Force      bool     `json:"force,omitempty"`
+	Cluster    string                  `json:"cluster"`
+	Namespace  string                  `json:"namespace"`
+	Name       string                  `json:"name,omitempty"`
+	Databases  []string                `json:"databases"`
+	Tables     []string                `json:"tables,omitempty"`
+	BackupPath string                  `json:"backupPath,omitempty"`
+	Schedule   string                  `json:"schedule,omitempty"`
+	Parallel   bool                    `json:"parallel,omitempty"`
+	Snapshot   bool                    `json:"snapshot,omitempty"`
+	Force      bool                    `json:"force,omitempty"`
+	S3         *v1alpha1.S3StorageSpec `json:"s3,omitempty"`
 }
 
 func (s *Server) handleBackups(w http.ResponseWriter, r *http.Request) {
@@ -2344,6 +2346,7 @@ func (s *Server) handleBackups(w http.ResponseWriter, r *http.Request) {
 				Parallel:   req.Parallel,
 				Snapshot:   &snapshotVal,
 				Force:      req.Force,
+				S3:         req.S3,
 			},
 		}
 
@@ -2379,15 +2382,17 @@ func (s *Server) handleBackupSubRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreateRestoreRequest struct {
-	Cluster        string `json:"cluster"`
-	Namespace      string `json:"namespace"`
-	Name           string `json:"name,omitempty"`
-	BackupName     string `json:"backupName,omitempty"`
-	BackupPath     string `json:"backupPath,omitempty"`
-	Database       string `json:"database"`
-	Table          string `json:"table,omitempty"`
-	TargetDatabase string `json:"targetDatabase,omitempty"`
-	TargetTable    string `json:"targetTable,omitempty"`
+	Cluster        string                  `json:"cluster"`
+	Namespace      string                  `json:"namespace"`
+	Name           string                  `json:"name,omitempty"`
+	BackupName     string                  `json:"backupName,omitempty"`
+	BackupPath     string                  `json:"backupPath,omitempty"`
+	Database       string                  `json:"database"`
+	Table          string                  `json:"table,omitempty"`
+	TargetDatabase string                  `json:"targetDatabase,omitempty"`
+	TargetTable    string                  `json:"targetTable,omitempty"`
+	S3             *v1alpha1.S3StorageSpec `json:"s3,omitempty"`
+	S3Key          string                  `json:"s3Key,omitempty"`
 }
 
 func (s *Server) handleRestores(w http.ResponseWriter, r *http.Request) {
@@ -2460,6 +2465,8 @@ func (s *Server) handleRestores(w http.ResponseWriter, r *http.Request) {
 				Table:          req.Table,
 				TargetDatabase: targetDB,
 				TargetTable:    req.TargetTable,
+				S3:             req.S3,
+				S3Key:          req.S3Key,
 			},
 		}
 
@@ -2565,8 +2572,12 @@ func (s *Server) getClusterLicenseDetails(ctx context.Context, cluster *v1alpha1
 	pod := &corev1.Pod{}
 	if err := s.client.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: targetPodName}, pod); err == nil &&
 		pod.Status.Phase == corev1.PodRunning && pod.Status.PodIP != "" {
+		baseURL := fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port)
+		if localEP := os.Getenv("DDB_LOCAL_ENDPOINT"); localEP != "" {
+			baseURL = localEP
+		}
 		adminUser, adminPass := credentials.Resolve(ctx, s.client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
-		cli := ddbclient.NewClient(fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port), adminUser, adminPass)
+		cli := ddbclient.NewClient(baseURL, adminUser, adminPass)
 		if details, err := cli.GetLicenseDetails(ctx); err == nil && len(details) > 0 {
 			info.Available = true
 			info.Expiration = details["expiration"]

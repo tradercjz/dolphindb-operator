@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -1189,6 +1190,9 @@ func (r *DolphinDBClusterReconciler) getDDBClient(cluster *v1alpha1.DolphinDBClu
 		ctlPort = cluster.Spec.Controller.Port
 	}
 	baseURL := fmt.Sprintf("http://%s:%d", ctlPod.Status.PodIP, ctlPort)
+	if localEP := os.Getenv("DDB_LOCAL_ENDPOINT"); localEP != "" {
+		baseURL = localEP
+	}
 	adminUser, adminPass := credentials.Resolve(context.Background(), r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
 	return ddbclient.NewClient(baseURL, adminUser, adminPass)
 }

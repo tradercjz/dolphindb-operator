@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -192,6 +193,33 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		totalChunks += chunks
 	}
 
+	// If S3 storage destination is configured, package and upload to S3
+	if backup.Spec.S3 != nil && backup.Spec.S3.Bucket != "" {
+		s3Spec := *backup.Spec.S3
+		if s3Spec.Region == "" {
+			s3Spec.Region = "ap-southeast-2"
+		}
+		s3Prefix := strings.Trim(s3Spec.Prefix, "/")
+		if s3Prefix == "" {
+			s3Prefix = fmt.Sprintf("dolphindb-backups/%s", cluster.Name)
+		}
+		s3Key := fmt.Sprintf("%s/%s-%s.zip", s3Prefix, backup.Name, time.Now().Format("20060102150405"))
+
+		ak, sk := r.resolveS3Credentials(ctx, backup.Namespace, s3Spec.SecretRef)
+
+		backup.Status.Message = fmt.Sprintf("Uploading backup archive to s3://%s/%s...", s3Spec.Bucket, s3Key)
+		_ = r.Status().Update(ctx, backup)
+
+		if err := cli.UploadBackupToS3(ctx, activeDN, backupDir, s3Spec.Bucket, s3Key, s3Spec.Region, s3Spec.Endpoint, ak, sk); err != nil {
+			nowMeta := metav1.Now()
+			backup.Status.Phase = v1alpha1.BackupPhaseFailed
+			backup.Status.CompletionTime = &nowMeta
+			backup.Status.Message = fmt.Sprintf("Failed to upload backup to S3 (bucket: %s, key: %s): %v", s3Spec.Bucket, s3Key, err)
+			return ctrl.Result{}, r.Status().Update(ctx, backup)
+		}
+		backup.Status.S3Location = fmt.Sprintf("s3://%s/%s", s3Spec.Bucket, s3Key)
+	}
+
 	nowMeta := metav1.Now()
 	backup.Status.Phase = v1alpha1.BackupPhaseCompleted
 	backup.Status.Node = activeDN
@@ -201,11 +229,15 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	metrics.BackupTotalChunks.WithLabelValues(backup.Spec.Cluster, backup.Namespace, backup.Name).Set(float64(totalChunks))
 
+	msg := fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s)", totalChunks, backupDir, activeDN)
+	if backup.Status.S3Location != "" {
+		msg = fmt.Sprintf("Backup succeeded (%d chunk(s) uploaded to %s via %s)", totalChunks, backup.Status.S3Location, activeDN)
+	}
+
 	if cronSched != nil {
 		nextTime := cronSched.Next(nowMeta.Time)
 		backup.Status.NextBackupTime = &metav1.Time{Time: nextTime}
-		backup.Status.Message = fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s); next at %s",
-			totalChunks, backupDir, activeDN, nextTime.Format("2006-01-02 15:04:05"))
+		backup.Status.Message = fmt.Sprintf("%s; next at %s", msg, nextTime.Format("2006-01-02 15:04:05"))
 		requeueWait := time.Until(nextTime)
 		if requeueWait <= 0 {
 			requeueWait = 1 * time.Second
@@ -213,8 +245,27 @@ func (r *DDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: requeueWait}, r.Status().Update(ctx, backup)
 	}
 
-	backup.Status.Message = fmt.Sprintf("Backup succeeded (%d chunk(s) stored in %s via %s)", totalChunks, backupDir, activeDN)
+	backup.Status.Message = msg
 	return ctrl.Result{}, r.Status().Update(ctx, backup)
+}
+
+func (r *DDBBackupReconciler) resolveS3Credentials(ctx context.Context, namespace string, secretRef *corev1.LocalObjectReference) (string, string) {
+	if secretRef == nil || secretRef.Name == "" {
+		return "", ""
+	}
+	sec := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretRef.Name}, sec); err != nil {
+		return "", ""
+	}
+	ak := string(sec.Data["accessKeyId"])
+	if ak == "" {
+		ak = string(sec.Data["AWS_ACCESS_KEY_ID"])
+	}
+	sk := string(sec.Data["secretAccessKey"])
+	if sk == "" {
+		sk = string(sec.Data["AWS_SECRET_ACCESS_KEY"])
+	}
+	return ak, sk
 }
 
 func (r *DDBBackupReconciler) getDDBClient(ctx context.Context, cluster *v1alpha1.DolphinDBCluster) *ddbclient.Client {
@@ -239,6 +290,9 @@ func (r *DDBBackupReconciler) getDDBClient(ctx context.Context, cluster *v1alpha
 	}
 
 	baseURL := fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port)
+	if localEP := os.Getenv("DDB_LOCAL_ENDPOINT"); localEP != "" {
+		baseURL = localEP
+	}
 	user, pass := credentials.Resolve(ctx, r.Client, cluster.Namespace, cluster.Spec.Security.AdminSecretName)
 	return ddbclient.NewClient(baseURL, user, pass)
 }
@@ -313,9 +367,12 @@ func (r *DDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	// Resolve backup path and node
+	// Resolve backup source (local path or S3) and node
 	backupDir := restore.Spec.BackupPath
 	targetNode := restore.Spec.Node
+	s3Spec := restore.Spec.S3
+	s3Key := restore.Spec.S3Key
+
 	if restore.Spec.BackupName != "" {
 		sourceBackup := &v1alpha1.DDBBackup{}
 		if err := r.Get(ctx, client.ObjectKey{Namespace: restore.Namespace, Name: restore.Spec.BackupName}, sourceBackup); err == nil {
@@ -325,12 +382,31 @@ func (r *DDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if targetNode == "" {
 				targetNode = sourceBackup.Status.Node
 			}
+			if s3Spec == nil && sourceBackup.Spec.S3 != nil {
+				s3Spec = sourceBackup.Spec.S3
+			}
+			if s3Key == "" && sourceBackup.Status.S3Location != "" {
+				s3Loc := sourceBackup.Status.S3Location
+				if strings.HasPrefix(s3Loc, "s3://") {
+					parts := strings.TrimPrefix(s3Loc, "s3://")
+					slashIdx := strings.Index(parts, "/")
+					if slashIdx > 0 {
+						if s3Spec == nil {
+							s3Spec = &v1alpha1.S3StorageSpec{
+								Bucket: parts[:slashIdx],
+							}
+						}
+						s3Key = parts[slashIdx+1:]
+					}
+				}
+			}
 		}
 	}
 
-	if backupDir == "" {
+	isS3Restore := s3Spec != nil && s3Spec.Bucket != "" && s3Key != ""
+	if backupDir == "" && !isS3Restore {
 		restore.Status.Phase = v1alpha1.RestorePhaseFailed
-		restore.Status.Message = "Neither spec.backupPath nor valid spec.backupName provided"
+		restore.Status.Message = "Neither spec.backupPath, valid spec.backupName, nor S3 configuration provided"
 		now := metav1.Now()
 		restore.Status.CompletionTime = &now
 		return ctrl.Result{}, r.Status().Update(ctx, restore)
@@ -358,7 +434,41 @@ func (r *DDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	restore.Status.Phase = v1alpha1.RestorePhaseRunning
-	err = cli.Restore(ctx, activeDN, backupDir, restore.Spec.Database, restore.Spec.Table, restore.Spec.TargetDatabase, restore.Spec.TargetTable)
+
+	actualBackupDir := backupDir
+	stagingDir := ""
+
+	if isS3Restore {
+		stagingDir = fmt.Sprintf("/tmp/ddb_restore_%s_%d", restore.Name, time.Now().Unix())
+		reg := s3Spec.Region
+		if reg == "" {
+			reg = "ap-southeast-2"
+		}
+		ak, sk := bReconciler.resolveS3Credentials(ctx, restore.Namespace, s3Spec.SecretRef)
+
+		restore.Status.Message = fmt.Sprintf("Downloading and unpacking backup from s3://%s/%s...", s3Spec.Bucket, s3Key)
+		_ = r.Status().Update(ctx, restore)
+
+		resolvedDir, err := cli.DownloadBackupFromS3(ctx, activeDN, s3Spec.Bucket, s3Key, stagingDir, reg, s3Spec.Endpoint, ak, sk, restore.Spec.Database)
+		if err != nil {
+			restore.Status.Phase = v1alpha1.RestorePhaseFailed
+			restore.Status.Message = fmt.Sprintf("Failed to download/unpack backup from S3: %v", err)
+			now := metav1.Now()
+			restore.Status.CompletionTime = &now
+			return ctrl.Result{}, r.Status().Update(ctx, restore)
+		}
+		actualBackupDir = resolvedDir
+	}
+
+	restore.Status.Message = fmt.Sprintf("Executing restore into %s via %s...", restore.Spec.Database, activeDN)
+	_ = r.Status().Update(ctx, restore)
+
+	err = cli.Restore(ctx, activeDN, actualBackupDir, restore.Spec.Database, restore.Spec.Table, restore.Spec.TargetDatabase, restore.Spec.TargetTable)
+
+	if isS3Restore && stagingDir != "" {
+		_ = cli.CleanupDirectory(ctx, activeDN, stagingDir)
+	}
+
 	if err != nil {
 		restore.Status.Phase = v1alpha1.RestorePhaseFailed
 		restore.Status.Message = fmt.Sprintf("Restore failed: %v", err)
@@ -375,7 +485,11 @@ func (r *DDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	now := metav1.Now()
 	restore.Status.Phase = v1alpha1.RestorePhaseCompleted
 	restore.Status.CompletionTime = &now
-	restore.Status.Message = fmt.Sprintf("Successfully restored %s from %s into target %s via %s", restore.Spec.Database, backupDir, target, activeDN)
+	if isS3Restore {
+		restore.Status.Message = fmt.Sprintf("Successfully restored %s from s3://%s/%s into target %s via %s", restore.Spec.Database, s3Spec.Bucket, s3Key, target, activeDN)
+	} else {
+		restore.Status.Message = fmt.Sprintf("Successfully restored %s from %s into target %s via %s", restore.Spec.Database, actualBackupDir, target, activeDN)
+	}
 	return ctrl.Result{}, r.Status().Update(ctx, restore)
 }
 

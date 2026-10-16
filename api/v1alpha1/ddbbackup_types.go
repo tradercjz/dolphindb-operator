@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -13,6 +14,24 @@ const (
 	BackupPhaseCompleted BackupPhase = "Completed"
 	BackupPhaseFailed    BackupPhase = "Failed"
 )
+
+// S3StorageSpec defines AWS S3 or S3-compatible object storage destination/source
+type S3StorageSpec struct {
+	// Bucket target S3 bucket name (e.g., "my-dolphindb-backups")
+	Bucket string `json:"bucket"`
+
+	// Region optional AWS region (e.g., "ap-southeast-2", defaults to cluster region)
+	Region string `json:"region,omitempty"`
+
+	// Prefix optional prefix/directory path in the bucket (e.g., "dolphindb-backups")
+	Prefix string `json:"prefix,omitempty"`
+
+	// Endpoint optional custom S3 endpoint URL for MinIO, Ceph, or Cloudflare R2
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// SecretRef optional reference to K8s Secret containing AWS credentials (keys: accessKeyId, secretAccessKey). If omitted, IAM Role / Instance Profile is used.
+	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+}
 
 // DDBBackupSpec defines the desired backup action
 type DDBBackupSpec struct {
@@ -27,6 +46,9 @@ type DDBBackupSpec struct {
 
 	// BackupPath destination path for backup files (defaults to /data/ddb/backup/<cluster>/<name>)
 	BackupPath string `json:"backupPath,omitempty"`
+
+	// S3 optional S3 storage configuration for archiving backups directly to S3
+	S3 *S3StorageSpec `json:"s3,omitempty"`
 
 	// Force whether to overwrite existing backup files
 	Force bool `json:"force,omitempty"`
@@ -48,6 +70,9 @@ type DDBBackupStatus struct {
 
 	// BackupPath resolved directory path where backup was stored
 	BackupPath string `json:"backupPath,omitempty"`
+
+	// S3Location full S3 URI if uploaded to S3 (e.g., "s3://my-bucket/backups/db-20261016.zip")
+	S3Location string `json:"s3Location,omitempty"`
 
 	// Node node alias where backup was executed
 	Node string `json:"node,omitempty"`
@@ -119,6 +144,12 @@ type DDBRestoreSpec struct {
 
 	// BackupPath source directory path of backup files
 	BackupPath string `json:"backupPath,omitempty"`
+
+	// S3 optional S3 storage configuration to restore from
+	S3 *S3StorageSpec `json:"s3,omitempty"`
+
+	// S3Key specific S3 object key to restore from (e.g. "backups/test_1rep_db_20261016.zip")
+	S3Key string `json:"s3Key,omitempty"`
 
 	// Database DFS database URL to restore (e.g. "dfs://k8sScaleTestDB")
 	Database string `json:"database"`

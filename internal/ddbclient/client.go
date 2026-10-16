@@ -498,6 +498,118 @@ func (c *Client) CheckBackup(ctx context.Context, dataNodeAlias, backupDir, dbPa
 	}
 }
 
+// EnsurePluginsLoaded loads aws and zip plugins on the target DataNode
+func (c *Client) EnsurePluginsLoaded(ctx context.Context, dataNodeAlias string) error {
+	script := fmt.Sprintf(`rpc(%q, def(){
+		try { loadPlugin("/data/ddb/server/plugins/aws/PluginAWS.txt"); } catch(ex) {};
+		try { loadPlugin("/data/ddb/server/plugins/zip/PluginZip.txt"); } catch(ex) {};
+		return true;
+	});`, dataNodeAlias)
+	_, err := c.ExecuteScript(ctx, script)
+	return err
+}
+
+// UploadBackupToS3 compresses the local backup directory and uploads it to AWS S3 / S3-compatible storage
+func (c *Client) UploadBackupToS3(ctx context.Context, dataNodeAlias, localBackupDir, bucket, s3Key, region, endpoint, ak, sk string) error {
+	if err := c.EnsurePluginsLoaded(ctx, dataNodeAlias); err != nil {
+		return fmt.Errorf("failed to ensure aws/zip plugins loaded: %w", err)
+	}
+
+	zipFile := fmt.Sprintf("/tmp/backup_%d.zip", time.Now().UnixNano())
+	script := fmt.Sprintf(`rpc(%q, def(bDir, zFile, bkt, key, reg, ep, akId, skVal){
+		if(exists(zFile)){ try { rm(zFile); } catch(ex){}; };
+		fnZip = funcByName("zip::zip");
+		fnZip(zFile, bDir);
+		acc = dict(STRING, STRING);
+		if(reg != "") acc["region"] = reg;
+		if(ep != "") acc["endpoint"] = ep;
+		if(akId != "") acc["id"] = akId;
+		if(skVal != "") acc["key"] = skVal;
+		fnUpload = funcByName("aws::uploadS3Object");
+		fnUpload(acc, bkt, key, zFile);
+		try { rm(zFile); } catch(ex) {};
+		return true;
+	}, %q, %q, %q, %q, %q, %q, %q, %q);`,
+		dataNodeAlias, localBackupDir, zipFile, bucket, s3Key, region, endpoint, ak, sk)
+
+	_, err := c.ExecuteScript(ctx, script)
+	return err
+}
+
+// DownloadBackupFromS3 downloads an S3 zip archive, unzips it to localExtractDir, and returns the resolved backup root directory
+func (c *Client) DownloadBackupFromS3(ctx context.Context, dataNodeAlias, bucket, s3Key, localExtractDir, region, endpoint, ak, sk, dbName string) (string, error) {
+	if err := c.EnsurePluginsLoaded(ctx, dataNodeAlias); err != nil {
+		return "", fmt.Errorf("failed to ensure aws/zip plugins loaded: %w", err)
+	}
+
+	zipFile := fmt.Sprintf("/tmp/restore_%d.zip", time.Now().UnixNano())
+	cleanDB := strings.TrimPrefix(dbName, "dfs://")
+	cleanDB = strings.Trim(cleanDB, "/")
+
+	script := fmt.Sprintf(`rpc(%q, def(bkt, key, zFile, outDir, reg, ep, akId, skVal, dbFilter){
+		if(exists(zFile)){ try { rm(zFile); } catch(ex){}; };
+		acc = dict(STRING, STRING);
+		if(reg != "") acc["region"] = reg;
+		if(ep != "") acc["endpoint"] = ep;
+		if(akId != "") acc["id"] = akId;
+		if(skVal != "") acc["key"] = skVal;
+		fnGet = funcByName("aws::getS3Object");
+		fnGet(acc, bkt, key, zFile);
+		if(exists(outDir)){
+			try { rmdir(outDir, true); } catch(ex) {};
+		};
+		mkdir(outDir);
+		fnUnzip = funcByName("zip::unzip");
+		fnUnzip(zFile, outDir);
+		try { rm(zFile); } catch(ex) {};
+
+		// Automatically resolve target directory containing backup database or domain
+		resolvedDir = outDir;
+		try {
+			subEntries = files(outDir);
+			for(row in subEntries){
+				if(row.isDir && row.filename != "." && row.filename != ".."){
+					candidate = outDir + "/" + row.filename;
+					if(exists(candidate + "/domain") || (dbFilter != "" && exists(candidate + "/" + dbFilter))){
+						resolvedDir = candidate;
+						break;
+					}
+				}
+			}
+		} catch(ex) {};
+		return resolvedDir;
+	}, %q, %q, %q, %q, %q, %q, %q, %q, %q);`,
+		dataNodeAlias, bucket, s3Key, zipFile, localExtractDir, region, endpoint, ak, sk, cleanDB)
+
+	raw, err := c.ExecuteScript(ctx, script)
+	if err != nil {
+		return "", err
+	}
+
+	var res []struct {
+		Value interface{} `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil || len(res) == 0 {
+		return localExtractDir, nil
+	}
+	if strVal, ok := res[0].Value.(string); ok && strVal != "" {
+		return strVal, nil
+	}
+	return localExtractDir, nil
+}
+
+// CleanupDirectory safely removes a temporary directory on the DataNode
+func (c *Client) CleanupDirectory(ctx context.Context, dataNodeAlias, dir string) error {
+	script := fmt.Sprintf(`rpc(%q, def(d){
+		if(exists(d)){
+			try { rmdir(d, true); } catch(ex) {};
+		};
+		return true;
+	}, %q);`, dataNodeAlias, dir)
+	_, err := c.ExecuteScript(ctx, script)
+	return err
+}
+
 // RebalanceClusterChunks dynamically rebalances chunk replicas across all online DataNodes
 func (c *Client) RebalanceClusterChunks(ctx context.Context) (int, string, error) {
 	nodes, err := c.GetClusterPerf(ctx)

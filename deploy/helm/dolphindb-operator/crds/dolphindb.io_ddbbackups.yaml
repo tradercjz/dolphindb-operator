@@ -81,6 +81,44 @@ spec:
               parallel:
                 description: Parallel whether to execute backup in parallel
                 type: boolean
+              s3:
+                description: S3 optional S3 storage configuration for archiving backups
+                  directly to S3
+                properties:
+                  bucket:
+                    description: Bucket target S3 bucket name (e.g., "my-dolphindb-backups")
+                    type: string
+                  endpoint:
+                    description: Endpoint optional custom S3 endpoint URL for MinIO,
+                      Ceph, or Cloudflare R2
+                    type: string
+                  prefix:
+                    description: Prefix optional prefix/directory path in the bucket
+                      (e.g., "dolphindb-backups")
+                    type: string
+                  region:
+                    description: Region optional AWS region (e.g., "ap-southeast-2",
+                      defaults to cluster region)
+                    type: string
+                  secretRef:
+                    description: 'SecretRef optional reference to K8s Secret containing
+                      AWS credentials (keys: accessKeyId, secretAccessKey). If omitted,
+                      IAM Role / Instance Profile is used.'
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - bucket
+                type: object
               schedule:
                 description: Schedule optional cron expression for recurring backups
                   (e.g., "0 2 * * *")
@@ -123,6 +161,9 @@ spec:
                 type: string
               phase:
                 description: Phase current execution status
+                type: string
+              s3Location:
+                description: S3Location full S3 URI if uploaded to S3 (e.g., "s3://my-bucket/backups/db-20261016.zip")
                 type: string
               startTime:
                 description: StartTime timestamp when backup began
